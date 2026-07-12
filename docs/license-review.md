@@ -1,7 +1,7 @@
 # License Review Notes
 
 This file tracks license evidence gathered during source selection. It
-is not legal advice and does not grant repository inclusion.
+does not grant repository inclusion.
 
 ## Review Policy
 
@@ -35,10 +35,10 @@ Evidence inspected:
 Required status wording:
 
 ```text
-Technical candidate: promising
-License evidence: present but not fully reviewed
-Repository inclusion: prohibited pending review
-Commercial project adoption: not yet approved
+Pristine archive license evidence: PASS
+Generated helper-file notices: PASS WITH NOTICE RETENTION
+Repository inclusion: PENDING PROJECT APPROVAL
+Local modification reuse: UNVERIFIED
 ```
 
 License evidence by origin:
@@ -64,8 +64,38 @@ Other third-party portions:
 
 - Autoconf helper files such as `config.guess`, `config.sub`,
   `configure`, and `install-sh` contain their own generated-tool
-  notices and should be reviewed before redistribution.
+  notices.
 - No other third-party game-code origin has been approved.
+
+Generated and helper-file notice classification:
+
+| File | Copyright holder | License or exception | Required notice | Redistribution status | Modification status | Repository inclusion status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `configure` | FSF | Autoconf generated-script permission | Keep generated-script notice | PASS | PASS | PENDING PROJECT APPROVAL |
+| `config.guess` | FSF | GPLv2-or-later with Autoconf exception | Keep GPL and exception notice | PASS WITH EXCEPTION | PASS WITH EXCEPTION | PENDING PROJECT APPROVAL |
+| `config.sub` | FSF | GPLv2-or-later with Autoconf exception | Keep GPL and exception notice | PASS WITH EXCEPTION | PASS WITH EXCEPTION | PENDING PROJECT APPROVAL |
+| `install-sh` | X Consortium; FSF changes | X Consortium notice; FSF changes public domain | Keep both notices | PASS | PASS | PENDING PROJECT APPROVAL |
+
+Details:
+
+- `configure` states that the Free Software Foundation gives unlimited
+  permission to copy, distribute, and modify the generated script.
+- `config.guess` and `config.sub` include GPLv2-or-later terms and a
+  special exception allowing distribution with programs that contain an
+  Autoconf-generated configuration script under the same distribution
+  terms as that program.
+- `install-sh` contains the X Consortium permission notice and states
+  that FSF changes to that file are public domain.
+
+The Rogueforge archive contains no additional Automake helper files such
+as `missing`, `depcomp`, `ltmain.sh`, or `aclocal.m4`.
+
+Notice-retention policy:
+
+- Preserve helper files exactly in the pristine upstream tree.
+- Preserve all existing notices if the source is imported later.
+- Keep future compatibility patches separate from the pristine upstream
+  files.
 
 Local additions:
 
@@ -86,8 +116,8 @@ Baseline investigation notes:
   `92f8e05f4ae64d8320f2941f6c3f15687b96fb5452693996e5c53c80d38ecf07`.
 - The copied local tree has the same `LICENSE.TXT` after text
   line-ending normalization.
-- This is evidence that the license text is present, not a completed
-  legal approval.
+- This is evidence that the license text is present, not completed
+  project approval.
 - Local modifications in `command.c`, `io.c`, `main.c`, `rip.c`, and
   `rogue.h` still need authorship and rights confirmation.
 
@@ -95,15 +125,16 @@ Current status:
 
 ```text
 Pristine archive license evidence: PASS
-Repository inclusion: BLOCKED until generated-file notices and project policy are reviewed
+Generated helper-file notices: PASS WITH NOTICE RETENTION
+Repository inclusion: PENDING PROJECT APPROVAL
 Local modification reuse: UNVERIFIED
 Commercial project adoption: not yet approved
 ```
 
 Reason for blocking:
 
-- The direct original Rogueforge archive has been recovered, but formal
-  repository inclusion policy has not been approved.
+- The direct original Rogueforge archive has been recovered, but
+  repository inclusion still needs project approval.
 - Local modifications, including logging hooks and possible screen-size
   changes, have not been attributed.
 - Loose adjacent fragments may not be covered by the same complete
@@ -134,8 +165,8 @@ Repository inclusion: Prohibited until reviewed
 Reason for blocking:
 
 - The old restriction text may conflict with the intended project use.
-- A legal review is required before import, redistribution, modification,
-  or commercial use assumptions are made.
+- Project approval is required before import, redistribution,
+  modification, or commercial-use assumptions are made.
 
 ## Berkeley Rogue 4.22
 

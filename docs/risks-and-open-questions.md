@@ -15,9 +15,14 @@
 - The Rogueforge Rogue 5.4.4 source archive has now been recovered and
   hash-fixed, but unmodified `make` still fails on Ubuntu 24.04 because
   modern ncurses hides `WINDOW` internals.
+- The upstream Golden Baseline is fixed, but the patched development
+  tree does not exist yet and must remain separate from the pristine
+  source tree.
 - Local Rogue 5.4.4 modifications are concentrated in logging,
   controller, seed, and death-reporting paths, but authorship and reuse
   rights are not verified.
+- Legacy local modifications should be preserved as evidence, not
+  directly merged into the future source tree.
 - The chosen engine may be hard to make deterministic.
 - Curses or terminal UI coupling may make headless control expensive.
 - Screen scraping can be brittle and should not be the primary interface.
@@ -39,7 +44,8 @@
 
 ## Open Questions
 
-- Which exact Rogue implementation should be used?
+- Which exact patch series should be used to build Rogueforge Rogue
+  5.4.4 on modern Ubuntu?
 - Should Rogueforge Rogue 5.4.4 be formally adopted after a minimal
   ncurses compatibility patch is approved?
 - What is the smallest acceptable compatibility patch for building Rogue
@@ -58,5 +64,9 @@
 ## Immediate Recommendation
 
 Start with source selection and deterministic headless boundaries before
-any AI integration. Do not import Rogue source until the license review
-is complete.
+any AI integration. Do not import Rogue source until notice retention,
+project approval, and the compatibility-patch policy are complete.
+
+Rogueforge Rogue 5.4.4 is the fixed upstream Golden Baseline. The next
+source task is a minimal ncurses compatibility patch managed separately
+from the pristine upstream source.

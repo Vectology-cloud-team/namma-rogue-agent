@@ -8,6 +8,15 @@ Phase 4 follow-up is recorded in `docs/rogue-544-golden-source.md`.
 That pass recovered the direct Rogueforge `rogue5.4.4-src.tar.gz`
 archive and supersedes the mirror-only baseline source evidence.
 
+Current controlling status:
+
+```text
+Upstream Golden Baseline: Rogueforge Rogue 5.4.4, APPROVED AND FIXED
+Modern Ubuntu Build Profile: BLOCKED pending minimal ncurses compatibility patch
+Repository Source Import: PENDING compatibility-patch and license-notice verification
+Legacy Local Modification Reuse: DEFERRED / UNVERIFIED
+```
+
 Current baseline investigation target:
 
 ```text
@@ -17,10 +26,10 @@ Local Rogue 5.4.4 / rogueforge 09/05/07
 Current adoption status:
 
 ```text
-Technical candidate: promising
-License evidence: present but not fully reviewed
-Repository inclusion: prohibited pending review
-Commercial project adoption: not yet approved
+Upstream Golden Baseline: Rogueforge Rogue 5.4.4, APPROVED AND FIXED
+Modern Ubuntu Build Profile: BLOCKED pending minimal ncurses compatibility patch
+Repository Source Import: PENDING compatibility-patch and license-notice verification
+Legacy Local Modification Reuse: DEFERRED / UNVERIFIED
 ```
 
 ## Work Area
@@ -51,8 +60,8 @@ tree was not changed.
 - License file: `LICENSE.TXT` present.
 - Extraction result: complete Git archive extraction.
 
-This is the adopted pristine candidate for this investigation pass, but
-it is not a final project adoption decision.
+This was the mirror baseline candidate for that investigation pass. It
+is superseded by the direct Rogueforge archive recovered in Phase 4.
 
 ### Maintenance Fork Reference
 
@@ -232,19 +241,20 @@ Unknown provenance:
 
 | Component | Evidence | Status |
 | --- | --- | --- |
-| Original Rogue-derived code | `LICENSE.TXT`, source headers | Present, not fully reviewed |
-| Nicholas J. Kisseberth portions | `LICENSE.TXT`, `state.c`, `mdport.c` | Present, not fully reviewed |
-| David Burren `xcrypt.c` | `LICENSE.TXT`, `xcrypt.c` | Present, not fully reviewed |
-| Autoconf helper files | Generated-tool notices | Review before redistribution |
+| Original Rogue-derived code | `LICENSE.TXT`, source headers | PASS |
+| Nicholas J. Kisseberth portions | `LICENSE.TXT`, `state.c`, `mdport.c` | PASS |
+| David Burren `xcrypt.c` | `LICENSE.TXT`, `xcrypt.c` | PASS |
+| Autoconf helper files | Generated-tool notices | PASS WITH NOTICE RETENTION |
 | Local logging and controller changes | Local diffs and scripts | Ownership unverified |
 | Local 64x160 fragments | Loose adjacent files | Ownership unverified |
 
 License conclusion:
 
 ```text
-License evidence: present but not fully reviewed
-Repository inclusion: prohibited pending review
-Commercial project adoption: not yet approved
+Pristine archive license evidence: PASS
+Generated helper-file notices: PASS WITH NOTICE RETENTION
+Repository inclusion: PENDING PROJECT APPROVAL
+Local modification reuse: UNVERIFIED
 ```
 
 ## Adoption Gate
@@ -253,7 +263,7 @@ Commercial project adoption: not yet approved
 | --- | --- | --- |
 | Concrete source tree located | PASS | `phs/rogue` tag `v5.4.4` |
 | Baseline archive hash recorded | PASS | Git archive SHA-256 recorded |
-| `LICENSE.TXT` present | PASS | Legal review still required |
+| `LICENSE.TXT` present | PASS | Project approval still required |
 | `new_level.c` present | PASS | Present in baseline, missing locally |
 | Amulet and return rules present | PASS | Source evidence found |
 | Modern Ubuntu configure | BLOCKED | CRLF generated-script issue |
@@ -271,7 +281,7 @@ Continue using `phs/rogue` tag `v5.4.4` as the baseline for Rogue
 Do not adopt it as the project Rogue implementation yet. The remaining
 blockers are:
 
-- legal review of `LICENSE.TXT` and helper-file notices,
+- project approval of `LICENSE.TXT` and helper-file notices,
 - provenance review of local modifications,
 - a clean modern Linux build strategy,
 - confirmation that any compatibility patch avoids game logic changes,

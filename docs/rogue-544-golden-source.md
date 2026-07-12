@@ -3,15 +3,37 @@
 This document records the Phase 4 Rogue 5.4.4 Golden Source
 evaluation. Rogue source code is not imported into this repository.
 
-Current Golden Source decision:
+Golden Source means the immutable upstream source used as the baseline
+before project patches are applied. It does not mean that the source
+already builds unchanged on every modern target.
+
+Current Golden Baseline decisions:
 
 ```text
-Decision: Adoption deferred
+Upstream Golden Baseline:
+APPROVED AND FIXED
+
+Baseline:
+Rogueforge Rogue 5.4.4 source archive
+
+Archive SHA-256:
+7d37a61fc098bda0e6fac30799da347294067e8e079e4b40d6c781468e08e8a1
+
+Modern Ubuntu Build Profile:
+BLOCKED pending minimal ncurses compatibility patch
+
+Repository Source Import:
+PENDING compatibility-patch and license-notice verification
+
+Legacy Local Modification Reuse:
+DEFERRED / UNVERIFIED
 ```
 
-The best source candidate is now fixed as the Rogueforge Rogue 5.4.4
-source archive, but it does not yet satisfy the Golden Source
-definition because unmodified `make` fails on Ubuntu 24.04.
+Rogueforge Rogue 5.4.4 is fixed as the future comparison baseline. Its
+original archive SHA-256 must not change. Modern-environment fixes must
+be maintained as an independent patch series without rewriting the
+pristine upstream tree. Do not mix the patched development tree with the
+pristine upstream tree.
 
 ## Candidate
 
@@ -96,6 +118,28 @@ SHA-256 values. The GitHub mirror archive has wrapper metadata from
 GitHub, but its 55 Rogue source files match the Rogueforge source
 archive exactly.
 
+## Retrieval Safety
+
+The Rogueforge HTTP URL is retained as distribution-origin evidence, but
+future automated retrieval must not trust a plaintext HTTP download by
+itself.
+
+Approved future retrieval sources:
+
+- HTTPS Wayback saved object,
+- GitHub fixed tag or commit,
+- locally preserved verified archive.
+
+Every retrieval path must compare the downloaded bytes against the known
+archive SHA-256:
+
+```text
+7d37a61fc098bda0e6fac30799da347294067e8e079e4b40d6c781468e08e8a1
+```
+
+If the SHA-256 differs, the process must stop. The Rogue archive itself
+is still not committed to this repository.
+
 ## Completeness
 
 The Rogueforge archive extracts to:
@@ -114,6 +158,12 @@ Completeness result:
 - Required `Makefile.in`: present.
 - Required `configure`: present.
 - Required `new_level.c`: present.
+
+`new_level.c` is a required file in the complete upstream Rogueforge
+Rogue 5.4.4 distribution. It is not a separate Shinoda decision item.
+If upstream source is formally imported later, `new_level.c` should be
+imported unchanged as part of the pristine baseline alongside the other
+54 upstream files. Do not manually copy it into the old local tree.
 
 Important file hashes:
 
@@ -266,56 +316,74 @@ B: build compatibility changes were not found in the local tree diff.
 | Original Rogue-derived files | Source headers point to `LICENSE.TXT`; `LICENSE.TXT` present | PASS |
 | Nicholas J. Kisseberth files | `state.c`, `mdport.c`, and `LICENSE.TXT` contain matching origin evidence | PASS |
 | David Burren `xcrypt.c` | `xcrypt.c` and `LICENSE.TXT` contain matching origin evidence | PASS |
-| Autoconf helper files | Helper files are present and generated-tool notices remain to be reviewed | BLOCKED |
+| Generated helper files | Notices inspected for `configure`, `config.guess`, `config.sub`, and `install-sh` | PASS WITH NOTICE RETENTION |
 | Local modifications | Local logging/controller changes are outside pristine Rogueforge archive | UNVERIFIED |
 
 License conclusion:
 
 ```text
 Pristine archive license evidence: PASS
-Repository inclusion: BLOCKED until generated-file notices and project policy are reviewed
+Generated helper-file notices: PASS WITH NOTICE RETENTION
+Repository inclusion: PENDING PROJECT APPROVAL
 Local modification reuse: UNVERIFIED
 ```
+
+All notices in generated and helper files must be retained if those
+files are imported later.
 
 ## Golden Source Gate
 
 | Gate | Status | Notes |
 | --- | --- | --- |
-| Rogue 5.4.4 pristine source acquired | PASS | Rogueforge current archive acquired |
+| Upstream Golden Baseline | APPROVED AND FIXED | Rogueforge Rogue 5.4.4 archive |
 | SHA-256 fixed | PASS | Archive SHA recorded |
 | Complete source | PASS | 55 expected files, 0 missing |
-| `new_level.c` present | PASS | Present and hashed |
-| License evidence | PASS | Main source evidence present |
+| `new_level.c` present | PASS | Required upstream file |
+| License evidence | PASS | Source and helper notices inspected |
 | Ubuntu `./configure` | PASS | Succeeded on `mfr7202505` |
-| Ubuntu unmodified `make` | FAIL | Modern ncurses `WINDOW` blocker |
+| Ubuntu unmodified `make` | BLOCKED | Needs minimal ncurses compatibility patch |
 | Unmodified launch | NOT TESTED | No binary produced |
+| Repository source import | PENDING | Needs patch and notice verification |
 | Local diff acquired | PASS | Diff and SHA table recorded |
-| Local modification tracking | BLOCKED | Local authorship and reuse rights unknown |
+| Local modification reuse | DEFERRED / UNVERIFIED | Authorship and rights unknown |
 
 ## Decision
 
-Final Phase 4 decision:
+Final Phase 4 decisions:
 
 ```text
-Adoption deferred
+Upstream Golden Baseline: APPROVED AND FIXED
+Modern Ubuntu Build Profile: BLOCKED pending minimal ncurses compatibility patch
+Repository Source Import: PENDING compatibility-patch and license-notice verification
+Legacy Local Modification Reuse: DEFERRED / UNVERIFIED
 ```
 
 The Rogueforge Rogue 5.4.4 source archive is the correct source to keep
-as the leading Golden Source candidate because it is directly available
+as the fixed upstream Golden Baseline because it is directly available
 from Rogueforge, matches the Wayback archive byte-for-byte, and matches
 the GitHub mirror source files.
 
-It should not be formally adopted yet because the Golden Source
-definition requires a buildable source, and unmodified `make` currently
-fails on Ubuntu 24.04.
+Modern Ubuntu build failure does not invalidate the upstream baseline.
+It creates a separate build-profile task. That task should be handled as
+a minimal ncurses compatibility patch series applied after the pristine
+source is unpacked.
 
 Required Shinoda decisions:
 
 - Decide whether a minimal ncurses compatibility patch is acceptable as
   a documented build patch before importing Rogue source.
-- Decide whether generated Autoconf helper notices require legal review
-  before repository inclusion.
 - Decide whether local logging, controller, seed, and 64x160 assets may
   be reused after provenance review.
-- Decide whether `new_level.c` should be recovered from the Rogueforge
-  archive only after the source import phase begins.
+
+Legacy asset policy:
+
+- Legacy C modifications: preserve as evidence; do not directly merge
+  yet.
+- Legacy Python controllers and viewers: reference only; do not import
+  until provenance is confirmed.
+- 64x160 fragments: reference specification only; reimplement cleanly if
+  needed.
+
+Future work should prefer reimplementing required features on top of the
+Golden Baseline with the new design instead of directly restoring old
+modifications.

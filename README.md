@@ -92,6 +92,16 @@ Build probes and license evidence are tracked in
 Rogue 5.4.4 Golden Source evaluation is tracked in
 `docs/rogue-544-golden-source.md`.
 
+Current Golden Baseline status:
+
+- Upstream Golden Baseline: Rogueforge Rogue 5.4.4, approved and fixed.
+- Modern Ubuntu build: blocked pending a minimal ncurses compatibility
+  patch.
+- Repository source import: pending compatibility-patch and
+  license-notice verification.
+- Legacy local modifications: preserved as evidence, not directly
+  merged.
+
 ## Markdown Checks
 
 Run the Markdown physical-line check before committing documentation:

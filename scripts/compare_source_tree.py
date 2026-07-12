@@ -78,7 +78,10 @@ def compare(left_root: Path, right_root: Path, ignored_dirs: set[str], ignored_n
     for path in sorted(left_paths & right_paths):
         if left[path]["sha256"] == right[path]["sha256"]:
             same.append(path)
-        elif left[path]["normalized_text_sha256"] == right[path]["normalized_text_sha256"]:
+        elif (
+            left[path]["normalized_text_sha256"] is not None
+            and left[path]["normalized_text_sha256"] == right[path]["normalized_text_sha256"]
+        ):
             same_normalized_text.append(path)
         else:
             changed.append(

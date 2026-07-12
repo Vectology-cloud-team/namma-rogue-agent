@@ -64,10 +64,10 @@ Interpretation:
 
 Recommended next action:
 
-- Locate the matching pristine upstream Rogue 5.4.4 / rogueforge
-  archive, or recover the missing `new_level.c` from the old local
-  project assets.
-- Re-run the build probe only after the exact source tree is complete.
+- Use the recovered Rogueforge Rogue 5.4.4 archive as the pristine
+  upstream baseline.
+- Do not copy `new_level.c` into the old local tree by hand.
+- Treat the old local tree as legacy evidence, not as the baseline.
 
 ## Probe: Rogue 5.4.4 Baseline From `phs/rogue`
 
@@ -206,8 +206,13 @@ Launch check:
 
 Golden Source impact:
 
-- Rogueforge Rogue 5.4.4 is the leading source candidate.
-- Formal adoption is deferred until an accepted build path exists.
+- Rogueforge Rogue 5.4.4 is the fixed upstream Golden Baseline.
+- Modern Ubuntu build support is blocked pending a minimal ncurses
+  compatibility patch.
+- Repository source import is pending compatibility-patch and
+  license-notice verification.
+- The compatibility patch must be tracked separately from the pristine
+  upstream source.
 
 ## Probe: NetBSD `games/rogue`
 
