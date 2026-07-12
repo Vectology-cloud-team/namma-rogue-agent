@@ -53,6 +53,10 @@ Search exclusions:
 - Build status: configure succeeded on Ubuntu 24.04, but `make` failed
   because `new_level.o` is listed as a target while `new_level.c` was
   not present in the local tree.
+- Baseline comparison: compared against `phs/rogue` tag `v5.4.4`,
+  exported as `phs-rogue-v5.4.4-git-archive.tar`.
+- Baseline result: `new_level.c` is present in the baseline and absent
+  from this local tree.
 - Completeness status: `Makefile`, `MANIFEST`, `README`, `CHANGES`,
   `FILES`, and in-tree pristine archives were not found.
 - History status: `.git`, `.svn`, and `CVS` were not found.
@@ -61,6 +65,33 @@ Search exclusions:
 - Curses dependency: high.
 - Reusable: possibly, after source completeness and license review.
 - Repository inclusion: prohibited until verified.
+
+Diff against `phs/rogue` tag `v5.4.4`:
+
+- Same byte-for-byte: 2 files.
+- Same after text line-ending normalization: 47 files.
+- Changed content: `command.c`, `io.c`, `main.c`, `rip.c`, `rogue.h`.
+- Present only in baseline: `.gitignore`, `README.md`, `new_level.c`.
+- Present only in local tree: `draw_rogue_log.py`, `io.BAK`,
+  `io.c.orig`, `rogue.BAK`, `rogue.h.org`, `rogue_controller.py`.
+
+Clear local project modification evidence:
+
+- `command.c` calls `log_inventory()` and `log_status()`.
+- `io.c` defines logging functions and writes `/tmp/rogue_log.txt`.
+- `main.c` removes `/tmp/rogue_log.txt` at startup and contains seed
+  control clues.
+- `rip.c` writes death information to the log.
+- `rogue.h` contains local logging declarations.
+
+Classification:
+
+- Upstream unchanged: 47 files after text line-ending normalization.
+- Local Vectology modification: logging and seed-related changes appear
+  in `command.c`, `io.c`, `main.c`, `rip.c`, and `rogue.h`.
+- Generated or temporary: backup/original files and prior build output.
+- Unknown provenance: Python scripts, loose 64x160 fragments, and local
+  modification authorship.
 
 ### LA-002: Loose Modified Rogue Source Fragments
 

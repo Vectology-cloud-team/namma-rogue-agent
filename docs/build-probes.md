@@ -69,6 +69,93 @@ Recommended next action:
   project assets.
 - Re-run the build probe only after the exact source tree is complete.
 
+## Probe: Rogue 5.4.4 Baseline From `phs/rogue`
+
+- Date: 2026-07-12
+- Source under test: `phs/rogue` tag `v5.4.4`.
+- Local archive: `phs-rogue-v5.4.4-git-archive.tar`.
+- Archive SHA-256:
+  `096a1648deb14e67d1c246519ec95341dc45317013b9bf0662d7bbd07577b2ba`.
+- Probe host: `mfr7202505`.
+- Operating system: Ubuntu 24.04 family, Linux kernel 6.14.0-33-generic.
+- Compiler: GCC 13.3.0.
+- Make: GNU Make 4.3.
+- Autoconf: not installed.
+- Curses availability: `libncursesw.so.6` and `libncurses.so.6` were
+  present.
+- Repository source import: none.
+
+Pristine commands attempted:
+
+```sh
+sh ./configure
+make
+```
+
+Pristine result:
+
+- `sh ./configure`: failed.
+- Failure class: generated-script portability issue.
+- Cause: CRLF line endings in generated shell scripts.
+
+Build-copy generated-script normalization:
+
+- Normalized `configure`, `install-sh`, `config.sub`, and
+  `config.guess` to LF in the temporary build copy only.
+- `configure`: succeeded.
+- `make`: failed.
+
+Make failure:
+
+```text
+main.c:241:11: error: invalid use of incomplete typedef 'WINDOW'
+main.c:242:11: error: invalid use of incomplete typedef 'WINDOW'
+```
+
+Build environment option attempt:
+
+```sh
+make CFLAGS='-g -O2 -DNCURSES_INTERNALS'
+```
+
+Result:
+
+- Failed later in `mdport.c`.
+- This did not produce a usable binary.
+- No source patch was made.
+- No game logic change was made.
+
+Interpretation:
+
+- The baseline source tree is complete enough to include `new_level.c`.
+- The modern Ubuntu build is blocked by generated-script line endings
+  and ncurses compatibility.
+- A future compatibility patch must be reviewed separately and must not
+  change game logic.
+
+Runtime check:
+
+- Not tested because no binary was produced.
+
+## Probe: Rogue 5.4.4 Reference Fork From `kngwyu/rogue5.4.4`
+
+- Date: 2026-07-12
+- Source under test: `kngwyu/rogue5.4.4` HEAD.
+- Commit: `6282f8b5c6f4c1103d788eb8adb1298e23d2cd1e`.
+- Use: reference only, not pristine baseline.
+- Probe host: `mfr7202505`.
+
+Result:
+
+- Pristine `configure` failed on CRLF generated scripts.
+- Build-copy LF normalization allowed `configure` to run.
+- `make` failed on the same `main.c` incomplete `WINDOW` typedef issue.
+
+Interpretation:
+
+- The maintenance fork is useful evidence, but it does not by itself
+  solve the Ubuntu 24.04 build blocker in this environment.
+
 ## Probe: NetBSD `games/rogue`
 
 - Source: https://github.com/NetBSD/src/tree/trunk/games/rogue

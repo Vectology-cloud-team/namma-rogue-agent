@@ -26,6 +26,7 @@ Repository inclusion: Prohibited until verified
 Evidence inspected:
 
 - `%USERPROFILE%\Downloads\rogue\LICENSE.TXT`
+- `phs/rogue` tag `v5.4.4` `LICENSE.TXT`
 - source headers in local `.c` and `.h` files
 - `vers.c`
 - build files referencing distribution packaging
@@ -73,6 +74,18 @@ Local additions:
 - Treat these as unapproved local additions until authorship and rights
   are confirmed.
 
+Baseline investigation notes:
+
+- The `phs/rogue` tag `v5.4.4` baseline contains `LICENSE.TXT`.
+- Its `LICENSE.TXT` SHA-256 is
+  `92f8e05f4ae64d8320f2941f6c3f15687b96fb5452693996e5c53c80d38ecf07`.
+- The copied local tree has the same `LICENSE.TXT` after text
+  line-ending normalization.
+- This is evidence that the license text is present, not a completed
+  legal approval.
+- Local modifications in `command.c`, `io.c`, `main.c`, `rip.c`, and
+  `rogue.h` still need authorship and rights confirmation.
+
 Current status:
 
 ```text
@@ -83,7 +96,8 @@ Commercial project adoption: not yet approved
 
 Reason for blocking:
 
-- The exact upstream archive has not been verified.
+- A direct original Rogueforge archive has not been recovered.
+- The `phs/rogue` mirror baseline has not been legally approved.
 - Local modifications, including logging hooks and possible screen-size
   changes, have not been attributed.
 - Loose adjacent fragments may not be covered by the same complete
