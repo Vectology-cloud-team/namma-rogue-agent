@@ -2,9 +2,14 @@
 
 Current selection status: No Rogue implementation has been selected.
 
-The target game is Rogue. Do not copy any Rogue implementation into this
-repository until its exact source tree, license text, redistribution
-terms, and modification terms are verified.
+The target game is Rogue. The remaining source-selection question is
+which Rogue implementation should be used. NetHack and the NetHack
+Learning Environment may only be referenced for environment design
+ideas.
+
+Do not copy any Rogue implementation into this repository until its
+exact source tree, license text, redistribution terms, and modification
+terms are verified.
 
 NetHack and the NetHack Learning Environment are not candidate target
 games and are not candidate Rogue source bases. They are referenced only
@@ -22,7 +27,84 @@ evaluation, and testing methodology.
 7. The curses display can remain as a viewer.
 8. Behavior remains close to original Rogue.
 
-## Confirmed And Inspected Candidate
+## Candidate Summary
+
+| Candidate | Status | License | Build | Recommendation |
+| --- | --- | --- | --- | --- |
+| Local Rogue 5.4.4 / rogueforge 09/05/07 tree | Inspected local asset, incomplete build | BSD-style `LICENSE.TXT` present; local modification ownership pending | Configure succeeds, make fails on missing `new_level.c` | Strongest local evidence, blocked pending source completeness and license review |
+| NetBSD `games/rogue` | Confirmed and inspected external candidate | Conflicting header evidence requires review | Not built in this project | Best currently inspected technical candidate, blocked pending license review |
+| Berkeley Rogue 4.22 | Known candidate not yet located or verified | Unverified | Unknown | Past-assets priority candidate, blocked pending exact source and license verification |
+| Rogue 3.x restoration or port | Unverified category | Unverified | Unknown | Research category only |
+| Modern Linux-preserved Rogue project | Unverified category | Unverified | Unknown | Research category only |
+| From-scratch Rogue-compatible engine | Fallback strategy, not a Rogue source candidate | Repository license to choose | Designed by this project | Consider only if external sources remain blocked |
+
+## Confirmed And Inspected Candidates
+
+### Local Rogue 5.4.4 / rogueforge 09/05/07 Tree
+
+Status:
+
+- Inspected local legacy asset.
+- Not selected.
+- Do not import into this repository until source completeness, local
+  modification ownership, and license review are complete.
+
+Facts inspected:
+
+- Formal name: local Rogue 5.4.4 / rogueforge tree.
+- Version: `release = "5.4.4"`.
+- Version string: `rogue (rogueforge) 09/05/07`.
+- Local source: `%USERPROFILE%\Downloads\rogue`.
+- Distribution origin: local copy; upstream URL not verified because
+  external fetches to likely sources failed in the current environment.
+- Last update status: local tree date not treated as upstream evidence.
+- License file presence: `LICENSE.TXT` present.
+- License evidence: source headers refer to `LICENSE.TXT`.
+- License body: BSD-3-clause-style terms for Toy, Arnold, and Wichman;
+  separate BSD-style terms for Nicholas J. Kisseberth portions; separate
+  BSD-style terms for David Burren `xcrypt.c` portions.
+- Amulet rules: `AMULETLEVEL`, `AMULET`, amulet object handling, and
+  `total_winner()` are present.
+- Build status on Ubuntu 24.04: configure succeeds, make fails because
+  `new_level.o` is required but `new_level.c` is absent from the local
+  tree.
+- Curses dependency: high; curses calls and screen refresh are mixed
+  into command and display flow.
+- Seed evidence: seed variables and environment-based seed path are
+  present in `main.c`.
+- Berkeley Rogue 4.22 relationship: includes file-level SCCS tag
+  `@(#)main.c 4.22 (Berkeley) 02/05/99`; this is not sufficient to
+  prove a game release named Rogue 4.22.
+- Past asset compatibility: high, because the local tree and loose files
+  contain logging hooks and 64x160-related fragments.
+
+Assessment:
+
+- Redistribution possibility: likely allowed by included BSD-style
+  upstream license text, but blocked until local modifications and exact
+  provenance are verified.
+- Modification possibility: likely allowed by included BSD-style
+  upstream license text, but blocked until local modifications and exact
+  provenance are verified.
+- Commercial use possibility: likely allowed by included BSD-style
+  upstream license text, but blocked until local modifications and exact
+  provenance are verified.
+- Linux build possibility: close but not clean because `new_level.c` is
+  missing or the local build metadata is stale.
+- Game logic / display separation difficulty: medium to high.
+- Fixed seed difficulty: medium; seed plumbing exists but must be made a
+  first-class environment input.
+- `reset` / `step` API difficulty: medium to high because the game loop,
+  curses, input, and display are intertwined.
+- Past asset compatibility: best currently found local match.
+- Recommendation: strongest local candidate after source completeness
+  and license review, not selected now.
+
+Repository inclusion:
+
+```text
+Repository inclusion: Prohibited until reviewed
+```
 
 ### NetBSD `games/rogue`
 
@@ -64,7 +146,7 @@ Assessment:
   unverified in this project.
 - Curses dependency: high; inspected headers include `<curses.h>`.
 - Game logic / display separation difficulty: medium to high.
-- Fixed seed difficulty: medium; `md_gseed()` and `srrandom()` exist.
+- Fixed seed difficulty: medium; RNG functions are identifiable.
 - `reset` / `step` API difficulty: medium to high.
 - Berkeley Rogue 4.22 relationship: not the same as the suspected
   `Rogue v4.22 (Berkeley 02/05/99)` past asset.
@@ -87,7 +169,7 @@ Status:
 - Past-assets priority candidate, blocked pending source and license
   verification.
 - Expected to be the most compatible option if the previous project used
-  `Rogue v4.22 (Berkeley 02/05/99)`.
+  a source tree actually identified as `Rogue v4.22 (Berkeley 02/05/99)`.
 - Not selected.
 
 Open facts:
@@ -101,6 +183,14 @@ Open facts:
 - License body: not inspected.
 - Current distribution source: not verified.
 - Modern Linux build status: unknown.
+
+Current local evidence:
+
+- A file tag `@(#)main.c 4.22 (Berkeley) 02/05/99` was found.
+- That tag appears inside a tree whose game version is Rogue 5.4.4.
+- No standalone Berkeley Rogue 4.22 tree was found.
+- Therefore `4.22` is currently treated as a source file revision tag,
+  not as a verified game implementation version.
 
 Assessment:
 
@@ -135,27 +225,6 @@ These are research categories, not concrete implementation candidates
 yet. A category becomes a candidate only after a specific source tree is
 located and its license files, source headers, README, COPYING, and
 distribution notes are inspected.
-
-### Rogue 5.x Restoration Or Port
-
-- Version: exact 5.x release not selected.
-- Source: not yet verified.
-- Last update status: unknown.
-- License files: not inspected.
-- License body: not inspected.
-- Linux build possibility: unknown.
-- Curses dependency: likely high.
-- Game logic / display separation difficulty: likely medium to high.
-- Fixed seed difficulty: unknown.
-- `reset` / `step` API difficulty: likely high.
-- Amulet and return rules: expected for Rogue, but unverified.
-- Berkeley Rogue 4.22 relationship: unknown.
-- Past asset compatibility: unknown.
-
-```text
-License status: Unverified
-Repository inclusion: Prohibited until verified
-```
 
 ### Rogue 3.x Restoration Or Port
 
@@ -205,8 +274,8 @@ Repository inclusion: Prohibited until verified
 ### From-Scratch Rogue-Compatible Engine
 
 This is not a Rogue source candidate. It is a fallback implementation
-strategy if all external source candidates remain blocked by license or
-maintainability risk.
+strategy if all external source candidates remain blocked by license,
+source completeness, or maintainability risk.
 
 - Source: this repository.
 - License: repository license still to be selected.
@@ -266,103 +335,139 @@ The desired first-choice source has:
 - separable game logic and display,
 - controllable RNG seed,
 - a plausible path to `reset` / `step`,
-- enough similarity to Rogue 4.22 to reuse prior project knowledge.
+- enough similarity to Rogue 4.22-era local assets to reuse prior
+  project knowledge.
 
 No currently identified source satisfies all of these requirements.
 
 ## Current Recommendation Set
 
-### Desired First-Choice Characteristics
+### First Recommendation: Local Rogue 5.4.4 Profile
 
-This is a profile, not a selected implementation.
+This is not a final selection.
 
 Reason:
 
-- A license-clear, Linux-buildable Rogue source with original rules would
-  best match the project priorities.
+- The local Rogue 5.4.4 / rogueforge tree has the strongest combination
+  of license-file evidence, amulet-rule evidence, seed evidence, and
+  compatibility with previously found local assets.
 
 Benefits:
 
-- Lower porting cost than exact historical code.
-- Easier CI and mini PC validation.
-- Cleaner path to headless environment work.
+- Includes a concrete local source tree.
+- Includes `LICENSE.TXT`.
+- Includes Amulet and return-to-surface mechanics.
+- Contains existing status and inventory logging hooks.
+- Has nearby 64x160-related fragments that may help reapply past work.
 
 Risks:
 
-- No concrete source has been verified yet.
-- It may diverge from Berkeley Rogue 4.22 and prior assets.
+- Local tree is incomplete or build metadata is stale because
+  `new_level.c` is missing.
+- Exact upstream distribution and local modification authorship are not
+  yet verified.
+- Curses, input, rendering, and game loop are intertwined.
 
-### NetBSD `games/rogue`
+License caution:
 
-Position:
+- Treat the upstream license as promising but not sufficient until local
+  modifications, loose files, and provenance are reviewed.
 
-- Best currently inspected technical candidate, blocked pending license
-  review.
+Implementation impact:
+
+- Medium if `new_level.c` or a pristine matching upstream archive is
+  recovered.
+- High if the missing file must be reconstructed or the source tree is
+  heavily locally modified.
+
+### Second Recommendation: NetBSD `games/rogue`
+
+This is not a final selection.
+
+Reason:
+
+- NetBSD `games/rogue` is the best currently inspected external
+  technical candidate.
 
 Benefits:
 
-- Concrete source tree.
-- Modern maintained BSD source.
+- Concrete maintained source tree.
 - Amulet and return mechanics are present.
 - RNG functions are identifiable.
 
 Risks:
 
-- Curses is embedded.
-- It is not the suspected Rogue 4.22 past code.
-- Source headers contain an older noncommercial/profit restriction.
+- License headers contain conflicting evidence.
+- It is not the suspected prior local source.
+- Past 4K / 64x160 assets may not apply cleanly.
+
+License caution:
+
+- Blocked until a legal review resolves the old noncommercial/profit
+  restriction text.
 
 Implementation impact:
 
-- Medium to high. Display separation and command-loop refactoring are
-  real work, but the source is inspectable.
+- Medium to high because display separation and command-loop refactoring
+  are real work.
 
-### Berkeley Rogue 4.22
+### Past-Assets Priority: Berkeley Rogue 4.22 Or Local 4.22-Tagged Assets
 
-Position:
+This is not a final selection.
 
-- Past-assets priority candidate, blocked pending source and license
-  verification.
+Reason:
+
+- If the exact historical source tree is recovered, it is likely the
+  best base for reusing previous screen-size, logging, and controller
+  work.
 
 Benefits:
 
 - Highest likely compatibility with prior project assets.
 - Best option for reapplying old screen-size and controller work.
-- Most direct path if old source and patches are found.
 
 Risks:
 
-- No verified source tree has been inspected.
-- License is unknown.
-- Build and portability status are unknown.
-- Headless conversion may be harder than with a maintained port.
+- No exact source tree has been found.
+- License is unknown for the exact tree.
+- Local evidence may indicate a file revision tag, not a game version.
+
+License caution:
+
+- Blocked until the exact tree and license are verified.
 
 Implementation impact:
 
-- Low to medium if prior patches are found and build cleanly.
-- High if only an old unpatched source dump exists.
+- Low to medium if exact prior patches and build steps are found.
+- High if only fragments remain.
 
 ## Shinoda Decision Items
 
-- Locate the exact Berkeley Rogue 4.22 source tree used in prior work.
+- Decide whether to continue recovering the missing local Rogue 5.4.4
+  `new_level.c` or pristine upstream archive.
 - Decide whether commercial-use clarity is required before any import.
-- Decide whether compatibility with past Rogue 4.22 assets outweighs a
+- Decide whether compatibility with past local assets outweighs a
   maintained source tree.
-- Decide whether a from-scratch engine is acceptable if historical source
-  candidates remain license-blocked.
-- Decide whether the first implementation should prioritize headless API
-  cleanliness over exact historical behavior.
+- Decide whether NetBSD license ambiguity is acceptable to send for
+  legal review.
+- Decide whether a from-scratch engine is acceptable if historical
+  source candidates remain blocked.
 
 ## Required Next Steps
 
-- Identify concrete Rogue 5.x and 3.x source distributions.
+- Locate a pristine upstream archive matching the local Rogue 5.4.4
+  / rogueforge tree.
+- Recover or verify `new_level.c` for the local tree.
+- Locate the exact source or executable that displays
+  `Rogue v4.22 (Berkeley 02/05/99)`, if it exists.
+- Inspect concrete Rogue 3.x source distributions.
 - Inspect `LICENSE`, `COPYING`, `README`, source headers, and
   distribution-site license notes for each concrete candidate.
 - Build each viable candidate on modern Ubuntu or the mini PC.
 - Confirm Amulet of Yendor placement and return-to-surface rules.
 - Confirm whether RNG seed can be fixed.
-- Prototype a minimal `reset` / `step` boundary without copying
-  unverified code into this repository.
+- Prototype a minimal `reset` / `step` boundary only after a source is
+  selected.
 
 ## Reference URLs
 

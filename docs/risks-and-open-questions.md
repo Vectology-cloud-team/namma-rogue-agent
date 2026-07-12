@@ -3,6 +3,12 @@
 ## Technical Risks
 
 - Rogue source license may be unclear.
+- The local Rogue 5.4.4 / rogueforge tree has promising license text but
+  remains blocked until local modification ownership and source
+  completeness are verified.
+- The local Rogue 5.4.4 / rogueforge tree currently fails to build
+  unchanged because build files reference `new_level.c`, which was not
+  found in the local tree.
 - The chosen engine may be hard to make deterministic.
 - Curses or terminal UI coupling may make headless control expensive.
 - Screen scraping can be brittle and should not be the primary interface.
@@ -25,6 +31,11 @@
 ## Open Questions
 
 - Which exact Rogue implementation should be used?
+- Can the missing `new_level.c` or a pristine matching Rogue 5.4.4
+  / rogueforge archive be recovered?
+- Is the `main.c 4.22 (Berkeley) 02/05/99` evidence only a file-level
+  revision tag, or does an exact prior Berkeley Rogue 4.22 distribution
+  still exist locally?
 - Which Rogue implementation best balances original behavior, license clarity, and headless API work?
 - What license will this repository use?
 - What is the minimum acceptable observation for NaMMA?
