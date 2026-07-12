@@ -32,8 +32,12 @@ evaluation, and testing methodology.
 Local Rogue 5.4.4 / rogueforge 09/05/07 tree:
 
 - Status: current most promising investigation target, but not selected.
+- Baseline source for investigation: `phs/rogue` tag `v5.4.4`.
 - License: evidence is present but not fully reviewed.
-- Build: configure succeeds, make fails on missing `new_level.c`.
+- Build: baseline source is complete, but modern Ubuntu build is blocked
+  by generated-script CRLF and ncurses compatibility issues.
+- Local legacy tree: missing `new_level.c` and contains local logging,
+  controller, seed, and backup files with unverified provenance.
 - Repository inclusion: prohibited pending review.
 
 NetBSD `games/rogue`:
@@ -84,6 +88,8 @@ Status:
 - Not selected.
 - Do not import into this repository until source completeness, local
   modification ownership, and license review are complete.
+- The current baseline comparison source is `phs/rogue` tag `v5.4.4`,
+  which claims to mirror Rogue 5.4.4 from `rogue.rogueforge.net`.
 
 Required status wording:
 
@@ -100,8 +106,11 @@ Facts inspected:
 - Version: `release = "5.4.4"`.
 - Version string: `rogue (rogueforge) 09/05/07`.
 - Local source: `%USERPROFILE%\Downloads\rogue`.
-- Distribution origin: local copy; upstream URL not verified because
-  external fetches to likely sources failed in the current environment.
+- Baseline source: `phs/rogue` tag `v5.4.4`.
+- Baseline archive hash:
+  `096a1648deb14e67d1c246519ec95341dc45317013b9bf0662d7bbd07577b2ba`.
+- Distribution origin: direct Rogueforge archive not recovered; the
+  current baseline relies on the `phs/rogue` mirror claim.
 - Last update status: local tree date not treated as upstream evidence.
 - License file presence: `LICENSE.TXT` present.
 - License evidence: source headers refer to `LICENSE.TXT`.
@@ -110,9 +119,14 @@ Facts inspected:
   BSD-style terms for David Burren `xcrypt.c` portions.
 - Amulet rules: `AMULETLEVEL`, `AMULET`, amulet object handling, and
   `total_winner()` are present.
-- Build status on Ubuntu 24.04: configure succeeds, make fails because
-  `new_level.o` is required but `new_level.c` is absent from the local
-  tree.
+- Baseline completeness: `new_level.c` is present in the `phs/rogue`
+  `v5.4.4` baseline.
+- Local tree completeness: `new_level.c` is absent from
+  `%USERPROFILE%\Downloads\rogue`.
+- Build status on Ubuntu 24.04: pristine baseline configure fails on
+  CRLF generated scripts; build-copy LF normalization allows configure
+  to succeed, but make fails on incomplete ncurses `WINDOW` access in
+  `main.c`.
 - Curses dependency: high; curses calls and screen refresh are mixed
   into command and display flow.
 - Seed evidence: seed variables and environment-based seed path are
@@ -126,6 +140,8 @@ Facts inspected:
 Reasons it is the current most promising investigation target:
 
 - A concrete source tree exists locally.
+- A concrete baseline comparison tree exists in `phs/rogue` tag
+  `v5.4.4`.
 - `LICENSE.TXT` exists.
 - Amulet acquisition and return logic are present.
 - It is closely related to previous controller, log, and 64x160 assets.
@@ -133,10 +149,10 @@ Reasons it is the current most promising investigation target:
 
 Current blockers:
 
-- `new_level.c` is missing.
-- A pristine upstream distribution has not been found.
+- `new_level.c` is missing from the local legacy tree.
+- A direct pristine upstream Rogueforge archive has not been found.
 - Local modification authorship and rights are unverified.
-- A complete build has not been verified.
+- A complete modern Ubuntu build has not been verified.
 - Formal adoption requires license review.
 
 Assessment:
@@ -150,8 +166,8 @@ Assessment:
 - Commercial use possibility: likely allowed by included BSD-style
   upstream license text, but blocked until local modifications and exact
   provenance are verified.
-- Linux build possibility: close but not clean because `new_level.c` is
-  missing or the local build metadata is stale.
+- Linux build possibility: blocked by modern ncurses compatibility in
+  the baseline and by missing `new_level.c` in the local legacy tree.
 - Game logic / display separation difficulty: medium to high.
 - Fixed seed difficulty: medium; seed plumbing exists but must be made a
   first-class environment input.
@@ -160,6 +176,10 @@ Assessment:
 - Past asset compatibility: best currently found local match.
 - Recommendation: continue investigating first, but do not select until
   source completeness, provenance, and license review are resolved.
+
+Detailed baseline investigation:
+
+- See `docs/rogue-544-baseline.md`.
 
 Repository inclusion:
 
@@ -520,9 +540,12 @@ Implementation impact:
 
 ## Required Next Steps
 
-- Locate a pristine upstream archive matching the local Rogue 5.4.4
-  / rogueforge tree.
-- Recover or verify `new_level.c` for the local tree.
+- Continue verifying the `phs/rogue` `v5.4.4` baseline against any
+  direct Rogueforge archive that can be recovered.
+- Do not copy `new_level.c` into the local legacy tree or this
+  repository unless the source and license are approved.
+- Identify the minimal modern ncurses compatibility fix needed to build
+  the baseline without changing game logic.
 - Locate the exact source or executable that displays
   `Rogue v4.22 (Berkeley 02/05/99)`, if it exists.
 - Inspect concrete Rogue 3.x source distributions.
@@ -539,6 +562,8 @@ Implementation impact:
 - https://github.com/NetBSD/src/tree/trunk/games/rogue
 - https://raw.githubusercontent.com/NetBSD/src/trunk/games/rogue/rogue.h
 - https://raw.githubusercontent.com/NetBSD/src/trunk/games/rogue/level.c
+- https://github.com/phs/rogue
+- https://github.com/kngwyu/rogue5.4.4
 - https://www.nethack.org/common/license.html
 - https://github.com/facebookresearch/nle
 - https://en.wikipedia.org/wiki/Rogue_(video_game)

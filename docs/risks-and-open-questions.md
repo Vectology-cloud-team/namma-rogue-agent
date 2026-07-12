@@ -9,6 +9,12 @@
 - The local Rogue 5.4.4 / rogueforge tree currently fails to build
   unchanged because build files reference `new_level.c`, which was not
   found in the local tree.
+- The `phs/rogue` Rogue 5.4.4 baseline contains `new_level.c`, but its
+  modern Ubuntu build is still blocked by generated-script CRLF and
+  ncurses `WINDOW` compatibility issues.
+- Local Rogue 5.4.4 modifications are concentrated in logging,
+  controller, seed, and death-reporting paths, but authorship and reuse
+  rights are not verified.
 - The chosen engine may be hard to make deterministic.
 - Curses or terminal UI coupling may make headless control expensive.
 - Screen scraping can be brittle and should not be the primary interface.
@@ -31,8 +37,10 @@
 ## Open Questions
 
 - Which exact Rogue implementation should be used?
-- Can the missing `new_level.c` or a pristine matching Rogue 5.4.4
-  / rogueforge archive be recovered?
+- Can a direct original Rogueforge Rogue 5.4.4 archive be recovered to
+  confirm the `phs/rogue` baseline?
+- What is the smallest acceptable compatibility patch for building Rogue
+  5.4.4 on modern ncurses without changing game logic?
 - Is the `main.c 4.22 (Berkeley) 02/05/99` evidence only a file-level
   revision tag, or does an exact prior Berkeley Rogue 4.22 distribution
   still exist locally?
