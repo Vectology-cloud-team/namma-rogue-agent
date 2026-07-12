@@ -15,14 +15,14 @@
 ## Product And Research Risks
 
 - Original Rogue may be simpler than desired but easier to control.
-- NetHack/NLE has strong research precedent but may drift from the explicit Rogue target.
+- NetHack/NLE has strong research precedent, but it must remain reference material only and must not become a target-game candidate.
 - A local model may not reliably plan long-horizon dungeon strategy without a deterministic executor and memory.
 - Rule-based baselines may outperform early neural planners; this is useful and should be measured rather than hidden.
 
 ## Open Questions
 
 - Which exact Rogue implementation should be used?
-- Is original Rogue behavior required, or is a compatible Rogue-like acceptable?
+- Which Rogue implementation best balances original behavior, license clarity, and headless API work?
 - What license will this repository use?
 - What is the minimum acceptable observation for NaMMA?
 - How much episode memory should be included in each planning request?

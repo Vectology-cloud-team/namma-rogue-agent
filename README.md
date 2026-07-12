@@ -71,7 +71,7 @@ Candidate sources are tracked in `docs/rogue-source-selection.md`.
 ## Open Questions
 
 - Which Rogue implementation should be used as the base?
-- Should the first environment target original Rogue behavior or a NetHack/NLE-style environment?
+- Which NetHack/NLE environment API ideas, if any, are worth referencing while keeping Rogue as the target game?
 - What exact NaMMA request/response format should be shared between Ethernet and OCuLink?
 - What latency and throughput targets are required for NaMMA inference?
 - Which replay data is sufficient to reproduce a full episode?
