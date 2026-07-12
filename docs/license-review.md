@@ -1,11 +1,13 @@
 # License Review Notes
 
-This file tracks license evidence gathered during source selection. It
-does not grant repository inclusion.
+This file tracks license evidence gathered during source selection and
+source import. It does not approve legacy local modifications for direct
+reuse.
 
 ## Review Policy
 
-Before any Rogue source is copied into this repository, inspect:
+Before any additional Rogue source is copied into this repository,
+inspect:
 
 - `LICENSE`
 - `COPYING`
@@ -37,7 +39,7 @@ Required status wording:
 ```text
 Pristine archive license evidence: PASS
 Generated helper-file notices: PASS WITH NOTICE RETENTION
-Repository inclusion: PENDING PROJECT APPROVAL
+Repository inclusion: PHASE 5 PRISTINE BASELINE PRESENT WITH NOTICE RETENTION
 Local modification reuse: UNVERIFIED
 ```
 
@@ -71,10 +73,10 @@ Generated and helper-file notice classification:
 
 | File | Copyright holder | License or exception | Required notice | Redistribution status | Modification status | Repository inclusion status |
 | --- | --- | --- | --- | --- | --- | --- |
-| `configure` | FSF | Autoconf generated-script permission | Keep generated-script notice | PASS | PASS | PENDING PROJECT APPROVAL |
-| `config.guess` | FSF | GPLv2-or-later with Autoconf exception | Keep GPL and exception notice | PASS WITH EXCEPTION | PASS WITH EXCEPTION | PENDING PROJECT APPROVAL |
-| `config.sub` | FSF | GPLv2-or-later with Autoconf exception | Keep GPL and exception notice | PASS WITH EXCEPTION | PASS WITH EXCEPTION | PENDING PROJECT APPROVAL |
-| `install-sh` | X Consortium; FSF changes | X Consortium notice; FSF changes public domain | Keep both notices | PASS | PASS | PENDING PROJECT APPROVAL |
+| `configure` | FSF | Autoconf generated-script permission | Keep generated-script notice | PASS | PASS | PRESENT WITH NOTICE RETENTION |
+| `config.guess` | FSF | GPLv2-or-later with Autoconf exception | Keep GPL and exception notice | PASS WITH EXCEPTION | PASS WITH EXCEPTION | PRESENT WITH NOTICE RETENTION |
+| `config.sub` | FSF | GPLv2-or-later with Autoconf exception | Keep GPL and exception notice | PASS WITH EXCEPTION | PASS WITH EXCEPTION | PRESENT WITH NOTICE RETENTION |
+| `install-sh` | X Consortium; FSF changes | X Consortium notice; FSF changes public domain | Keep both notices | PASS | PASS | PRESENT WITH NOTICE RETENTION |
 
 Details:
 
@@ -93,7 +95,7 @@ as `missing`, `depcomp`, `ltmain.sh`, or `aclocal.m4`.
 Notice-retention policy:
 
 - Preserve helper files exactly in the pristine upstream tree.
-- Preserve all existing notices if the source is imported later.
+- Preserve all existing notices in both Phase 5 source trees.
 - Keep future compatibility patches separate from the pristine upstream
   files.
 
@@ -126,15 +128,13 @@ Current status:
 ```text
 Pristine archive license evidence: PASS
 Generated helper-file notices: PASS WITH NOTICE RETENTION
-Repository inclusion: PENDING PROJECT APPROVAL
+Repository inclusion: PHASE 5 PRISTINE BASELINE PRESENT WITH NOTICE RETENTION
 Local modification reuse: UNVERIFIED
 Commercial project adoption: not yet approved
 ```
 
 Reason for blocking:
 
-- The direct original Rogueforge archive has been recovered, but
-  repository inclusion still needs project approval.
 - Local modifications, including logging hooks and possible screen-size
   changes, have not been attributed.
 - Loose adjacent fragments may not be covered by the same complete

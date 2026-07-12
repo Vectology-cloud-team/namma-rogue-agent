@@ -1,8 +1,8 @@
 # Rogue 5.4.4 Baseline Investigation
 
 This document records the Rogue 5.4.4 baseline investigation performed
-after PR #2. It does not select a final Rogue implementation and does
-not approve importing Rogue source into this repository.
+after PR #2. It is historical evidence; Phase 4 and Phase 5 supersede
+its current-status conclusions.
 
 Phase 4 follow-up is recorded in `docs/rogue-544-golden-source.md`.
 That pass recovered the direct Rogueforge `rogue5.4.4-src.tar.gz`
@@ -12,8 +12,8 @@ Current controlling status:
 
 ```text
 Upstream Golden Baseline: Rogueforge Rogue 5.4.4, APPROVED AND FIXED
-Modern Ubuntu Build Profile: BLOCKED pending minimal ncurses compatibility patch
-Repository Source Import: PENDING compatibility-patch and license-notice verification
+Modern Ubuntu Build Profile: GCC PASS with minimal ncurses compatibility patch; CLANG PENDING
+Repository Source Import: PHASE 5 PRISTINE AND PATCHED TREES PRESENT
 Legacy Local Modification Reuse: DEFERRED / UNVERIFIED
 ```
 
@@ -27,8 +27,8 @@ Current adoption status:
 
 ```text
 Upstream Golden Baseline: Rogueforge Rogue 5.4.4, APPROVED AND FIXED
-Modern Ubuntu Build Profile: BLOCKED pending minimal ncurses compatibility patch
-Repository Source Import: PENDING compatibility-patch and license-notice verification
+Modern Ubuntu Build Profile: GCC PASS with minimal ncurses compatibility patch; CLANG PENDING
+Repository Source Import: PHASE 5 PRISTINE AND PATCHED TREES PRESENT
 Legacy Local Modification Reuse: DEFERRED / UNVERIFIED
 ```
 

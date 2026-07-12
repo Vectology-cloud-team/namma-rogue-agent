@@ -4,9 +4,11 @@ NaMMA Rogue Autonomous Agent is a project to let a local AI
 autonomously play the game Rogue: descend, explore, fight, manage
 inventory and food, obtain the amulet, and return to the surface.
 
-The project is currently in the design and development-preparation
-phase. This repository does not yet contain a playable Rogue engine, a
-local AI integration, a NaMMA interface, or an OCuLink driver.
+The project is currently in the Rogue compatibility phase. This
+repository contains the Rogueforge Rogue 5.4.4 pristine baseline and a
+minimal Ubuntu 24.04 compatibility copy, but it does not yet contain a
+headless environment, local AI integration, NaMMA interface, or OCuLink
+driver.
 
 ## Target System
 
@@ -66,24 +68,25 @@ See `docs/architecture.md` and `docs/development-phases.md` for the initial desi
 
 ## Current Development Phase
 
-This branch prepares the repository before implementation:
+This branch establishes the first compatibility layer after the Golden
+Baseline decision:
 
-- documents project goals,
-- records architecture decisions,
-- defines observation and action schemas,
-- compares Rogue implementation candidates and license risks,
-- sketches local AI and NaMMA provider interfaces,
-- breaks development into phases,
-- records risks and open questions,
-- records the current legacy asset inventory.
+- imports the Rogueforge Rogue 5.4.4 pristine upstream tree,
+- keeps a separate patched build tree,
+- records the ncurses compatibility patch under `patches/`,
+- verifies Ubuntu 24.04 gcc configure, make, launch, and quit,
+- records clang as pending because it is not installed on the probe
+  host,
+- leaves all Agent, Observer, Replay, Reset, Step, Headless, NaMMA,
+  LLM, Viewer, Python controller, and 64x160 work out of scope.
 
-Implementation should begin only after this design is reviewed.
+Game logic changes remain out of scope for this branch.
 
 ## License Status
 
-The repository license and the Rogue implementation license have not yet
-been selected. Do not import third-party Rogue source code until its
-license and redistribution conditions are confirmed.
+The repository license has not yet been selected. Rogueforge Rogue
+5.4.4 license evidence is tracked with notice retention, and legacy
+local modifications remain unapproved for direct reuse.
 
 Candidate sources are tracked in `docs/rogue-source-selection.md`.
 Local asset findings are tracked in `docs/legacy-asset-inventory.md`.
@@ -95,12 +98,17 @@ Rogue 5.4.4 Golden Source evaluation is tracked in
 Current Golden Baseline status:
 
 - Upstream Golden Baseline: Rogueforge Rogue 5.4.4, approved and fixed.
-- Modern Ubuntu build: blocked pending a minimal ncurses compatibility
-  patch.
-- Repository source import: pending compatibility-patch and
-  license-notice verification.
+- Modern Ubuntu gcc build: passed with the minimal ncurses
+  compatibility patch.
+- Modern Ubuntu clang build: pending because clang is not installed on
+  `mfr7202505`.
+- Repository source layout: pristine upstream tree plus separate patched
+  compatibility tree.
 - Legacy local modifications: preserved as evidence, not directly
   merged.
+
+Build results are tracked in `docs/build-ubuntu24.md`. Patch boundaries
+are tracked in `docs/compatibility-layer.md`.
 
 ## Markdown Checks
 
@@ -116,7 +124,8 @@ absolute Python executable path.
 
 ## Open Questions
 
-- Which Rogue implementation should be used as the base?
+- Should the Phase 5 compatibility patch be accepted as the initial
+  Ubuntu build profile?
 - Which NetHack/NLE environment API ideas, if any, are worth referencing
   while keeping Rogue as the target game?
 - What exact NaMMA request/response format should be shared between Ethernet and OCuLink?

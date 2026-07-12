@@ -12,12 +12,13 @@
 - The `phs/rogue` Rogue 5.4.4 baseline contains `new_level.c`, but its
   modern Ubuntu build is still blocked by generated-script CRLF and
   ncurses `WINDOW` compatibility issues.
-- The Rogueforge Rogue 5.4.4 source archive has now been recovered and
-  hash-fixed, but unmodified `make` still fails on Ubuntu 24.04 because
-  modern ncurses hides `WINDOW` internals.
-- The upstream Golden Baseline is fixed, but the patched development
-  tree does not exist yet and must remain separate from the pristine
-  source tree.
+- The Rogueforge Rogue 5.4.4 source archive has now been recovered,
+  hash-fixed, and imported as a pristine baseline.
+- The Phase 5 patched tree builds and launches with gcc on Ubuntu 24.04,
+  but clang remains unverified because it is not installed on the probe
+  host.
+- The pristine upstream tree and patched development tree must remain
+  separate.
 - Local Rogue 5.4.4 modifications are concentrated in logging,
   controller, seed, and death-reporting paths, but authorship and reuse
   rights are not verified.
@@ -44,12 +45,10 @@
 
 ## Open Questions
 
-- Which exact patch series should be used to build Rogueforge Rogue
-  5.4.4 on modern Ubuntu?
-- Should Rogueforge Rogue 5.4.4 be formally adopted after a minimal
-  ncurses compatibility patch is approved?
-- What is the smallest acceptable compatibility patch for building Rogue
-  5.4.4 on modern ncurses without changing game logic?
+- Should `patches/0001-ncurses-compatibility.patch` be accepted as the
+  initial Ubuntu 24.04 compatibility patch?
+- What clang package/version should be used for the pending clang build
+  matrix entry?
 - Is the `main.c 4.22 (Berkeley) 02/05/99` evidence only a file-level
   revision tag, or does an exact prior Berkeley Rogue 4.22 distribution
   still exist locally?
@@ -63,10 +62,10 @@
 
 ## Immediate Recommendation
 
-Start with source selection and deterministic headless boundaries before
-any AI integration. Do not import Rogue source until notice retention,
-project approval, and the compatibility-patch policy are complete.
+Keep the Phase 5 scope narrow until the compatibility PR is reviewed.
+Do not begin headless, reset/step, replay, Agent, NaMMA, or 64x160 work
+from this branch.
 
-Rogueforge Rogue 5.4.4 is the fixed upstream Golden Baseline. The next
-source task is a minimal ncurses compatibility patch managed separately
-from the pristine upstream source.
+Rogueforge Rogue 5.4.4 is the fixed upstream Golden Baseline. The
+current source task is reviewing the minimal ncurses compatibility patch
+managed separately from the pristine upstream source.

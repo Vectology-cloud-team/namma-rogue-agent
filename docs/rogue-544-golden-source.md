@@ -1,7 +1,7 @@
 # Rogue 5.4.4 Golden Source Evaluation
 
 This document records the Phase 4 Rogue 5.4.4 Golden Source
-evaluation. Rogue source code is not imported into this repository.
+evaluation and the Phase 5 compatibility-layer follow-up.
 
 Golden Source means the immutable upstream source used as the baseline
 before project patches are applied. It does not mean that the source
@@ -20,10 +20,11 @@ Archive SHA-256:
 7d37a61fc098bda0e6fac30799da347294067e8e079e4b40d6c781468e08e8a1
 
 Modern Ubuntu Build Profile:
-BLOCKED pending minimal ncurses compatibility patch
+GCC PASS with minimal ncurses compatibility patch
+CLANG PENDING because clang is not installed on the probe host
 
 Repository Source Import:
-PENDING compatibility-patch and license-notice verification
+PHASE 5 PRISTINE AND PATCHED TREES PRESENT WITH NOTICE RETENTION
 
 Legacy Local Modification Reuse:
 DEFERRED / UNVERIFIED
@@ -34,6 +35,15 @@ original archive SHA-256 must not change. Modern-environment fixes must
 be maintained as an independent patch series without rewriting the
 pristine upstream tree. Do not mix the patched development tree with the
 pristine upstream tree.
+
+Phase 5 imported the upstream baseline under
+`rogue/pristine/rogue5.4.4` and a separate compatibility copy under
+`rogue/patched/rogue5.4.4`. The compatibility patch is tracked in
+`patches/0001-ncurses-compatibility.patch`.
+
+Ubuntu 24.04 build results are recorded in `docs/build-ubuntu24.md`.
+Patch boundaries and logic-diff classification are recorded in
+`docs/compatibility-layer.md`.
 
 ## Candidate
 
@@ -248,6 +258,9 @@ Classification:
 - No source file was modified.
 - No game logic change was attempted.
 
+This pristine-build result is superseded for Phase 5 by the patched
+compatibility build recorded in `docs/build-ubuntu24.md`.
+
 ## Launch Probe
 
 Launch status:
@@ -324,12 +337,12 @@ License conclusion:
 ```text
 Pristine archive license evidence: PASS
 Generated helper-file notices: PASS WITH NOTICE RETENTION
-Repository inclusion: PENDING PROJECT APPROVAL
+Repository inclusion: PHASE 5 PRISTINE BASELINE PRESENT WITH NOTICE RETENTION
 Local modification reuse: UNVERIFIED
 ```
 
-All notices in generated and helper files must be retained if those
-files are imported later.
+All notices in generated and helper files must be retained in both the
+pristine and patched Phase 5 source trees.
 
 ## Golden Source Gate
 
@@ -342,19 +355,22 @@ files are imported later.
 | License evidence | PASS | Source and helper notices inspected |
 | Ubuntu `./configure` | PASS | Succeeded on `mfr7202505` |
 | Ubuntu unmodified `make` | BLOCKED | Needs minimal ncurses compatibility patch |
+| Phase 5 gcc patched build | PASS | See `docs/build-ubuntu24.md` |
+| Phase 5 clang patched build | PENDING | clang is not installed on the probe host |
 | Unmodified launch | NOT TESTED | No binary produced |
-| Repository source import | PENDING | Needs patch and notice verification |
+| Phase 5 patched launch | PASS | PTY smoke test passed |
+| Repository source import | PRESENT | Pristine and patched trees are separate |
 | Local diff acquired | PASS | Diff and SHA table recorded |
 | Local modification reuse | DEFERRED / UNVERIFIED | Authorship and rights unknown |
 
 ## Decision
 
-Final Phase 4 decisions:
+Current decisions after Phase 5:
 
 ```text
 Upstream Golden Baseline: APPROVED AND FIXED
-Modern Ubuntu Build Profile: BLOCKED pending minimal ncurses compatibility patch
-Repository Source Import: PENDING compatibility-patch and license-notice verification
+Modern Ubuntu Build Profile: GCC PASS with minimal ncurses compatibility patch; CLANG PENDING
+Repository Source Import: PHASE 5 PRISTINE AND PATCHED TREES PRESENT
 Legacy Local Modification Reuse: DEFERRED / UNVERIFIED
 ```
 

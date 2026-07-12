@@ -204,15 +204,68 @@ Launch check:
 
 - Not tested because no binary was produced.
 
-Golden Source impact:
+Historical Golden Source impact at the time of this probe:
 
 - Rogueforge Rogue 5.4.4 is the fixed upstream Golden Baseline.
-- Modern Ubuntu build support is blocked pending a minimal ncurses
+- Modern Ubuntu build support still needed a minimal ncurses
   compatibility patch.
-- Repository source import is pending compatibility-patch and
-  license-notice verification.
-- The compatibility patch must be tracked separately from the pristine
-  upstream source.
+- Repository source import had not happened yet.
+- The future compatibility patch needed to be tracked separately from
+  the pristine upstream source.
+
+This probe is superseded for the patched build profile by
+`docs/build-ubuntu24.md`.
+
+## Probe: Rogueforge Rogue 5.4.4 Phase 5 Compatibility Patch
+
+- Date: 2026-07-13 local time.
+- Source under test: verified Rogueforge Rogue 5.4.4 archive plus
+  `patches/0001-ncurses-compatibility.patch`.
+- Archive SHA-256:
+  `7d37a61fc098bda0e6fac30799da347294067e8e079e4b40d6c781468e08e8a1`.
+- Probe host: `mfr7202505`.
+- Operating system: Ubuntu 24.04.2 LTS, Linux kernel
+  6.14.0-33-generic.
+- Compiler: GCC 13.3.0.
+- Clang: not installed on the probe host.
+- Make: GNU Make 4.3.
+- ncurses: 6.4.20240113.
+- Repository source import: pristine baseline and patched compatibility
+  tree present.
+
+Commands attempted on the probe host:
+
+```sh
+sha256sum rogueforge-current-rogue5.4.4-src.tar.gz
+tar -xzf rogueforge-current-rogue5.4.4-src.tar.gz
+patch -p1 < 0001-ncurses-compatibility.patch
+CC=gcc ./configure
+make
+ROGUE_BINARY=$PWD/rogue python3 /tmp/test_rogue_launch.py -v
+```
+
+Result:
+
+- Archive SHA-256: PASS.
+- Patch application: PASS.
+- `CC=gcc ./configure`: PASS.
+- `make`: PASS.
+- Executable generation: PASS.
+- Launch, new game, dungeon display, and quit: PASS.
+- Clang matrix entry: pending because clang is not installed.
+
+Warnings:
+
+- `fight.c`: possible `sprintf` overflow.
+- `mach_dep.c`: ignored `fgets` return value.
+- `rip.c`: ignored `fgets` return value.
+
+Interpretation:
+
+- The Phase 5 compatibility patch resolves the modern ncurses
+  `WINDOW` build blocker for gcc.
+- No game logic change was required.
+- The pristine tree and patched tree remain separate.
 
 ## Probe: NetBSD `games/rogue`
 

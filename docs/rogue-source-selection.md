@@ -1,7 +1,8 @@
 # Rogue Source Selection
 
-Current selection status: the upstream Golden Baseline is fixed, but
-repository source import has not been approved.
+Current selection status: the upstream Golden Baseline is fixed as
+Rogueforge Rogue 5.4.4. Phase 5 imports the pristine baseline and a
+separate Ubuntu 24.04 compatibility tree.
 
 The target game is Rogue. The remaining source-selection question is
 which Rogue implementation should be used. NetHack and the NetHack
@@ -13,9 +14,9 @@ the Rogueforge Rogue 5.4.4 source archive. Modern Ubuntu build support
 is a separate patch-profile task and does not change the pristine
 baseline decision. See `docs/rogue-544-golden-source.md`.
 
-Do not copy any Rogue implementation into this repository until its
-exact source tree, license text, redistribution terms, and modification
-terms are verified.
+Do not copy any additional Rogue implementation into this repository
+until its exact source tree, license text, redistribution terms, and
+modification terms are verified.
 
 NetHack and the NetHack Learning Environment are not candidate target
 games and are not candidate Rogue source bases. They are referenced only
@@ -42,10 +43,11 @@ Rogueforge Rogue 5.4.4 source archive:
   `rogue5.4.4-src.tar.gz`.
 - License: pristine archive evidence is PASS; helper-file notices are
   PASS WITH NOTICE RETENTION.
-- Build: baseline source is complete and `./configure` succeeds, but
-  modern Ubuntu `make` is blocked by ncurses `WINDOW` compatibility.
-- Repository inclusion: pending compatibility-patch and license-notice
-  verification.
+- Build: baseline source is complete. The Phase 5 patched tree passes
+  `./configure`, `make`, launch, dungeon display, and quit with gcc on
+  Ubuntu 24.04.
+- Repository inclusion: pristine upstream tree and separate patched
+  compatibility tree are present for Phase 5 with notice retention.
 - Legacy modification reuse: deferred / unverified.
 
 NetBSD `games/rogue`:
@@ -94,8 +96,8 @@ Status:
 - Inspected local legacy asset and upstream Rogueforge source archive.
 - Upstream Golden Baseline is approved and fixed as Rogueforge Rogue
   5.4.4.
-- Do not import source into this repository until the compatibility-patch
-  path and license-notice retention are approved.
+- Phase 5 imports the pristine upstream tree and a separate patched
+  compatibility tree.
 - The current baseline comparison source is `phs/rogue` tag `v5.4.4`,
   which claims to mirror Rogue 5.4.4 from `rogue.rogueforge.net`.
 - The current primary source candidate is the Rogueforge current archive
@@ -105,8 +107,8 @@ Required status wording:
 
 ```text
 Upstream Golden Baseline: APPROVED AND FIXED
-Modern Ubuntu Build Profile: BLOCKED pending minimal ncurses compatibility patch
-Repository Source Import: PENDING compatibility-patch and license-notice verification
+Modern Ubuntu Build Profile: GCC PASS with minimal ncurses compatibility patch; CLANG PENDING
+Repository Source Import: PHASE 5 PRISTINE AND PATCHED TREES PRESENT
 Legacy Local Modification Reuse: DEFERRED / UNVERIFIED
 ```
 
@@ -158,10 +160,12 @@ Reasons it is the fixed upstream Golden Baseline:
 Current blockers:
 
 - `new_level.c` is missing from the local legacy tree.
-- A direct pristine upstream Rogueforge archive has been found.
 - Local modification authorship and rights are unverified.
-- A complete modern Ubuntu build has not been verified.
-- Repository source import requires project approval.
+- The pristine upstream tree requires a modern ncurses compatibility
+  patch on Ubuntu 24.04.
+- The Phase 5 patched tree builds and launches with gcc, but clang is
+  still pending.
+- Legacy local modifications are not approved for direct reuse.
 
 Assessment:
 
@@ -174,17 +178,16 @@ Assessment:
 - Commercial use possibility: likely allowed by included BSD-style
   upstream license text, but blocked until local modifications and exact
   provenance are verified.
-- Linux build possibility: blocked by modern ncurses compatibility in
-  the baseline and by missing `new_level.c` in the local legacy tree.
+- Linux build possibility: confirmed with the Phase 5 gcc compatibility
+  patch; clang remains pending on the probe host.
 - Game logic / display separation difficulty: medium to high.
 - Fixed seed difficulty: medium; seed plumbing exists but must be made a
   first-class environment input.
 - `reset` / `step` API difficulty: medium to high because the game loop,
   curses, input, and display are intertwined.
 - Past asset compatibility: best currently found local match.
-- Recommendation: keep as the fixed upstream Golden Baseline, but do not
-  import until compatibility-patch policy, notice retention, and local
-  provenance are resolved.
+- Recommendation: keep as the fixed upstream Golden Baseline and review
+  the separate compatibility patch before broader engine work.
 
 Detailed baseline investigation:
 
@@ -194,7 +197,7 @@ Detailed baseline investigation:
 Repository inclusion:
 
 ```text
-Repository inclusion: PENDING compatibility-patch and license-notice verification
+Repository inclusion: PHASE 5 pristine and patched source trees present
 ```
 
 ### NetBSD `games/rogue`
@@ -438,8 +441,8 @@ No currently identified source satisfies all of these requirements.
 
 ### Upstream Golden Baseline: Rogueforge Rogue 5.4.4
 
-The upstream Golden Baseline is approved and fixed. Repository source
-import is still pending.
+The upstream Golden Baseline is approved and fixed. Phase 5 has added
+the pristine upstream tree and a separate patched compatibility tree.
 
 Reason:
 
@@ -457,7 +460,9 @@ Benefits:
 
 Risks:
 
-- Modern Ubuntu `make` is blocked by ncurses `WINDOW` compatibility.
+- The pristine source still fails on modern Ubuntu ncurses without a
+  compatibility patch.
+- The Phase 5 patched tree builds and launches with gcc on Ubuntu 24.04.
 - Local modification authorship remains unverified.
 - Curses, input, rendering, and game loop are intertwined.
 
@@ -469,7 +474,8 @@ License caution:
 
 Implementation impact:
 
-- Next technical task is a minimal ncurses compatibility patch series.
+- Current technical task is review of the minimal ncurses compatibility
+  patch series.
 - Patches must be managed separately from the pristine upstream tree.
 - Legacy logging, controller, and 64x160 behavior should be
   reimplemented cleanly if needed rather than directly merged.
@@ -537,9 +543,10 @@ Implementation impact:
 
 ## Shinoda Decision Items
 
-- Decide whether commercial-use clarity is required before any import.
-- Decide whether to approve a minimal ncurses compatibility patch before
-  source import.
+- Decide whether the Phase 5 minimal ncurses compatibility patch is
+  acceptable as the first Ubuntu build profile.
+- Decide whether commercial-use clarity is required before any release
+  or broader redistribution.
 - Decide whether any legacy local assets may be reused after provenance
   review.
 - Decide whether NetBSD license ambiguity is acceptable for project
@@ -549,13 +556,13 @@ Implementation impact:
 
 ## Required Next Steps
 
-- Decide whether a minimal modern ncurses compatibility patch is
-  acceptable before formally adopting Rogueforge Rogue 5.4.4.
+- Review the minimal modern ncurses compatibility patch before formally
+  adopting the patched build profile.
 - Do not copy `new_level.c` into the old local legacy tree. It is part
-  of the complete upstream Rogueforge baseline and should be imported
-  only with the other upstream files if source import is approved.
-- Identify the minimal modern ncurses compatibility fix needed to build
-  the baseline without changing game logic.
+  of the complete upstream Rogueforge baseline and is present in both
+  Phase 5 source trees.
+- Complete the pending clang build matrix entry after clang is available
+  on the Ubuntu 24.04 probe host.
 - Locate the exact source or executable that displays
   `Rogue v4.22 (Berkeley 02/05/99)`, if it exists.
 - Inspect concrete Rogue 3.x source distributions.
