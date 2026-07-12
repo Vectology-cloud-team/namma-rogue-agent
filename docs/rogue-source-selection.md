@@ -7,6 +7,11 @@ which Rogue implementation should be used. NetHack and the NetHack
 Learning Environment may only be referenced for environment design
 ideas.
 
+Phase 4 Golden Source evaluation narrowed the leading source candidate
+to the Rogueforge Rogue 5.4.4 source archive, but formal adoption is
+deferred because unmodified `make` fails on Ubuntu 24.04. See
+`docs/rogue-544-golden-source.md`.
+
 Do not copy any Rogue implementation into this repository until its
 exact source tree, license text, redistribution terms, and modification
 terms are verified.
@@ -32,10 +37,11 @@ evaluation, and testing methodology.
 Local Rogue 5.4.4 / rogueforge 09/05/07 tree:
 
 - Status: current most promising investigation target, but not selected.
-- Baseline source for investigation: `phs/rogue` tag `v5.4.4`.
+- Baseline source for investigation: Rogueforge
+  `rogue5.4.4-src.tar.gz`.
 - License: evidence is present but not fully reviewed.
-- Build: baseline source is complete, but modern Ubuntu build is blocked
-  by generated-script CRLF and ncurses compatibility issues.
+- Build: baseline source is complete and `./configure` succeeds, but
+  modern Ubuntu `make` is blocked by ncurses `WINDOW` compatibility.
 - Local legacy tree: missing `new_level.c` and contains local logging,
   controller, seed, and backup files with unverified provenance.
 - Repository inclusion: prohibited pending review.
@@ -90,6 +96,8 @@ Status:
   modification ownership, and license review are complete.
 - The current baseline comparison source is `phs/rogue` tag `v5.4.4`,
   which claims to mirror Rogue 5.4.4 from `rogue.rogueforge.net`.
+- The current primary source candidate is the Rogueforge current archive
+  at `http://rogue.rogueforge.net/files/rogue5.4/rogue5.4.4-src.tar.gz`.
 
 Required status wording:
 
@@ -106,11 +114,11 @@ Facts inspected:
 - Version: `release = "5.4.4"`.
 - Version string: `rogue (rogueforge) 09/05/07`.
 - Local source: `%USERPROFILE%\Downloads\rogue`.
-- Baseline source: `phs/rogue` tag `v5.4.4`.
+- Baseline source: Rogueforge `rogue5.4.4-src.tar.gz`.
 - Baseline archive hash:
-  `096a1648deb14e67d1c246519ec95341dc45317013b9bf0662d7bbd07577b2ba`.
-- Distribution origin: direct Rogueforge archive not recovered; the
-  current baseline relies on the `phs/rogue` mirror claim.
+  `7d37a61fc098bda0e6fac30799da347294067e8e079e4b40d6c781468e08e8a1`.
+- Mirror evidence: the Wayback archive has the same SHA-256, and the
+  GitHub mirror source files match the Rogueforge archive.
 - Last update status: local tree date not treated as upstream evidence.
 - License file presence: `LICENSE.TXT` present.
 - License evidence: source headers refer to `LICENSE.TXT`.
@@ -123,9 +131,8 @@ Facts inspected:
   `v5.4.4` baseline.
 - Local tree completeness: `new_level.c` is absent from
   `%USERPROFILE%\Downloads\rogue`.
-- Build status on Ubuntu 24.04: pristine baseline configure fails on
-  CRLF generated scripts; build-copy LF normalization allows configure
-  to succeed, but make fails on incomplete ncurses `WINDOW` access in
+- Build status on Ubuntu 24.04: pristine `./configure` succeeds, but
+  pristine `make` fails on incomplete ncurses `WINDOW` access in
   `main.c`.
 - Curses dependency: high; curses calls and screen refresh are mixed
   into command and display flow.
@@ -140,8 +147,7 @@ Facts inspected:
 Reasons it is the current most promising investigation target:
 
 - A concrete source tree exists locally.
-- A concrete baseline comparison tree exists in `phs/rogue` tag
-  `v5.4.4`.
+- A direct Rogueforge source archive exists and is hash-fixed.
 - `LICENSE.TXT` exists.
 - Amulet acquisition and return logic are present.
 - It is closely related to previous controller, log, and 64x160 assets.
@@ -150,7 +156,7 @@ Reasons it is the current most promising investigation target:
 Current blockers:
 
 - `new_level.c` is missing from the local legacy tree.
-- A direct pristine upstream Rogueforge archive has not been found.
+- A direct pristine upstream Rogueforge archive has been found.
 - Local modification authorship and rights are unverified.
 - A complete modern Ubuntu build has not been verified.
 - Formal adoption requires license review.
@@ -180,6 +186,7 @@ Assessment:
 Detailed baseline investigation:
 
 - See `docs/rogue-544-baseline.md`.
+- See `docs/rogue-544-golden-source.md`.
 
 Repository inclusion:
 
@@ -540,8 +547,8 @@ Implementation impact:
 
 ## Required Next Steps
 
-- Continue verifying the `phs/rogue` `v5.4.4` baseline against any
-  direct Rogueforge archive that can be recovered.
+- Decide whether a minimal modern ncurses compatibility patch is
+  acceptable before formally adopting Rogueforge Rogue 5.4.4.
 - Do not copy `new_level.c` into the local legacy tree or this
   repository unless the source and license are approved.
 - Identify the minimal modern ncurses compatibility fix needed to build

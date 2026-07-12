@@ -89,6 +89,8 @@ Candidate sources are tracked in `docs/rogue-source-selection.md`.
 Local asset findings are tracked in `docs/legacy-asset-inventory.md`.
 Build probes and license evidence are tracked in
 `docs/build-probes.md` and `docs/license-review.md`.
+Rogue 5.4.4 Golden Source evaluation is tracked in
+`docs/rogue-544-golden-source.md`.
 
 ## Markdown Checks
 

@@ -26,6 +26,7 @@ Repository inclusion: Prohibited until verified
 Evidence inspected:
 
 - `%USERPROFILE%\Downloads\rogue\LICENSE.TXT`
+- Rogueforge `rogue5.4.4-src.tar.gz` `LICENSE.TXT`
 - `phs/rogue` tag `v5.4.4` `LICENSE.TXT`
 - source headers in local `.c` and `.h` files
 - `vers.c`
@@ -76,6 +77,10 @@ Local additions:
 
 Baseline investigation notes:
 
+- The Rogueforge `rogue5.4.4-src.tar.gz` archive contains
+  `LICENSE.TXT`.
+- Its archive SHA-256 is
+  `7d37a61fc098bda0e6fac30799da347294067e8e079e4b40d6c781468e08e8a1`.
 - The `phs/rogue` tag `v5.4.4` baseline contains `LICENSE.TXT`.
 - Its `LICENSE.TXT` SHA-256 is
   `92f8e05f4ae64d8320f2941f6c3f15687b96fb5452693996e5c53c80d38ecf07`.
@@ -89,15 +94,16 @@ Baseline investigation notes:
 Current status:
 
 ```text
-License status: Evidence present but not fully reviewed
-Repository inclusion: prohibited pending review
+Pristine archive license evidence: PASS
+Repository inclusion: BLOCKED until generated-file notices and project policy are reviewed
+Local modification reuse: UNVERIFIED
 Commercial project adoption: not yet approved
 ```
 
 Reason for blocking:
 
-- A direct original Rogueforge archive has not been recovered.
-- The `phs/rogue` mirror baseline has not been legally approved.
+- The direct original Rogueforge archive has been recovered, but formal
+  repository inclusion policy has not been approved.
 - Local modifications, including logging hooks and possible screen-size
   changes, have not been attributed.
 - Loose adjacent fragments may not be covered by the same complete

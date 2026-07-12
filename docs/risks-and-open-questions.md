@@ -12,6 +12,9 @@
 - The `phs/rogue` Rogue 5.4.4 baseline contains `new_level.c`, but its
   modern Ubuntu build is still blocked by generated-script CRLF and
   ncurses `WINDOW` compatibility issues.
+- The Rogueforge Rogue 5.4.4 source archive has now been recovered and
+  hash-fixed, but unmodified `make` still fails on Ubuntu 24.04 because
+  modern ncurses hides `WINDOW` internals.
 - Local Rogue 5.4.4 modifications are concentrated in logging,
   controller, seed, and death-reporting paths, but authorship and reuse
   rights are not verified.
@@ -37,8 +40,8 @@
 ## Open Questions
 
 - Which exact Rogue implementation should be used?
-- Can a direct original Rogueforge Rogue 5.4.4 archive be recovered to
-  confirm the `phs/rogue` baseline?
+- Should Rogueforge Rogue 5.4.4 be formally adopted after a minimal
+  ncurses compatibility patch is approved?
 - What is the smallest acceptable compatibility patch for building Rogue
   5.4.4 on modern ncurses without changing game logic?
 - Is the `main.c 4.22 (Berkeley) 02/05/99` evidence only a file-level

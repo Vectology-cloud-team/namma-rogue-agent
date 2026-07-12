@@ -156,6 +156,59 @@ Interpretation:
 - The maintenance fork is useful evidence, but it does not by itself
   solve the Ubuntu 24.04 build blocker in this environment.
 
+## Probe: Rogueforge Rogue 5.4.4 Source Archive
+
+- Date: 2026-07-12 / 2026-07-13 local time.
+- Source under test:
+  `http://rogue.rogueforge.net/files/rogue5.4/rogue5.4.4-src.tar.gz`.
+- Archive SHA-256:
+  `7d37a61fc098bda0e6fac30799da347294067e8e079e4b40d6c781468e08e8a1`.
+- Probe host: `mfr7202505`.
+- Operating system: Ubuntu 24.04 family, Linux kernel 6.14.0-33-generic.
+- Compiler: GCC 13.3.0.
+- Make: GNU Make 4.3.
+- `libncurses-dev`: installed.
+- Curses availability: `libncursesw.so.6` and `libncurses.so.6` were
+  present.
+- Repository source import: none.
+
+Commands attempted on the probe host:
+
+```sh
+./configure
+make
+```
+
+Result:
+
+- `./configure`: success.
+- `make`: failed.
+
+Failure:
+
+```text
+main.c:241:11: error: invalid use of incomplete typedef 'WINDOW'
+main.c:242:11: error: invalid use of incomplete typedef 'WINDOW'
+make: *** [Makefile:130: main.o] Error 1
+```
+
+Interpretation:
+
+- The source archive is complete and includes `new_level.c`.
+- The failure is a modern ncurses compatibility issue, not a missing
+  file or missing dependency issue.
+- No source file was modified.
+- No game logic change was attempted.
+
+Launch check:
+
+- Not tested because no binary was produced.
+
+Golden Source impact:
+
+- Rogueforge Rogue 5.4.4 is the leading source candidate.
+- Formal adoption is deferred until an accepted build path exists.
+
 ## Probe: NetBSD `games/rogue`
 
 - Source: https://github.com/NetBSD/src/tree/trunk/games/rogue

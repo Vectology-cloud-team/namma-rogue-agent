@@ -53,8 +53,8 @@ Search exclusions:
 - Build status: configure succeeded on Ubuntu 24.04, but `make` failed
   because `new_level.o` is listed as a target while `new_level.c` was
   not present in the local tree.
-- Baseline comparison: compared against `phs/rogue` tag `v5.4.4`,
-  exported as `phs-rogue-v5.4.4-git-archive.tar`.
+- Baseline comparison: compared against Rogueforge
+  `rogue5.4.4-src.tar.gz`.
 - Baseline result: `new_level.c` is present in the baseline and absent
   from this local tree.
 - Completeness status: `Makefile`, `MANIFEST`, `README`, `CHANGES`,
@@ -66,12 +66,11 @@ Search exclusions:
 - Reusable: possibly, after source completeness and license review.
 - Repository inclusion: prohibited until verified.
 
-Diff against `phs/rogue` tag `v5.4.4`:
+Diff against Rogueforge `rogue5.4.4-src.tar.gz`:
 
-- Same byte-for-byte: 2 files.
-- Same after text line-ending normalization: 47 files.
+- Same byte-for-byte: 49 files.
 - Changed content: `command.c`, `io.c`, `main.c`, `rip.c`, `rogue.h`.
-- Present only in baseline: `.gitignore`, `README.md`, `new_level.c`.
+- Present only in baseline: `new_level.c`.
 - Present only in local tree: `draw_rogue_log.py`, `io.BAK`,
   `io.c.orig`, `rogue.BAK`, `rogue.h.org`, `rogue_controller.py`.
 
@@ -86,7 +85,7 @@ Clear local project modification evidence:
 
 Classification:
 
-- Upstream unchanged: 47 files after text line-ending normalization.
+- Upstream unchanged against Rogueforge archive: 49 files byte-for-byte.
 - Local Vectology modification: logging and seed-related changes appear
   in `command.c`, `io.c`, `main.c`, `rip.c`, and `rogue.h`.
 - Generated or temporary: backup/original files and prior build output.

@@ -4,6 +4,10 @@ This document records the Rogue 5.4.4 baseline investigation performed
 after PR #2. It does not select a final Rogue implementation and does
 not approve importing Rogue source into this repository.
 
+Phase 4 follow-up is recorded in `docs/rogue-544-golden-source.md`.
+That pass recovered the direct Rogueforge `rogue5.4.4-src.tar.gz`
+archive and supersedes the mirror-only baseline source evidence.
+
 Current baseline investigation target:
 
 ```text
