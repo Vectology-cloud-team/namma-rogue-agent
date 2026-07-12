@@ -1,6 +1,11 @@
 # NaMMA Interface
 
-NaMMA should be exposed through the same application-level provider interface as other local AI backends. Ethernet and OCuLink should differ below that interface, not in agent planning logic.
+NaMMA should be exposed through the same application-level provider
+interface as other local AI backends. Ethernet and OCuLink should differ
+below that interface, not in agent planning logic.
+
+NaMMA receives normal `AgentObservation` and planner context. It must not
+receive `PrivilegedDebugState` or hidden engine state.
 
 ## Common Request
 
@@ -39,7 +44,9 @@ Candidate protocols:
 - gRPC,
 - custom TCP binary protocol.
 
-Recommendation for first integration: start with HTTP JSON or OpenAI-compatible API so that the agent can share tooling with `llama.cpp` and other local providers.
+Recommendation for first integration: start with HTTP JSON or an
+OpenAI-compatible API so that the agent can share tooling with
+`llama.cpp` and other local providers.
 
 ## OCuLink / PCI Express Direction
 

@@ -1,6 +1,8 @@
 # Agent Working Rules
 
-This repository is preparing a deterministic Rogue environment for AI evaluation. Keep game logic, environment control, AI planning, and display concerns separated.
+This repository is preparing a deterministic Rogue environment for AI
+evaluation. Keep game logic, environment control, AI planning, and
+display concerns separated.
 
 ## Hard Rules
 
@@ -13,6 +15,8 @@ This repository is preparing a deterministic Rogue environment for AI evaluation
 - Version every observation and action schema change.
 - Do not convert free-form AI text directly into game commands.
 - Validate all structured AI output before execution.
+- Do not expose hidden game state through normal agent observations or
+  legal-action lists.
 - Add automated tests when adding new behavior.
 - Avoid large, unrelated changes in one commit.
 - Do not delete existing assets casually.

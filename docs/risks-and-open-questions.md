@@ -15,7 +15,10 @@
 ## Product And Research Risks
 
 - Original Rogue may be simpler than desired but easier to control.
-- NetHack/NLE has strong research precedent, but it must remain reference material only and must not become a target-game candidate.
+- NetHack/NLE has strong research precedent, but it must remain reference
+  material only and must not become a target-game candidate.
+- Agent-facing observations or legal actions could accidentally reveal
+  hidden state if privileged debug data is not kept separate.
 - A local model may not reliably plan long-horizon dungeon strategy without a deterministic executor and memory.
 - Rule-based baselines may outperform early neural planners; this is useful and should be measured rather than hidden.
 
@@ -32,4 +35,6 @@
 
 ## Immediate Recommendation
 
-Start with source selection and deterministic headless boundaries before any AI integration. Do not import Rogue source until the license review is complete.
+Start with source selection and deterministic headless boundaries before
+any AI integration. Do not import Rogue source until the license review
+is complete.

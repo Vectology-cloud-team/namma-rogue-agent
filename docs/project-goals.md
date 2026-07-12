@@ -2,7 +2,8 @@
 
 ## Final Goal
 
-Build an autonomous agent that can play a Rogue-style dungeon game from start to finish:
+Build an autonomous agent that can play the game Rogue from start to
+finish:
 
 1. descend into the dungeon,
 2. explore unknown areas,
@@ -14,13 +15,17 @@ Build an autonomous agent that can play a Rogue-style dungeon game from start to
 
 ## First Target
 
-The first target is a mini PC-based local AI setup. The mini PC runs the Rogue process, the headless environment, the deterministic executor, and the local inference provider.
+The first target is a mini PC-based local AI setup. The mini PC runs the
+Rogue process, the headless environment, the deterministic executor, and
+the local inference provider.
 
 The known machine name is `mfr7202505`.
 
 ## Final Target
 
-The final target is NaMMA, an FPGA-based local AI on HPFC3. NaMMA should make high-level planning decisions while the mini PC continues to execute game logic and deterministic low-level actions.
+The final target is NaMMA, an FPGA-based local AI on HPFC3. NaMMA should
+make high-level planning decisions while the mini PC continues to execute
+game logic and deterministic low-level actions.
 
 ## Non-Goals For This Initial Phase
 

@@ -1,6 +1,7 @@
 # Observation And Action Schema
 
-All schemas must include a `schema_version`. Breaking changes require a version bump and migration notes.
+All schemas must include a `schema_version`. Breaking changes require a
+version bump and migration notes.
 
 ## Objective Phase
 
@@ -13,7 +14,102 @@ Initial objective phases:
 - `DEAD`
 - `FAILED`
 
-After the amulet is obtained, the objective should switch automatically from exploration to return.
+After the amulet is obtained, the objective should switch automatically
+from exploration to return.
+
+## Responsibility Boundary
+
+The environment provides the agent with an `AgentObservation` for the
+current turn. This observation contains only what the player can
+currently perceive, plus player state, inventory, equipment, recent
+messages, and action grammar information.
+
+The agent owns `EpisodeMemory`. It builds memory from the stream of past
+observations and action results. The environment must not provide
+agent-facing remembered maps as if they were current game state.
+
+If debugging, validation, or replay generation needs complete internal
+game state, define it separately as `PrivilegedDebugState`.
+`PrivilegedDebugState` is not input to normal agents, AI planners, or
+NaMMA inference.
+
+## AgentObservation Fields
+
+Minimum `AgentObservation` fields:
+
+- `schema_version`
+- `episode_id`
+- `turn`
+- `seed`
+- `dungeon_level`
+- `objective_phase`
+- `player_position`
+- `hp`
+- `hp_max`
+- `strength`
+- `armor`
+- `experience`
+- `gold`
+- `hunger`
+- `status_effects`
+- `has_amulet`
+- `visible_map_cells`
+- `visible_monsters`
+- `visible_items`
+- `inventory`
+- `equipment`
+- `recent_messages`
+- `observable_legal_actions`
+- `terminal`
+- `terminal_reason`
+- `score`
+
+The observation may include player-recognizable state such as blindness,
+hallucination, levitation, confusion, hunger state, equipment identity
+known to the player, and item labels known to the player.
+
+The observation must not include hidden traps, undiscovered secret doors,
+unseen monsters, full dungeon layout, future random outcomes, or the
+agent's remembered `known_map`.
+
+## Agent Episode Memory
+
+The agent may maintain `EpisodeMemory` derived from observations and
+action results. Example fields:
+
+- `known_map`
+- `visited_cells`
+- `known_stairs`
+- `exploration_frontiers`
+- `previously_observed_monsters`
+- `previously_observed_items`
+- `level_history`
+- `current_plan`
+- `failed_targets`
+- `loop_history`
+
+`known_map` belongs here, not in the environment's normal agent
+observation. It may be stale and must be updated from new observations.
+
+## PrivilegedDebugState
+
+`PrivilegedDebugState` is optional and separate from `AgentObservation`.
+It is intended for tests, replay generation, invariant checking, and
+debugging.
+
+It may contain complete internal information such as:
+
+- full dungeon map,
+- hidden traps,
+- secret doors,
+- all monsters,
+- all items,
+- raw random generator state,
+- engine-only flags,
+- exact object identities not yet known to the player.
+
+Normal agents, AI planners, local models, and NaMMA providers must not
+receive `PrivilegedDebugState`.
 
 ## Action Types
 
@@ -49,7 +145,8 @@ Movement directions should be an enum:
 - `W`
 - `NW`
 
-Inventory references should use stable item IDs assigned inside the episode. The agent should not depend on display text alone.
+Inventory references should use stable item IDs assigned inside the
+episode. The agent should not depend on display text alone.
 
 ## Action Example
 
@@ -82,47 +179,43 @@ Inventory references should use stable item IDs assigned inside the episode. The
 }
 ```
 
-## Observation Fields
+## Legal Actions And Hidden Information
 
-Minimum observation fields:
+`legal_actions` must not leak hidden game state. Initial designs may use
+the name `observable_legal_actions` to make that boundary explicit.
 
-- `schema_version`
-- `episode_id`
-- `turn`
-- `seed`
-- `dungeon_level`
-- `player_position`
-- `hp`
-- `hp_max`
-- `strength`
-- `armor`
-- `experience`
-- `gold`
-- `hunger`
-- `status_effects`
-- `objective_phase`
-- `has_amulet`
-- `visible_map`
-- `known_map`
-- `visible_monsters`
-- `visible_items`
-- `inventory`
-- `equipment`
-- `recent_messages`
-- `legal_actions`
-- `terminal`
-- `terminal_reason`
-- `score`
+Observable legal actions are generated from:
 
-## Map Representation
+- currently observable player state,
+- currently visible map cells,
+- currently visible monsters and items,
+- current inventory and equipment,
+- known input grammar,
+- action schema rules.
 
-Keep two map views:
+Observable legal actions must not reveal:
 
-- `visible_map`: currently visible cells.
-- `known_map`: cells remembered by the episode.
+- undiscovered traps,
+- hidden doors,
+- unseen monsters,
+- unidentified item truth,
+- future combat or random outcomes,
+- full map topology.
 
-The known map may include stale information. The observation should make that clear where needed.
+It is acceptable for a game-rule action to fail after execution. For
+example, a player may search and find nothing, try to move into something
+that turns out to block movement, or attempt an action whose outcome is
+unknown until tried.
 
-## Legal Actions
+Distinguish these concepts:
 
-Every turn should include `legal_actions`. The environment must reject actions not present in this list or actions that fail schema validation.
+- `syntactically_valid_actions`: actions that match the schema and input
+  grammar.
+- `observable_legal_actions`: actions that appear currently available
+  from observable information.
+- `action_result`: the outcome after the environment attempts an action.
+
+Action validation must reject malformed or schema-invalid actions without
+revealing future information or hidden state. A failed in-game attempt
+should be reported through `action_result`, not by leaking hidden facts
+before execution.
