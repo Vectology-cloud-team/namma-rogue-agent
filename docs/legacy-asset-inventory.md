@@ -42,6 +42,8 @@ Search exclusions:
 - Apparent version: Rogue 5.4.4.
 - Version evidence: `vers.c` defines `release = "5.4.4"` and
   `version[] = "rogue (rogueforge) 09/05/07"`.
+- Investigation status: current most promising investigation target,
+  but not selected.
 - Berkeley evidence: `main.c` contains the SCCS-style file tag
   `@(#)main.c 4.22 (Berkeley) 02/05/99`.
 - License file: `LICENSE.TXT` is present.
@@ -51,6 +53,9 @@ Search exclusions:
 - Build status: configure succeeded on Ubuntu 24.04, but `make` failed
   because `new_level.o` is listed as a target while `new_level.c` was
   not present in the local tree.
+- Completeness status: `Makefile`, `MANIFEST`, `README`, `CHANGES`,
+  `FILES`, and in-tree pristine archives were not found.
+- History status: `.git`, `.svn`, and `CVS` were not found.
 - Amulet rule evidence: `AMULETLEVEL`, `AMULET`, `total_winner()`, and
   amulet object handling are present.
 - Curses dependency: high.
@@ -133,8 +138,20 @@ Current interpretation:
 - `4.22` is currently treated as a file-level SCCS revision tag for
   `main.c`, not as a verified game distribution version.
 - The exact prior "Berkeley Rogue 4.22" asset remains unverified.
+- If older notes used `Rogue v4.22`, it is still unknown whether that
+  came from a game-displayed version or from a human reading the
+  `main.c` tag as the game version.
 - Prior 4K / 64x160 work probably exists as local modifications or
   loose fragments, but the exact patch set has not been recovered.
+
+## Archive Search Result
+
+No pristine Rogue 5.4.4 / rogueforge archive was found in the searched
+user-area paths.
+
+The only matching archive-like result was `work\rogue-local.tar`, a
+temporary tar created from `%USERPROFILE%\Downloads\rogue` during the
+investigation. It is not a pristine upstream distribution.
 
 ## Preservation Rules
 

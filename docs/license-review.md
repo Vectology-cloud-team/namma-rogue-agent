@@ -30,21 +30,55 @@ Evidence inspected:
 - `vers.c`
 - build files referencing distribution packaging
 
-License evidence:
+Required status wording:
+
+```text
+Technical candidate: promising
+License evidence: present but not fully reviewed
+Repository inclusion: prohibited pending review
+Commercial project adoption: not yet approved
+```
+
+License evidence by origin:
+
+Original Rogue-derived portions:
 
 - `LICENSE.TXT` contains BSD-style redistribution and binary
   redistribution permissions for the Toy, Arnold, and Wichman portions.
+- Most source headers refer to `LICENSE.TXT`.
+
+Nicholas J. Kisseberth portions:
+
 - `LICENSE.TXT` contains separate BSD-style terms for Nicholas J.
   Kisseberth portions.
+- `state.c` and `mdport.c` are the main inspected files in this group.
+
+David Burren `xcrypt.c` portions:
+
 - `LICENSE.TXT` contains separate BSD-style terms for David Burren
   `xcrypt.c` portions.
-- Most source headers refer to `LICENSE.TXT`.
+
+Other third-party portions:
+
+- Autoconf helper files such as `config.guess`, `config.sub`,
+  `configure`, and `install-sh` contain their own generated-tool
+  notices and should be reviewed before redistribution.
+- No other third-party game-code origin has been approved.
+
+Local additions:
+
+- Logging additions, `/tmp/rogue_log.txt` usage, controller/viewer
+  scripts, BAK/orig files, and 64x160 fragments are not yet tied to a
+  reviewed license grant.
+- Treat these as unapproved local additions until authorship and rights
+  are confirmed.
 
 Current status:
 
 ```text
-License status: Partially verified upstream text, local provenance unverified
-Repository inclusion: Prohibited until verified
+License status: Evidence present but not fully reviewed
+Repository inclusion: prohibited pending review
+Commercial project adoption: not yet approved
 ```
 
 Reason for blocking:

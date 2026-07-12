@@ -32,6 +32,132 @@ Important evidence:
 - Loose source fragments outside the tree include `MAXLINES 64` and
   `MAXCOLS 160`.
 
+## Local Rogue 5.4.4 Completeness Check
+
+Checked path:
+
+```text
+%USERPROFILE%\Downloads\rogue
+```
+
+Files and metadata found:
+
+- `Makefile.in`: present.
+- `Makefile.std`: present.
+- `configure`: present.
+- `configure.ac`: present.
+- `configure.in`: not found.
+- `Makefile`: not found.
+- `MANIFEST`: not found.
+- `README`: not found.
+- `CHANGES`: not found.
+- `FILES`: not found.
+- `.git`, `.svn`, and `CVS`: not found.
+- In-tree archives such as `.zip`, `.tar`, `.tgz`, `.tar.gz`, `.gz`,
+  `.bz2`, or `.xz`: not found.
+
+Backup and adjacent evidence found:
+
+- `io.BAK`
+- `io.c.orig`
+- `rogue.BAK`
+- `rogue.h.org`
+
+`new_level.c` completeness result:
+
+- `new_level.c` was not found in `%USERPROFILE%\Downloads\rogue`.
+- `new_level.c` was not found in the searched user-area paths.
+- `Makefile.in` references `new_level.o` and `new_level.c`.
+- `Makefile.std` references `new_level.o` and `new_level.c`.
+- `rogue54.vcproj` references `new_level.c`.
+- `main.c`, `command.c`, `move.c`, and `rogue.h` reference
+  `new_level()` as a function or prototype.
+- No same-tree file with an obvious equivalent role was identified.
+
+Current interpretation:
+
+- The local source tree is incomplete, or the build metadata was copied
+  from a tree that included `new_level.c`.
+- Do not reconstruct `new_level.c` by guessing.
+- Do not copy `new_level.c` from another source without provenance and
+  license review.
+
+## Pristine Archive Search
+
+User-area search roots:
+
+- `%USERPROFILE%\Downloads`
+- `%USERPROFILE%\Documents`
+- `%USERPROFILE%\Documents\Codex`
+
+Search patterns included:
+
+- `rogue5.4.4*`
+- `rogue-5.4.4*`
+- `rogue54*`
+- `rogueforge*`
+- `rogue-5.4*`
+- `rogue*.zip`
+- `rogue*.tar`
+- `rogue*.tar.gz`
+- `rogue*.tgz`
+- `rogue*.gz`
+- `rogue*.bz2`
+- `rogue*.xz`
+
+Result:
+
+- No pristine Rogue 5.4.4 / rogueforge distribution archive was found.
+- `work\rogue-local.tar` was found, but it is a temporary tar created
+  from the local tree during this investigation and is not an upstream
+  distribution artifact.
+- `rogue54.sln` and `rogue54.vcproj` were found in the local tree, but
+  they are Visual Studio project files, not source archives.
+
+Because no pristine distribution archive was found, a file-by-file
+upstream comparison could not be completed.
+
+## Local Modification Classification
+
+No pristine upstream tree was found, so these classifications are based
+on local evidence only.
+
+Suspected local modifications:
+
+- `io.c`: differs from `io.c.orig` by 165 added lines and 15 removed
+  lines; contains `/tmp/rogue_log.txt`, `log_status()`, and
+  `log_inventory()`.
+- `command.c`: calls `log_inventory()` and `log_status()`.
+- `main.c`: removes `/tmp/rogue_log.txt` at startup and reads `SEED`
+  in wizard mode.
+- `rip.c`: writes `DEAD reason=...` to `/tmp/rogue_log.txt`.
+- `rogue.h`: differs from `rogue.h.org` by 37 added lines; contains
+  logging declarations and hook-related additions.
+- `%USERPROFILE%\Downloads\extern.h`: loose fragment with
+  `MAXLINES 64` and `MAXCOLS 160`.
+
+Generated files or build artifacts:
+
+- `configure`
+- `config.guess`
+- `config.sub`
+- `config.h.in`
+- `install-sh`
+- `rogue` binary
+- `rogue.html.in`
+- `rogue.cat.in`
+
+Unknown provenance:
+
+- `rogue_controller.py`
+- `rogue_log_viewer.py`
+- `rogue_map_viewer.py`
+- `draw_rogue_log.py`
+- `rogue_log.txt`
+- `io.BAK`
+- `rogue.BAK`
+- loose top-level C fragments under `%USERPROFILE%\Downloads`
+
 ## Berkeley Rogue 4.22 Question
 
 The current evidence does not prove that a standalone game version named
@@ -48,6 +174,8 @@ What is not confirmed:
 - a standalone Rogue 4.22 distribution archive;
 - license text for a standalone Rogue 4.22 distribution;
 - a complete source tree matching prior 4K / 64x160 work.
+- whether earlier notes saying `Rogue v4.22` came from a game version
+  display or from a human reading the `main.c` tag as a version.
 
 Current conclusion:
 
