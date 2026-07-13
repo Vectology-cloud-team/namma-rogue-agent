@@ -24,6 +24,7 @@ from .observations import (
     EpisodeMemory,
     PrivilegedDebugState,
 )
+from .orchestrator import EpisodeResult, RuntimeErrorInfo, RuntimeOrchestrator
 from .provider import (
     DecisionProvider,
     DecisionRequest,
@@ -56,6 +57,7 @@ __all__ = [
     "DomainTerminalStatus",
     "EpisodeMemory",
     "EpisodeOutcome",
+    "EpisodeResult",
     "ExecutedAction",
     "InMemoryReplayStore",
     "InvalidStateTransition",
@@ -66,6 +68,8 @@ __all__ = [
     "ReplayRecorder",
     "RequestedAction",
     "RuntimeContractError",
+    "RuntimeErrorInfo",
+    "RuntimeOrchestrator",
     "RuntimeState",
     "RuntimeStateMachine",
     "ValidatedAction",
