@@ -1,6 +1,7 @@
 """Rogue native backend Protocol.
 
 The Protocol hides future native transport choices from RuntimeOrchestrator.
+Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations

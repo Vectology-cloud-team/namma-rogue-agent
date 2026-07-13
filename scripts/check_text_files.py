@@ -13,7 +13,15 @@ from pathlib import Path
 
 
 TARGET_EXTENSIONS = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cxx",
     ".cfg",
+    ".h",
+    ".hh",
+    ".hpp",
+    ".hxx",
     ".ini",
     ".json",
     ".md",
@@ -29,6 +37,10 @@ DEFAULT_MAX_LINE_LENGTH = 500
 PYTHON_SUSPICIOUS_LINE_COUNT = 4
 PYTHON_SUSPICIOUS_MIN_BYTES = 300
 PYTHON_SUSPICIOUS_BYTES_PER_LINE = 250
+PYTHON_MIN_LINES_FOR_LARGE_FILE = 10
+PYTHON_LARGE_FILE_BYTES = 1000
+C_MIN_LINES_FOR_LARGE_FILE = 20
+C_LARGE_FILE_BYTES = 1000
 BIDI_CODEPOINTS = {
     0x061C,
     0x200E,
@@ -46,7 +58,19 @@ BIDI_CODEPOINTS = {
 IMPORT_STATEMENT_RE = re.compile(
     r"(?<!\w)(?:import\s+[A-Za-z_][\w.]*|from\s+[A-Za-z_][\w.]*\s+import\s+\S+)"
 )
+FROM_IMPORT_STATEMENT_RE = re.compile(
+    r"(?<!\w)from\s+[A-Za-z_][\w.]*\s+import\s+\S+"
+)
 CLASS_OR_DEF_RE = re.compile(r"(?<!\w)(?:class|def)\s+[A-Za-z_]\w*")
+DOCSTRING_END_THEN_CODE_RE = re.compile(
+    r"(?:\"\"\"|''')\s*(?:from\s+[A-Za-z_][\w.]*\s+import|import\s+[A-Za-z_][\w.]*|class\s+[A-Za-z_]\w*)"
+)
+C_PREPROCESSOR_RE = re.compile(r"#\s*(?:ifndef|define|include)\b")
+C_DEFINE_RE = re.compile(r"#\s*define\b")
+C_TYPEDEF_RE = re.compile(r"\btypedef\b")
+C_FUNCTION_PROTOTYPE_RE = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_\s\*]*\s+[A-Za-z_][A-Za-z0-9_]*\s*\([^;{}]*\)\s*;"
+)
 
 
 @dataclass(frozen=True)
@@ -105,8 +129,29 @@ def check_python_line(label: str, line_number: int, text: str) -> list[str]:
     errors: list[str] = []
     if len(IMPORT_STATEMENT_RE.findall(text)) > 1:
         errors.append(f"{label}:{line_number}: multiple Python import statements on one line")
+    if len(FROM_IMPORT_STATEMENT_RE.findall(text)) > 1:
+        errors.append(f"{label}:{line_number}: multiple Python from-import statements on one line")
     if len(CLASS_OR_DEF_RE.findall(text)) > 1:
         errors.append(f"{label}:{line_number}: multiple Python class/def blocks on one line")
+    if "cl" "ass " in text and "de" "f " in text:
+        errors.append(
+            f"{label}:{line_number}: Python class/function collision on one line"
+        )
+    if DOCSTRING_END_THEN_CODE_RE.search(text):
+        errors.append(f"{label}:{line_number}: Python docstring closes before code on same line")
+    return errors
+
+
+def check_c_like_line(label: str, line_number: int, text: str) -> list[str]:
+    errors: list[str] = []
+    if len(C_DEFINE_RE.findall(text)) > 1:
+        errors.append(f"{label}:{line_number}: multiple C #define directives on one line")
+    if len(C_PREPROCESSOR_RE.findall(text)) > 1:
+        errors.append(f"{label}:{line_number}: multiple C preprocessor directives on one line")
+    if len(C_TYPEDEF_RE.findall(text)) > 1:
+        errors.append(f"{label}:{line_number}: multiple C typedefs on one line")
+    if len(C_FUNCTION_PROTOTYPE_RE.findall(text)) > 1:
+        errors.append(f"{label}:{line_number}: multiple C function prototypes on one line")
     return errors
 
 
@@ -130,6 +175,11 @@ def check_bytes(
 
     raw_lines = data.splitlines()
     suffix = Path(label.split(":", 1)[-1]).suffix.lower()
+    if suffix == ".py" and len(data) >= PYTHON_LARGE_FILE_BYTES and len(raw_lines) < PYTHON_MIN_LINES_FOR_LARGE_FILE:
+        errors.append(
+            f"{label}: Python file has only {len(raw_lines)} physical lines "
+            f"for {len(data)} bytes"
+        )
     if (
         suffix == ".py"
         and len(raw_lines) <= PYTHON_SUSPICIOUS_LINE_COUNT
@@ -148,6 +198,15 @@ def check_bytes(
         errors.append(
             f"{label}: Python file averages {len(data) // len(raw_lines)} "
             f"bytes per physical line across {len(raw_lines)} lines"
+        )
+    if (
+        suffix in {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
+        and len(data) >= C_LARGE_FILE_BYTES
+        and len(raw_lines) < C_MIN_LINES_FOR_LARGE_FILE
+    ):
+        errors.append(
+            f"{label}: C-like file has only {len(raw_lines)} physical lines "
+            f"for {len(data)} bytes"
         )
 
     for line_number, raw_line in enumerate(raw_lines, start=1):
@@ -170,6 +229,8 @@ def check_bytes(
             )
         if suffix == ".py":
             errors.extend(check_python_line(label, line_number, text))
+        if suffix in {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}:
+            errors.extend(check_c_like_line(label, line_number, text))
 
     if not text_data and data:
         errors.append(f"{label}: empty decoded text from non-empty data")

@@ -119,6 +119,22 @@ PR #8 review-fix notes:
 - Native pointer lifetimes and `struct_size` initialization rules are
   documented in the header and ABI document.
 
+Final PR #8 physical-line review notes:
+
+- Local `git show HEAD:<path>` byte inspection did not reproduce the
+  GitHub-reported collapsed line counts. The reported 5-line, 2-line,
+  10-line, and 1-line blobs were not present in local HEAD.
+- The actionable local root cause was checker coverage: `.h`, `.c`, and
+  `.cpp` files were not text-check targets, and Python collapsed-line checks
+  were too permissive for large files with fewer than 10 physical lines.
+- `scripts/check_text_files.py` now checks C-like sources, low-line large
+  Python files, low-line large C-like files, multi-directive C lines,
+  multi-import Python lines, class/def collisions, and docstring-code
+  collisions.
+- A regression test now commits a collapsed blob, rewrites the worktree to a
+  normal source file, and verifies `--git-ref HEAD` still reads the committed
+  collapsed blob rather than the worktree.
+
 Next command:
 
 ```powershell

@@ -1,4 +1,7 @@
-"""Tests for the Phase 8 fake Rogue native backend."""
+"""Tests for the Phase 8 fake Rogue native backend.
+
+Committed blob line counts are guarded by scripts/check_text_files.py.
+"""
 
 from __future__ import annotations
 

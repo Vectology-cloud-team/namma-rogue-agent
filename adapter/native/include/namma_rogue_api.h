@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Committed blob line counts are guarded by scripts/check_text_files.py. */
+
 #ifdef __cplusplus
 extern "C" {
 #endif

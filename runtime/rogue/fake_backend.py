@@ -2,6 +2,7 @@
 
 This backend is deliberately Rogue-shaped but is not a replacement for the
 Phase 7 generic fake domain or a connection to real Rogue C code.
+Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations

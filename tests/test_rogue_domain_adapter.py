@@ -1,4 +1,7 @@
-"""Tests for the Runtime -> RogueDomainAdapter -> fake backend path."""
+"""Tests for the Runtime -> RogueDomainAdapter -> fake backend path.
+
+Committed blob line counts are guarded by scripts/check_text_files.py.
+"""
 
 from __future__ import annotations
 

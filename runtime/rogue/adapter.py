@@ -2,6 +2,7 @@
 
 The adapter translates between Runtime common models and Rogue-specific
 backend models. Phase 8 uses only FakeRogueNativeBackend.
+Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations

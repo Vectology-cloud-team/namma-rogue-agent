@@ -1,4 +1,7 @@
-"""Text-level checks for the Phase 8 native ABI specification header."""
+"""Text-level checks for the Phase 8 native ABI specification header.
+
+Committed blob line counts are guarded by scripts/check_text_files.py.
+"""
 
 from __future__ import annotations
 

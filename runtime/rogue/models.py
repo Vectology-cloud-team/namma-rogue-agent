@@ -5,6 +5,7 @@ internals, curses types, or Python objects through the future C ABI.
 
 The default source identity is scoped to Phase 8 fake-backend tests. Real
 native backends must report source identity from build metadata.
+Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations

@@ -73,6 +73,16 @@ class TextFileCheckTests(unittest.TestCase):
             any("Python file has only 1 physical lines" in error for error in errors)
         )
 
+    def test_large_python_under_ten_lines_fails(self):
+        collapsed = "\n".join(
+            " ".join(f"def f{line}_{part}(): return {part};" for part in range(8))
+            for line in range(9)
+        )
+        errors = self.errors_for("runtime/rogue/collapsed9.py", collapsed)
+        self.assertTrue(
+            any("Python file has only 9 physical lines" in error for error in errors)
+        )
+
     def test_four_line_large_python_fails_density_check(self):
         collapsed_lines = [
             " ".join(f"def f{index}_{part}(): return {part};" for part in range(20))
@@ -93,13 +103,75 @@ class TextFileCheckTests(unittest.TestCase):
             any("multiple Python import statements" in error for error in errors)
         )
 
+    def test_multiple_from_imports_are_detected(self):
+        bad_source = (
+            "from os import path "
+            "from sys import argv\n"
+        )
+        errors = self.errors_for("bad.py", bad_source)
+        self.assertTrue(
+            any("multiple Python from-import statements" in error for error in errors)
+        )
+
+    def test_class_and_def_on_same_line_are_detected(self):
+        bad_source = (
+            "class A: pass "
+            "def f(): return None\n"
+        )
+        errors = self.errors_for("bad.py", bad_source)
+        expected = "class/function collision"
+        self.assertTrue(any(expected in error for error in errors))
+
+    def test_docstring_closing_before_import_is_detected(self):
+        bad_source = (
+            '"""module docs""" '
+            "import os\n"
+        )
+        errors = self.errors_for("bad.py", bad_source)
+        self.assertTrue(
+            any("docstring closes before code on same line" in error for error in errors)
+        )
+
     def test_normal_python_passes(self):
         text = "import os\n\n\ndef main():\n    return os.name\n"
         self.assertEqual([], self.errors_for("good.py", text))
 
+    def test_large_header_under_twenty_lines_fails(self):
+        collapsed = "\n".join(
+            " ".join(f"#define VALUE_{line}_{part} {part}" for part in range(8))
+            for line in range(10)
+        )
+        errors = self.errors_for("adapter/native/include/collapsed.h", collapsed)
+        self.assertTrue(
+            any("C-like file has only 10 physical lines" in error for error in errors)
+        )
+
+    def test_c_preprocessor_and_typedef_collisions_are_detected(self):
+        source = (
+            "#ifndef A #define A #include <stdint.h>\n"
+            "#define A 1 #define B 2\n"
+            "typedef uint32_t a_t; typedef uint32_t b_t;\n"
+            "int a(void); int b(void);\n"
+        )
+        errors = self.errors_for("adapter/native/include/bad.h", source)
+        self.assertTrue(any("multiple C preprocessor directives" in error for error in errors))
+        self.assertTrue(any("multiple C #define directives" in error for error in errors))
+        self.assertTrue(any("multiple C typedefs" in error for error in errors))
+        self.assertTrue(any("multiple C function prototypes" in error for error in errors))
+
     def test_runtime_rogue_and_tests_paths_are_text_targets(self):
         self.assertTrue(check_text_files.target_text_path("runtime/rogue/adapter.py"))
         self.assertTrue(check_text_files.target_text_path("tests/test_rogue_domain_adapter.py"))
+        self.assertTrue(
+            check_text_files.target_text_path(
+                "adapter/native/include/namma_rogue_api.h"
+            )
+        )
+        self.assertTrue(
+            check_text_files.target_text_path(
+                "tests/native/test_namma_rogue_api_layout.c"
+            )
+        )
         self.assertIsNone(check_text_files.allowlist_reason("runtime/rogue/adapter.py"))
         self.assertIsNone(
             check_text_files.allowlist_reason("tests/test_rogue_domain_adapter.py")
@@ -209,6 +281,58 @@ class TextFileCheckTests(unittest.TestCase):
         self.assertTrue(
             any("Python file has only 1 physical lines" in error for error in errors)
         )
+
+    @unittest.skipIf(shutil.which("git") is None, "git is not available")
+    def test_git_blob_mode_reads_committed_blob_not_worktree(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            with chdir(repo):
+                subprocess.run(["git", "init"], check=True, stdout=subprocess.PIPE)
+                subprocess.run(
+                    ["git", "config", "core.autocrlf", "false"],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
+                Path("runtime/rogue").mkdir(parents=True)
+                collapsed = " ".join(
+                    f"def committed_{index}(): return {index};"
+                    for index in range(50)
+                )
+                target = Path("runtime/rogue/adapter.py")
+                target.write_text(collapsed + "\n", encoding="utf-8", newline="\n")
+                subprocess.run(["git", "add", str(target)], check=True)
+                subprocess.run(
+                    [
+                        "git",
+                        "-c",
+                        "user.email=test@example.com",
+                        "-c",
+                        "user.name=Test",
+                        "commit",
+                        "-m",
+                        "collapsed blob",
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
+                target.write_text(
+                    "def normal():\n    return 1\n",
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    blob_errors = check_text_files.check_files(
+                        check_text_files.git_ref_text_files("HEAD"),
+                        check_text_files.DEFAULT_MAX_LINE_LENGTH,
+                    )
+                    worktree_errors = check_text_files.check_files(
+                        check_text_files.worktree_text_files(),
+                        check_text_files.DEFAULT_MAX_LINE_LENGTH,
+                    )
+        self.assertTrue(
+            any("Python file has only 1 physical lines" in error for error in blob_errors)
+        )
+        self.assertEqual([], worktree_errors)
 
     @unittest.skipIf(shutil.which("git") is None, "git is not available")
     def test_git_blob_mode_detects_concatenated_python_in_tests_path(self):
