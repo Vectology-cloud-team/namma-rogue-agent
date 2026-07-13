@@ -215,20 +215,20 @@ def git_ref_text_files(ref: str) -> list[TextFile]:
     return files
 
 
-def check_files(files: list[TextFile], max_line_length: int) -> list[str]:
+def check_files(files: list[TextFile], allowed_max_line_length: int) -> list[str]:
     errors: list[str] = []
     for text_file in files:
         raw_lines = text_file.data.splitlines()
-        max_length = max((line_length(line) for line in raw_lines), default=0)
+        observed_max_length = max((line_length(line) for line in raw_lines), default=0)
         print(
             f"{text_file.path}: lines={len(raw_lines)} "
-            f"max_line_length={max_length}"
+            f"max_line_length={observed_max_length}"
         )
         errors.extend(
             check_bytes(
                 text_file.path,
                 text_file.data,
-                max_line_length=max_line_length,
+                max_line_length=allowed_max_line_length,
             )
         )
     return errors
