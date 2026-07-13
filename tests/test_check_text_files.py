@@ -34,7 +34,11 @@ class TextFileCheckTests(unittest.TestCase):
         return check_text_files.check_bytes(label, data)
 
     def test_concatenated_python_imports_are_detected(self):
-        errors = self.errors_for("bad.py", "import os import sys\n")
+        bad_source = (
+            "import os "
+            "import sys\n"
+        )
+        errors = self.errors_for("bad.py", bad_source)
         self.assertTrue(
             any("multiple Python import statements" in error for error in errors)
         )
@@ -66,8 +70,12 @@ class TextFileCheckTests(unittest.TestCase):
                     check=True,
                     stdout=subprocess.PIPE,
                 )
+                bad_source = (
+                    "import os "
+                    "import sys\n"
+                )
                 Path("bad.py").write_text(
-                    "import os import sys\n",
+                    bad_source,
                     encoding="utf-8",
                     newline="\n",
                 )
