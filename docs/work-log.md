@@ -42,3 +42,59 @@ Open items:
 - Re-review PR #7 after the new commit is pushed.
 - Keep RogueDomainAdapter, Rogue headless work, Local AI, and NaMMA deferred
   until Phase 7 review is complete.
+
+## Phase 8 Rogue Domain Adapter Boundary
+
+Status:
+
+- Started from `main` after PR #7 merge.
+- Branch: `feature/rogue-domain-adapter-boundary`.
+- Scope is RogueDomainAdapter boundary, Native ABI specification, and fake
+  native backend tests only.
+- Rogue 5.4.4 pristine and patched game code must remain unchanged in this
+  phase.
+- Real native loading, real reset, real step, curses removal, Local AI, NaMMA,
+  and 64x160 work remain deferred.
+
+Initial validation before Phase 8 edits:
+
+- `python -m unittest discover -s tests -p "test_*.py"`: 50 tests passed,
+  2 skipped.
+- `python scripts/check_text_files.py`: passed.
+- `python scripts/check_markdown.py`: passed.
+- `git status`: clean on the new Phase 8 branch.
+
+Read before starting:
+
+- `AGENTS.md`
+- `docs/work-log.md`
+- `docs/runtime-architecture.md`
+- `docs/initial-runtime-profile.md`
+- `docs/runtime-contract.md`
+- `docs/runtime-replay-level1.md`
+- `docs/phase7-implementation.md`
+- `runtime/README.md`
+- Phase 7 runtime implementation and tests.
+- Rogue 5.4.4 pristine and patched source trees.
+- `patches/0001-ncurses-compatibility.patch`.
+
+Current Phase 8 findings:
+
+- `main.c::main()` owns process startup.
+- `main.c::playit()` owns the main `while (playing) command()` loop.
+- `command.c::command()` is the first practical one-action boundary
+  candidate, but one command is not always one game turn.
+- `io.c::readchar()` and `mdport.c::md_readchar()` are the main keyboard
+  input boundary candidates.
+- `move.c::do_move()` owns semantic player movement and should not be
+  reimplemented in Python.
+- Death, victory, quit, save, and signal paths currently terminate the
+  process or block on interactive prompts.
+- RNG state is primarily the global `seed` and `RN` macro, initialized from
+  wall-clock time and PID unless controlled.
+
+Next command:
+
+```powershell
+python scripts/check_markdown.py
+```

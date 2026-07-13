@@ -115,6 +115,8 @@ Rogue relationship:
 ```text
 Rogue 5.4.4
     |
+RogueNativeBackend
+    |
 RogueDomainAdapter
     |
 Runtime Orchestrator
@@ -148,6 +150,25 @@ node graph, simulator, or hardware control surface.
 
 The Runtime Orchestrator should not inspect Domain Core internals
 directly. It should call the DomainAdapter.
+
+## Phase 8 Rogue Boundary
+
+Phase 8 inserts a Rogue-specific adapter boundary without headless Rogue
+changes:
+
+```text
+Runtime Orchestrator
+    |
+RogueDomainAdapter
+    |
+RogueNativeBackend Protocol
+    |
+FakeRogueNativeBackend
+```
+
+The fake backend proves the contract path. A future real backend may use an
+in-process C ABI, a diagnostic subprocess, or another transport hidden behind
+the same protocol. PTY control is not the primary AI-control path.
 
 ## Observation Builder
 

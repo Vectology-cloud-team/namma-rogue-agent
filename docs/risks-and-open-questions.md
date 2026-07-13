@@ -27,6 +27,10 @@
 - The chosen engine may be hard to make deterministic.
 - Curses or terminal UI coupling may make headless control expensive.
 - Screen scraping can be brittle and should not be the primary interface.
+- The future Rogue native backend must contain `exit()`, signal, save, death,
+  and victory paths before in-process reset and step are safe.
+- Rogue global state and static command state may make multi-episode
+  in-process execution fragile unless reset coverage is explicit.
 - Local AI latency may be too high for per-turn inference.
 - Planner output may be invalid or unsafe without strict validation.
 - Replay data may be insufficient if random state is not captured.
@@ -45,8 +49,6 @@
 
 ## Open Questions
 
-- Should `patches/0001-ncurses-compatibility.patch` be accepted as the
-  initial Ubuntu 24.04 compatibility patch?
 - What clang package/version should be used for the pending clang build
   matrix entry?
 - Is the `main.c 4.22 (Berkeley) 02/05/99` evidence only a file-level
@@ -59,13 +61,17 @@
 - Should replay store full observations or hashes plus periodic snapshots?
 - What are the latency targets for mini PC local AI and NaMMA?
 - What parts of existing assets, if any, can be reused safely?
+- Should Phase 9 first split input at `readchar()` or at narrower
+  `command()` call sites?
+- Which minimal observation fields are sufficient for the first replayable
+  Rogue step test?
 
 ## Immediate Recommendation
 
-Keep the Phase 5 scope narrow until the compatibility PR is reviewed.
-Do not begin headless, reset/step, replay, Agent, NaMMA, or 64x160 work
-from this branch.
+Keep Phase 8 limited to boundary design, adapter skeleton, and fake backend
+verification. Do not begin Rogue headless work, real reset/step, Local AI,
+NaMMA, or 64x160 work from this branch.
 
 Rogueforge Rogue 5.4.4 is the fixed upstream Golden Baseline. The
-current source task is reviewing the minimal ncurses compatibility patch
-managed separately from the pristine upstream source.
+current source task is defining how the Python Runtime will cross into a
+future native Rogue backend without exposing hidden state or Rogue internals.
