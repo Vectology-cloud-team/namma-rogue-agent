@@ -1,0 +1,48 @@
+diff --git a/compat/compat_ncurses.h b/compat/compat_ncurses.h
+new file mode 100644
+index 0000000..ff272ff
+--- /dev/null
++++ b/compat/compat_ncurses.h
+@@ -0,0 +1,20 @@
++/*
++ * Minimal ncurses compatibility helpers for building Rogue 5.4.4 on modern
++ * systems where WINDOW internals are opaque.
++ */
++
++#ifndef NAMMA_COMPAT_NCURSES_H
++#define NAMMA_COMPAT_NCURSES_H
++
++#include <curses.h>
++
++static inline void
++namma_compat_move_curscr(int y, int x)
++{
++    if (curscr != NULL)
++    {
++        (void) wmove(curscr, y, x);
++    }
++}
++
++#endif
+diff --git a/main.c b/main.c
+index 5e59efd..51f77a7 100644
+--- a/main.c
++++ b/main.c
+@@ -14,6 +14,7 @@
+ #include <time.h>
+ #include <curses.h>
+ #include "rogue.h"
++#include "compat/compat_ncurses.h"
+ 
+ /*
+  * main:
+@@ -238,8 +239,7 @@ tstp(int ignored)
+     getyx(curscr, y, x);
+     mvcur(y, x, oy, ox);
+     fflush(stdout);
+-    curscr->_cury = oy;
+-    curscr->_curx = ox;
++    namma_compat_move_curscr(oy, ox);
+ }
+ 
+ /*

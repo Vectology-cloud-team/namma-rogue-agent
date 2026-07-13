@@ -42,8 +42,8 @@ Search exclusions:
 - Apparent version: Rogue 5.4.4.
 - Version evidence: `vers.c` defines `release = "5.4.4"` and
   `version[] = "rogue (rogueforge) 09/05/07"`.
-- Investigation status: current most promising investigation target,
-  but not selected.
+- Investigation status: legacy evidence tree; not the upstream Golden
+  Baseline.
 - Berkeley evidence: `main.c` contains the SCCS-style file tag
   `@(#)main.c 4.22 (Berkeley) 02/05/99`.
 - License file: `LICENSE.TXT` is present.
@@ -53,8 +53,8 @@ Search exclusions:
 - Build status: configure succeeded on Ubuntu 24.04, but `make` failed
   because `new_level.o` is listed as a target while `new_level.c` was
   not present in the local tree.
-- Baseline comparison: compared against `phs/rogue` tag `v5.4.4`,
-  exported as `phs-rogue-v5.4.4-git-archive.tar`.
+- Baseline comparison: compared against Rogueforge
+  `rogue5.4.4-src.tar.gz`.
 - Baseline result: `new_level.c` is present in the baseline and absent
   from this local tree.
 - Completeness status: `Makefile`, `MANIFEST`, `README`, `CHANGES`,
@@ -63,15 +63,14 @@ Search exclusions:
 - Amulet rule evidence: `AMULETLEVEL`, `AMULET`, `total_winner()`, and
   amulet object handling are present.
 - Curses dependency: high.
-- Reusable: possibly, after source completeness and license review.
+- Reusable: possibly, after source completeness and project approval.
 - Repository inclusion: prohibited until verified.
 
-Diff against `phs/rogue` tag `v5.4.4`:
+Diff against Rogueforge `rogue5.4.4-src.tar.gz`:
 
-- Same byte-for-byte: 2 files.
-- Same after text line-ending normalization: 47 files.
+- Same byte-for-byte: 49 files.
 - Changed content: `command.c`, `io.c`, `main.c`, `rip.c`, `rogue.h`.
-- Present only in baseline: `.gitignore`, `README.md`, `new_level.c`.
+- Present only in baseline: `new_level.c`.
 - Present only in local tree: `draw_rogue_log.py`, `io.BAK`,
   `io.c.orig`, `rogue.BAK`, `rogue.h.org`, `rogue_controller.py`.
 
@@ -86,7 +85,7 @@ Clear local project modification evidence:
 
 Classification:
 
-- Upstream unchanged: 47 files after text line-ending normalization.
+- Upstream unchanged against Rogueforge archive: 49 files byte-for-byte.
 - Local Vectology modification: logging and seed-related changes appear
   in `command.c`, `io.c`, `main.c`, `rip.c`, and `rogue.h`.
 - Generated or temporary: backup/original files and prior build output.
@@ -151,7 +150,7 @@ Classification:
 - Summary: temporary files created during source-candidate inspection.
 - Source: NetBSD `src/games/rogue` raw files.
 - Reusable: evidence only.
-- Repository inclusion: prohibited pending license review.
+- Repository inclusion: PENDING PROJECT APPROVAL.
 
 ## Berkeley Rogue 4.22 Finding
 
@@ -177,17 +176,46 @@ Current interpretation:
 
 ## Archive Search Result
 
-No pristine Rogue 5.4.4 / rogueforge archive was found in the searched
-user-area paths.
+During the earlier user-area search, no pristine Rogue 5.4.4 /
+rogueforge archive was found in the searched local paths.
 
 The only matching archive-like result was `work\rogue-local.tar`, a
 temporary tar created from `%USERPROFILE%\Downloads\rogue` during the
 investigation. It is not a pristine upstream distribution.
 
+Phase 4 later recovered the Rogueforge current archive from the
+distribution URL and confirmed it against the Wayback archive:
+
+```text
+http://rogue.rogueforge.net/files/rogue5.4/rogue5.4.4-src.tar.gz
+SHA-256: 7d37a61fc098bda0e6fac30799da347294067e8e079e4b40d6c781468e08e8a1
+```
+
 ## Preservation Rules
 
 - Do not delete local legacy assets.
-- Do not copy source into this repository until license review clears
-  it.
+- Do not copy source into this repository until project approval,
+  notice-retention policy, and compatibility-patch policy are complete.
 - Record build, provenance, and license evidence before any import.
 - Treat Python scripts and logs as private local assets until reviewed.
+
+## Reuse Policy
+
+Legacy C modifications:
+
+- Preserve as evidence.
+- Do not directly merge into the future source tree yet.
+
+Legacy Python controllers and viewers:
+
+- Reference only.
+- Do not import until provenance is confirmed.
+
+64x160 fragments:
+
+- Treat as reference specifications only.
+- Reimplement cleanly on top of the Golden Baseline if needed.
+
+Prefer reimplementing required behavior on top of the fixed Rogueforge
+Rogue 5.4.4 Golden Baseline with the new design rather than directly
+restoring historical modifications.

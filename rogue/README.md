@@ -1,7 +1,10 @@
 # Rogue Engine
 
-This directory will contain the game engine or the selected upstream Rogue source after license review.
+This directory contains the Phase 5 Rogueforge Rogue 5.4.4 source
+layout.
 
-Do not import third-party source code here until
-`docs/rogue-source-selection.md` is updated with license evidence and a
-selection decision.
+- `pristine/rogue5.4.4` is the unmodified upstream Golden Baseline.
+- `patched/rogue5.4.4` is the Ubuntu 24.04 compatibility copy.
+
+Do not edit the pristine tree. Keep modern build fixes in the patched
+tree and record them under `patches/`.
