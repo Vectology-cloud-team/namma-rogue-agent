@@ -1,83 +1,98 @@
 # Future Extension
 
-The NaMMA Runtime should be designed so future targets can be added
-without rewriting the provider interface, replay model, or state machine.
-This document records extension points and design pressure.
+The NaMMA Runtime should be designed so future domains can be added
+without rewriting Runtime Orchestrator, DecisionProvider, replay, or the
+state machine. Phase 7 will still implement only the Rogue single-actor
+profile.
 
-## Extension Targets
+## Future Domain Candidates
 
-Multi Agent:
+Future candidates may include:
 
-- Multiple planners or actors in one episode.
-- Shared or separate episode memories.
-- Conflict resolution and action arbitration.
+- NetHack,
+- Minecraft,
+- ROS2,
+- robots,
+- Accuvision,
+- simulators,
+- distributed runtime,
+- cloud provider,
+- training.
 
-Multi Game:
+These are not Phase 7 implementation targets.
 
-- Rogue, NetHack, Minecraft, and future game adapters.
-- Domain-specific observations mapped into a common runtime envelope.
+## Domain Adapter Families
 
-Remote Runtime:
+Future domains should enter through DomainAdapter implementations:
 
-- Game Core or simulator runs on another machine.
-- Runtime keeps the same provider and replay boundary.
+- `GameDomainAdapter`,
+- `RobotDomainAdapter`,
+- `DeviceDomainAdapter`,
+- `SimulatorDomainAdapter`.
 
-Cloud Provider:
-
-- LLM or planning provider runs outside the local machine.
-- Provider interface should remain the same as local providers.
-
-FPGA Runtime:
-
-- NaMMA or other FPGA components provide planning or acceleration.
-- Transport details remain below provider capability negotiation.
-
-Simulation:
-
-- ROS2, robot simulators, or hardware-in-the-loop environments.
-- Real-time and simulated-time policies must be explicit.
-
-Training:
-
-- High-volume episode execution.
-- Dataset extraction.
-- Offline provider comparison.
+The runtime should not use provider terminology for these boundaries.
 
 ## Extension Architecture
 
 ```mermaid
 flowchart TD
-    RT["NaMMA Runtime"]
-    AD["Domain Adapter"]
-    GP["Game Provider"]
-    RP["Robot Provider"]
-    DP["Device Provider"]
-    PP["Planning Provider"]
-    RE["Replay Store"]
+    ORCH["Runtime Orchestrator"]
+    ADAPT["DomainAdapter"]
+    ROGUE["RogueDomainAdapter"]
+    ROBOT["RobotDomainAdapter"]
+    DEVICE["DeviceDomainAdapter"]
+    SIM["SimulatorDomainAdapter"]
+    DEC["DecisionProvider"]
+    REPLAY["Replay Recorder / Replay Store"]
 
-    RT --> AD
-    AD --> GP
-    AD --> RP
-    AD --> DP
-    RT --> PP
-    RT --> RE
+    ORCH --> ADAPT
+    ADAPT --> ROGUE
+    ADAPT --> ROBOT
+    ADAPT --> DEVICE
+    ADAPT --> SIM
+    ORCH --> DEC
+    ORCH -. emits events .-> REPLAY
 ```
 
-Domain adapters should absorb target-specific details. The runtime
-should keep a stable control envelope around observations, actions,
-providers, replay, errors, and timing.
+## Future DecisionProvider Candidates
+
+Future decision implementations may include:
+
+- richer LLM providers,
+- NaMMA hardware transports,
+- cloud-hosted planners,
+- recorded decision playback,
+- rule-based baselines.
+
+They should still satisfy the DecisionProvider interface.
+
+## Not Required In Phase 7
+
+Phase 7 should not require these capabilities:
+
+- multi-agent,
+- streaming DecisionProvider responses,
+- batch DecisionProvider calls,
+- continuous action,
+- real-time guarantees,
+- distributed execution,
+- cloud provider support,
+- training pipeline support.
+
+They may remain future extension points.
 
 ## Stable Design Points
 
 These should be hard to change after implementation starts:
 
-- separation of Game State, Observation, Debug State, and Episode
-  Memory,
-- provider request and response envelope,
-- runtime state machine,
-- replay metadata and seed identity,
-- error category vocabulary,
-- transport independence for NaMMA.
+- separation of DomainState, AgentObservation, PrivilegedDebugState, and
+  EpisodeMemory,
+- Runtime Orchestrator ownership of episode progression,
+- DomainAdapter boundary,
+- DecisionProvider request and response envelope,
+- replay responsibility split,
+- RuntimeState and EpisodeOutcome separation,
+- Determinism Context identity.
 
 ## Flexible Design Points
 
@@ -86,40 +101,15 @@ These should remain easy to change:
 - observation payload format,
 - replay binary format,
 - compression method,
-- provider transport,
-- provider model names,
+- NaMMA transport,
+- DecisionProvider model names,
 - snapshot interval,
-- performance counters,
-- domain-specific action details.
-
-## Extension Risks
-
-- A Rogue-specific observation schema could make NetHack or robots hard
-  to support.
-- Transport-specific NaMMA assumptions could make Ethernet and OCuLink
-  diverge.
-- Replay designed only for games may fail for real devices.
-- Hidden debug state can accidentally become training data or provider
-  input if not separated early.
-- Multi-agent arbitration may require action model changes.
-
-## Future Work Not In Phase 6
-
-- Implementation of runtime classes or services.
-- Headless Rogue API.
-- `reset` or `step`.
-- Replay file format.
-- Observation schema implementation.
-- Provider client implementation.
-- NaMMA transport implementation.
-- GUI or viewer.
-- 64x160 display support.
-- Training pipeline.
+- future capabilities.
 
 ## Extension Open Questions
 
-- Should multi-agent support be part of the first runtime schema?
-- Should remote runtimes use the same replay writer or a replicated one?
+- Should multi-agent support be a separate runtime profile?
+- Should remote runtimes use one replay writer or replicated writers?
 - How should simulated time and wall-clock time be represented?
 - What is the minimum shared interface for robots and games?
 - Should hardware capability discovery be pull-based or push-based?

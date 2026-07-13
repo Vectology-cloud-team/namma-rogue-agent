@@ -1,65 +1,65 @@
 # Observation Model
 
-Observation is the agent-facing view of the current episode state. It is
-not the same as the full game or device state, and it is not the same as
-the agent's memory.
+Observation is the DecisionProvider-facing view of the current episode
+state. It is not the same as the full domain state and it is not the
+same as the agent's memory.
 
 This document is design only. It does not implement observation
 generation or schemas.
 
-## Core Definitions
+## Core Boundaries
 
-Game State:
+`DomainState`:
 
-- Authoritative internal state owned by the Game Core or device adapter.
-- May include hidden traps, unseen enemies, RNG state, private flags,
-  simulator internals, or hardware state.
-- Not sent to normal providers.
+- authoritative state exposed by the DomainAdapter,
+- derived from Domain Core internals,
+- may include information that is not visible to the actor,
+- never sent directly to normal DecisionProviders.
 
-Observation:
+`AgentObservation`:
 
-- Current agent-facing view produced by the Observation Builder.
-- Contains only information available under the runtime visibility
-  rules.
-- May include legal action summaries that do not reveal hidden state.
+- redacted current view built by the Observation Builder,
+- contains information available under visibility rules,
+- is the normal input to Human, RuleBased, LLM, and NaMMA
+  DecisionProviders.
 
-Debug State:
+`PrivilegedDebugState`:
 
-- Privileged diagnostic view used for tests, replay validation, and
-  debugging.
-- May include complete internal state.
-- Not sent to Human, Rule Based, LLM, NaMMA, or Replay providers during
-  normal operation.
+- diagnostic view for tests, invariant checks, and replay verification,
+- may include complete domain internals,
+- never sent to normal Human, RuleBased, LLM, or NaMMA
+  DecisionProviders.
 
-Episode Memory:
+`EpisodeMemory`:
 
-- Agent-owned remembered context built from past observations and action
-  results.
-- Not authoritative game state.
-- May be stale or wrong.
+- agent-side remembered context,
+- built from AgentObservation and ActionResult history,
+- may be stale or incomplete,
+- is not authoritative domain state.
 
-## Observation Boundary
+## Observation Boundary Diagram
 
 ```mermaid
 flowchart LR
-    GS["Game State"]
+    AD["DomainAdapter"]
+    DS["DomainState"]
     OB["Observation Builder"]
     AO["AgentObservation"]
-    DS["PrivilegedDebugState"]
-    EM["Episode Memory"]
-    PR["Provider"]
+    PD["PrivilegedDebugState"]
+    EM["EpisodeMemory"]
+    DP["DecisionProvider"]
 
-    GS --> OB
+    AD --> DS
+    DS --> OB
     OB --> AO
-    OB --> DS
+    OB --> PD
     AO --> EM
-    AO --> PR
-    EM --> PR
-    DS -. debug only .-> EM
+    AO --> DP
+    EM --> DP
+    PD -. tests and replay verification only .-> OB
 ```
 
-The dotted path is not allowed for normal operation. Debug state may be
-used by tests and replay tooling, but not by normal planning providers.
+The dotted debug path is not a normal planning path.
 
 ## AgentObservation Content
 
@@ -70,7 +70,7 @@ Common fields:
 - turn,
 - runtime state,
 - objective or task phase,
-- visible world or device state,
+- visible domain state,
 - actor state,
 - inventory or resources when applicable,
 - equipment or attached tools when applicable,
@@ -79,14 +79,16 @@ Common fields:
 - terminal status,
 - timing budget.
 
-For Rogue, visible world state later maps to visible map cells,
+For Rogue, visible domain state later maps to visible map cells,
 monsters, items, player state, inventory, equipment, messages, and
-observable legal actions. For other domains, the same concept may map to
-sensor readings, simulator state, robot joint status, or device telemetry.
+observable legal actions.
+
+For robots or devices, the same concept may map to sensor readings,
+simulator state, joint status, actuator status, or device telemetry.
 
 ## Hidden Information Rules
 
-Observation must not reveal:
+AgentObservation must not reveal:
 
 - unseen map topology,
 - hidden traps,
@@ -94,7 +96,7 @@ Observation must not reveal:
 - unseen enemies,
 - future random outcomes,
 - exact hidden item identity,
-- full simulator state,
+- full simulator internals,
 - hardware debug state,
 - provider-private diagnostics.
 
@@ -107,10 +109,10 @@ Observable legal actions must be generated from:
 - schema rules.
 
 It is acceptable for an action to fail after execution. The failure
-should appear in `ActionResult`, not as hidden information leaked before
+belongs in `ActionResult`, not in hidden information leaked before
 execution.
 
-## Episode Memory Content
+## EpisodeMemory Content
 
 Example memory fields:
 
@@ -125,23 +127,7 @@ Example memory fields:
 - loop history,
 - provider notes.
 
-Episode Memory is owned by the agent side of the runtime. It is not
-owned by the Game Core or Environment.
-
-## Debug State Content
-
-Debug state may include:
-
-- complete map or simulator state,
-- hidden entities,
-- raw RNG state,
-- exact object identities,
-- internal device flags,
-- invariant check results,
-- checksums.
-
-Debug state must be labeled and access-controlled at the runtime level.
-It may be recorded in diagnostic replay if configured.
+EpisodeMemory is owned by the agent side of the runtime.
 
 ## Observation Open Questions
 
@@ -150,4 +136,4 @@ It may be recorded in diagnostic replay if configured.
 - Whether observations should be canonical JSON.
 - Whether compact summaries and full observations share one schema.
 - How to represent real robot sensor uncertainty.
-- How much memory should be included in provider requests.
+- How much EpisodeMemory should be sent by default.

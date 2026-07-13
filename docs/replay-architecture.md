@@ -1,138 +1,131 @@
 # Replay Architecture
 
 Replay records are evidence for reproducibility, debugging, evaluation,
-and comparison. This document defines what replay may store; it does not
-implement replay code or a file format.
+and comparison. This document is design only. It does not implement
+replay code or choose a file format.
 
-## Replay Goals
+## Three Replay Responsibilities
 
-- Reproduce deterministic episodes when possible.
-- Compare provider behavior across versions.
-- Debug failures without exposing hidden state to normal agents.
-- Support game, simulation, and device targets.
-- Keep storage levels configurable.
+Replay must be separated into three responsibilities.
 
-## Replay Data Candidates
+### Replay Recorder / Replay Store
 
-| Data | Benefit | Cost | Reproducibility | Typical Size |
-| --- | --- | --- | --- | --- |
-| Input Sequence | Small and close to control boundary. | Needs exact runtime and seed. | High if deterministic. | Low |
-| Observation Sequence | Easy to inspect and compare. | May not reproduce hidden state. | Medium. | Medium |
-| State Snapshot | Strong debugging evidence. | May expose hidden or private state. | High for diagnostics. | High |
-| Deterministic Seed | Compact reproducibility anchor. | Not enough without actions. | High only with exact runtime. | Very low |
-| Episode Metadata | Explains context and versions. | Not executable alone. | Supportive. | Low |
+Responsibilities:
 
-## Recommended Replay Levels
+- record episode events,
+- read stored episode events,
+- maintain replay indexes,
+- maintain checksums,
+- expose replay evidence to tools.
+
+Replay Recorder and Replay Store are not DecisionProviders.
+
+### RecordedDecisionProvider
+
+Responsibilities:
+
+- return saved decision results,
+- behave as one DecisionProvider implementation,
+- support comparison against live Human, RuleBased, LLM, or NaMMA
+  decisions.
+
+`RecordedDecisionProvider` does not replay the domain by itself.
+
+### Runtime Replay Mode
+
+Responsibilities:
+
+- re-run a domain using seed and ExecutedAction sequence,
+- compare checksums,
+- compare ActionResult values,
+- compare terminal outcome,
+- report the first divergence.
+
+Runtime Replay Mode is not a DecisionProvider.
+
+Replay storage and Runtime Replay Mode should not be described as
+providers.
+
+## Replay Levels
 
 Level 0: Metadata Only
 
-- Episode metadata.
-- Seeds.
-- Runtime version.
-- Terminal result.
-
-Use for high-volume statistics.
+- episode metadata,
+- runtime version,
+- terminal outcome,
+- turn count.
 
 Level 1: Deterministic Replay
 
-- Metadata.
-- Seeds.
-- Input or executed action sequence.
-- Configuration hash.
-- Source or firmware identity.
+- source and build identity,
+- compatibility patch identity,
+- config hash,
+- world seed,
+- episode seed,
+- ExecutedAction sequence,
+- ActionResult values,
+- terminal outcome,
+- turn count,
+- per-turn deterministic checksum when available.
 
-Use for deterministic regression runs.
+Level 1 is the only required replay level for Phase 7.
 
 Level 2: Observation Replay
 
-- Level 1.
-- Agent observation sequence.
-- Action results.
-- Provider request and response summaries when permitted.
+- Level 1 data,
+- full AgentObservation payloads,
+- provider prompt summaries,
+- provider response summaries.
 
-Use for planner debugging and comparison.
+Level 2 is future work.
 
 Level 3: Diagnostic Replay
 
-- Level 2.
-- Periodic state snapshots.
-- Optional `PrivilegedDebugState`.
-- Checksum chain.
+- Level 2 data,
+- PrivilegedDebugState,
+- full snapshots,
+- compression,
+- binary format.
 
-Use for test failures, engine debugging, and validation tooling only.
+Level 3 is future work and may require access controls.
+
+## Replay Data Candidate Comparison
+
+| Data | Benefit | Cost | Reproducibility |
+| --- | --- | --- | --- |
+| ExecutedAction sequence | Small control boundary. | Needs exact runtime identity. | High with seeds. |
+| AgentObservation sequence | Easy to inspect. | Larger and not hidden-state complete. | Medium. |
+| PrivilegedDebugState | Strong diagnostic evidence. | Must not reach normal providers. | High for debugging. |
+| Deterministic seeds | Very compact. | Not enough without actions. | High only with actions. |
+| Episode metadata | Explains context. | Not executable alone. | Supportive. |
 
 ## Replay Record Structure
 
-Minimum logical sections:
+Minimum Level 1 sections:
 
 - episode metadata,
+- source and build identity,
+- compatibility patch identity,
+- configuration hash,
 - seed block,
-- configuration block,
-- runtime version block,
-- provider profile block,
 - turn records,
 - terminal summary,
 - checksum summary.
 
-Turn record candidates:
+Turn record fields:
 
 - turn number,
-- observation hash,
-- optional observation payload,
-- requested action,
-- validated action,
-- executed action,
-- action result,
-- provider request hash,
-- provider response hash,
-- timings,
-- errors.
-
-## Deterministic Replay
-
-Deterministic replay requires the same:
-
-- Game Core or device simulator version,
-- Deterministic Runtime version,
-- configuration,
-- world seed,
-- episode seed,
-- action sequence,
-- compatibility patches,
-- platform assumptions when relevant.
-
-If any dimension is not fixed, replay should be marked as diagnostic
-rather than deterministic.
+- ExecutedAction,
+- ActionResult,
+- deterministic checksum when available,
+- timing summary.
 
 ## Replay And Debug State
 
-`PrivilegedDebugState` may be stored in diagnostic replay, but it must
-not be included in normal provider requests or agent observations.
+`PrivilegedDebugState` may be stored only in diagnostic replay or tests.
+It must not be included in normal DecisionProvider requests.
 
-Replay readers must label privileged data clearly. A replay viewer may
-show privileged state only in debug mode.
-
-## Replay Comparison
-
-Replay comparison should support:
-
-- terminal result comparison,
-- turn count comparison,
-- observation hash comparison,
-- action sequence comparison,
-- provider latency comparison,
-- score or task metric comparison,
-- first divergence turn.
-
-## Storage Policy
-
-The replay writer should allow configurable retention:
-
-- keep all Level 3 failures,
-- keep sampled successful episodes,
-- keep aggregate metadata for all episodes,
-- drop or redact provider prompts if they contain sensitive data,
-- compress large observation or snapshot streams when a format is chosen.
+Replay readers must label privileged data clearly.
 
 ## Replay Open Questions
 
@@ -141,5 +134,4 @@ The replay writer should allow configurable retention:
 - Snapshot interval.
 - Whether observations should be canonical JSON.
 - Whether provider prompts should be stored verbatim.
-- Whether state snapshots should be encrypted or access-controlled.
 - How to replay nondeterministic hardware or real robot episodes.

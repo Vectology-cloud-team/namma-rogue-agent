@@ -1,124 +1,123 @@
 # Runtime Sequence
 
-This document describes the expected high-level runtime sequence. It is
-design only and does not implement runtime code.
+This document describes the high-level runtime sequence around
+Runtime Orchestrator, DomainAdapter, DecisionProvider, Action Executor,
+Replay Recorder, and Determinism Context. It is design only.
 
 ## Episode Sequence
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant Runtime
-    participant Env as Environment
+    participant Orchestrator
+    participant Determinism
+    participant Adapter as DomainAdapter
     participant Obs as Observation Builder
-    participant Mem as Episode Memory
-    participant Rep as Replay Recorder
-    participant Plan as Planner
-    participant Exec as Action Executor
-    participant Prov as Provider
-    participant Core as Game Core
+    participant Memory as EpisodeMemory
+    participant Planner
+    participant Provider as DecisionProvider
+    participant Executor as Action Executor
+    participant Replay as Replay Recorder
 
-    User->>Runtime: start episode
-    Runtime->>Env: initialize with seeds
-    Env->>Core: initialize domain state
-    Core-->>Env: initial game state
-    Env->>Obs: build observation
-    Obs-->>Env: AgentObservation
-    Env-->>Runtime: initial observation
-    Runtime->>Rep: record metadata and seed block
+    User->>Orchestrator: start episode
+    Orchestrator->>Determinism: allocate seeds and identity
+    Orchestrator->>Adapter: reset domain
+    Adapter-->>Orchestrator: DomainState and domain events
+    Orchestrator->>Obs: build AgentObservation
+    Obs-->>Orchestrator: AgentObservation
+    Orchestrator-->>Replay: record episode metadata
 
     loop each turn
-        Runtime->>Mem: update from observation
-        Runtime->>Plan: observation + memory
-        Plan->>Prov: provider request
-        Prov-->>Plan: provider response
-        Plan->>Exec: requested action or plan
-        Exec-->>Runtime: validated action
-        Runtime->>Env: execute action
-        Env->>Core: executed action
-        Core-->>Env: game state + events
-        Env->>Obs: build next observation
-        Obs-->>Env: AgentObservation
-        Env-->>Runtime: ActionResult + observation
-        Runtime->>Rep: record turn
+        Orchestrator->>Memory: update from observation and result
+        Orchestrator->>Planner: observation and memory
+        Planner->>Provider: DecisionRequest
+        Provider-->>Planner: DecisionResponse
+        Planner->>Executor: RequestedAction or plan
+        Executor-->>Orchestrator: ValidatedAction or rejection
+        Orchestrator->>Adapter: ExecutedAction
+        Adapter-->>Orchestrator: ActionResult and DomainState
+        Orchestrator->>Obs: build next AgentObservation
+        Obs-->>Orchestrator: AgentObservation
+        Orchestrator-->>Replay: record turn event
     end
 
-    Runtime->>Rep: record terminal summary
-    Runtime-->>User: episode summary
+    Orchestrator-->>Replay: record terminal summary
+    Orchestrator-->>User: episode summary
 ```
+
+Replay receives events from the Runtime Orchestrator. It is not in the
+middle of the action path.
 
 ## Turn Sequence
 
-One turn should have these logical phases:
+One turn has these logical phases:
 
-1. Receive current observation.
-2. Update episode memory.
-3. Build provider request.
-4. Wait for provider response or timeout.
-5. Convert provider output to requested action or plan.
-6. Validate requested action.
-7. Execute validated action.
-8. Build action result and next observation.
-9. Record replay data.
-10. Check terminal state.
+1. Receive current AgentObservation.
+2. Update EpisodeMemory.
+3. Build DecisionRequest.
+4. Wait for DecisionProvider response or timeout.
+5. Convert decision output to RequestedAction or plan.
+6. Validate RequestedAction.
+7. Submit ExecutedAction to DomainAdapter.
+8. Receive ActionResult and DomainState.
+9. Build next AgentObservation.
+10. Emit replay events.
+11. Check terminal condition and EpisodeOutcome.
 
 ## Provider Timeout Sequence
 
 ```mermaid
 sequenceDiagram
-    participant Runtime
+    participant Orchestrator
     participant Planner
-    participant Provider
+    participant DecisionProvider
     participant Executor
 
-    Runtime->>Planner: observation, memory, and budget
-    Planner->>Provider: request with timeout
-    Provider--xPlanner: timeout
-    Planner-->>Runtime: provider error
-    Runtime->>Executor: fallback policy if configured
-    Executor-->>Runtime: fallback action or no action
+    Orchestrator->>Planner: observation, memory, and budget
+    Planner->>DecisionProvider: request with timeout
+    DecisionProvider--xPlanner: timeout
+    Planner-->>Orchestrator: provider error
+    Orchestrator->>Executor: fallback policy if configured
+    Executor-->>Orchestrator: fallback action or no action
 ```
 
-Timeout handling must be explicit. The runtime should not silently reuse
-an old provider response unless that is a configured fallback policy and
-is recorded in replay.
+Timeout handling must be explicit. The runtime must never silently reuse
+stale DecisionProvider output.
 
-## Replay Sequence
+## Runtime Replay Mode Sequence
 
-Replay provider mode:
+Runtime Replay Mode is not a DecisionProvider.
 
 1. Load replay metadata.
-2. Verify runtime and configuration compatibility.
-3. Reconstruct seed plan.
-4. Feed recorded actions or provider responses through the same provider
-   interface.
-5. Compare observations, hashes, and terminal result.
-6. Report first divergence.
-
-Replay must use the same Action Executor boundary as live operation.
+2. Verify source and configuration identity.
+3. Reconstruct Determinism Context.
+4. Feed recorded ExecutedActions to the DomainAdapter.
+5. Compare ActionResult values and checksums.
+6. Compare terminal outcome.
+7. Report first divergence.
 
 ## Pause And Resume Sequence
 
 Pause:
 
-- Finish current atomic runtime operation.
-- Stop accepting new provider requests.
-- Flush replay writer.
-- Enter `PAUSED`.
+- finish current atomic runtime operation,
+- stop accepting new DecisionProvider requests,
+- flush Replay Recorder,
+- enter `PAUSED`.
 
 Resume:
 
-- Confirm provider availability if needed.
-- Re-enter `RUNNING`.
-- Continue from the next turn boundary.
+- confirm provider availability if needed,
+- re-enter `RUNNING`,
+- continue from the next turn boundary.
 
 The runtime should not pause halfway through a domain state mutation.
 
 ## Sequence Open Questions
 
 - Should provider requests be synchronous first, or should async be
-  required from the start?
-- Should replay compare every observation or only hashes by default?
-- Should the runtime allow speculative provider requests?
-- How should real robot emergency stop integrate with `PAUSED` and
-  `FAILED`?
+  added later?
+- Should replay compare every checksum by default?
+- Should the runtime allow speculative provider requests in a future
+  profile?
+- How should real robot emergency stop map to runtime state?

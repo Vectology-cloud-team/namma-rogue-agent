@@ -1,445 +1,319 @@
 # NaMMA Runtime Architecture
 
-Phase 6 defines the NaMMA Runtime as a game and device independent
-control architecture. Rogue is the first target, but the same runtime
-boundary should also support NetHack, Minecraft, ROS2, real robots, and
-Accuvision-style devices.
+Phase 6 defines the NaMMA Runtime as a domain-independent control
+architecture. Rogue is the first implementation target, but the runtime
+boundary should not block later NetHack, Minecraft, ROS2, real robot, or
+Accuvision domains.
 
-This document is design only. It does not define implementation code,
-Rogue source changes, headless APIs, `reset`, `step`, replay storage, or
-provider implementations.
+This document is design only. It does not implement runtime classes,
+Rogue changes, headless APIs, `reset`, `step`, replay code,
+DecisionProvider code, NaMMA code, or Python runtime code.
+
+## Responsibility Structure
+
+The runtime is not a straight serial chain of ten processing layers.
+The top-level owner is the `Runtime Orchestrator`, with domain,
+decision, replay, and determinism responsibilities attached around it.
+
+```text
+Runtime Orchestrator
+|-- Domain Adapter
+|   |-- Domain Core
+|   `-- Observation Builder
+|-- Episode Memory
+|-- Planner
+|   `-- Decision Provider
+|-- Action Executor
+|-- Replay Recorder / Replay Store
+`-- Determinism Context
+```
 
 ## Architecture Diagram
 
 ```mermaid
 flowchart TD
-    GC["Game Core"]
-    DR["Deterministic Runtime"]
-    ENV["Environment"]
+    ORCH["Runtime Orchestrator"]
+    DET["Determinism Context"]
+    ADAPT["DomainAdapter"]
+    CORE["Domain Core"]
     OBS["Observation Builder"]
-    MEM["Episode Memory"]
-    REP["Replay Recorder"]
+    MEM["EpisodeMemory"]
     PLAN["Planner"]
+    DEC["DecisionProvider"]
     EXEC["Action Executor"]
-    LLM["LLM Provider"]
-    NAMMA["NaMMA Provider"]
+    REPLAY["Replay Recorder / Replay Store"]
 
-    GC --> DR
-    DR --> ENV
-    ENV --> OBS
-    OBS --> MEM
-    MEM --> REP
-    REP --> PLAN
+    ORCH --> ADAPT
+    ADAPT --> CORE
+    ADAPT --> OBS
+    OBS --> ORCH
+    ORCH --> MEM
+    ORCH --> PLAN
+    PLAN --> DEC
+    DEC --> PLAN
     PLAN --> EXEC
-    EXEC --> ENV
-    PLAN --> LLM
-    PLAN --> NAMMA
-    LLM --> PLAN
-    NAMMA --> PLAN
+    EXEC --> ORCH
+    ORCH --> DET
+    ORCH -. emits events .-> REPLAY
+    ADAPT -. emits domain events .-> REPLAY
+    EXEC -. emits action events .-> REPLAY
 ```
 
-The diagram shows logical data flow. Implementations may call layers in
-a tighter loop, but responsibilities should remain separate.
+Replay is intentionally shown as a cross-cutting event recorder. It is
+not a step in the middle of the control path.
 
-## Layer Summary
+## Component Summary
 
-| Layer | Responsibility | Input | Output | Owned State |
+| Component | Responsibility | Input | Output | Owned State |
 | --- | --- | --- | --- | --- |
-| Game Core | Own domain rules and authoritative state. | Executed action, seed, config | Game state, events | Game state, RNG state |
-| Deterministic Runtime | Make execution repeatable and bounded. | Config, seed, action stream | Deterministic transition result | Seed plan, runtime counters |
-| Environment | Present a control target to agents. | Validated action, reset request | Observation, result, terminal state | Episode lifecycle |
-| Observation Builder | Convert game state into allowed views. | Game state, visibility rules | Agent observation, debug state | Observation schema version |
-| Episode Memory | Maintain agent-side remembered context. | Observation, action result | Memory summary, plan context | Known map, history, plans |
-| Replay Recorder | Persist reproducibility evidence. | Seeds, observations, actions, metadata | Replay record | Replay index, checksums |
-| Planner | Choose goals or semantic actions. | Observation, memory, provider result | Requested action or plan | Planning context |
-| Action Executor | Convert plans into executable actions. | Plan, memory, observation | Validated action | Path and retry state |
-| LLM Provider | Produce language or structured plans. | Provider request | Provider response | Provider session metadata |
-| NaMMA Provider | Produce hardware-backed plans. | Provider request | Provider response | Capability and transport state |
+| Runtime Orchestrator | Own episode progression and runtime lifecycle. | Config, control command, action result | Runtime event, decision call, episode summary | Runtime state, episode ID, turn, outcome |
+| DomainAdapter | Isolate the controlled domain from the runtime. | ExecutedAction, reset request | DomainState, domain event, terminal condition | Access to authoritative domain state |
+| Domain Core | Own domain rules and authoritative state. | Domain-specific command | Domain-specific state transition | Internal domain state |
+| Observation Builder | Redact DomainState into AgentObservation. | DomainState, visibility policy | AgentObservation, optional PrivilegedDebugState | Observation schema policy |
+| EpisodeMemory | Hold agent-side remembered context. | AgentObservation, ActionResult | Memory summary | Known map, history, plans |
+| Planner | Choose a goal, plan, or RequestedAction. | AgentObservation, EpisodeMemory | RequestedAction or plan | Planning context |
+| DecisionProvider | Provide exchangeable decisions. | DecisionRequest | DecisionResponse | DecisionProvider session state |
+| Action Executor | Validate and concretize actions. | RequestedAction, observation, memory | ValidatedAction, ExecutedAction, rejection | Path and retry state |
+| Replay Recorder / Store | Record and read runtime events. | Runtime events | Replay records | Replay index, checksums |
+| Determinism Context | Own reproducibility identity. | Seed and config inputs | Deterministic identity, checksum | Seeds, config hash, action order |
+
+## Runtime Orchestrator
 
-## Layer Definitions
+The Runtime Orchestrator owns episode progression. It is the only
+component that should own these runtime-level fields:
 
-### Game Core
+- runtime state machine,
+- episode ID,
+- turn number,
+- DecisionProvider call lifecycle,
+- timeout policy,
+- episode outcome,
+- replay event emission,
+- performance timing.
 
-Responsibility:
+It coordinates DomainAdapter reset and action application, observation
+construction, memory updates, planner calls, action execution, replay
+events, and terminal outcome decisions.
 
-- Own the authoritative domain state.
-- Apply rules for movement, combat, items, physics, devices, or robots.
-- Keep domain-specific random behavior inside the deterministic boundary.
+## DomainAdapter
+
+`DomainAdapter` is the common boundary between the runtime and the
+controlled target.
 
-Input:
+Responsibilities:
 
-- Executed action.
-- Seeded runtime context.
-- Game or device configuration.
+- domain reset,
+- application of one ExecutedAction,
+- provision of DomainState to the Observation Builder,
+- reporting of domain events,
+- reporting of terminal conditions,
+- reporting of domain capabilities,
+- isolation of Rogue, robot, simulator, or device-specific behavior.
 
-Output:
+Rogue relationship:
 
-- Updated game state.
-- Domain events.
-- Terminal condition candidates.
+```text
+Rogue 5.4.4
+    |
+RogueDomainAdapter
+    |
+Runtime Orchestrator
+```
 
-State:
+Future robot relationship:
 
-- Full internal state.
-- Random generator state.
-- Domain-only flags not visible to normal agents.
+```text
+ROS2 / Robot
+    |
+RobotDomainAdapter
+    |
+Runtime Orchestrator
+```
 
-### Deterministic Runtime
+Suggested adapter names:
 
-Responsibility:
+- `GameDomainAdapter`
+- `RobotDomainAdapter`
+- `DeviceDomainAdapter`
+- `SimulatorDomainAdapter`
 
-- Bind game execution to explicit seeds, configuration, and action order.
-- Separate pristine upstream behavior from runtime control mechanics.
-- Provide the reproducibility boundary for replay and evaluation.
+Domain adapter names should not use provider terminology. Provider is
+reserved for DecisionProvider implementations.
 
-Input:
+## Domain Core
 
-- World seed.
-- Episode seed.
-- Replay seed when replaying.
-- Runtime configuration.
-- Ordered executed actions.
+The Domain Core owns domain rules and authoritative internal state. For
+Rogue this is the Rogue 5.4.4 game logic. For a robot this may be a ROS2
+node graph, simulator, or hardware control surface.
 
-Output:
+The Runtime Orchestrator should not inspect Domain Core internals
+directly. It should call the DomainAdapter.
 
-- Deterministic transition results.
-- Runtime errors.
-- Timing and performance counters.
+## Observation Builder
 
-State:
+The Observation Builder converts `DomainState` into `AgentObservation`.
+It may also produce `PrivilegedDebugState` for tests, diagnostics, and
+replay verification.
 
-- Seed registry.
-- Turn counter.
-- Runtime state machine state.
-- Determinism checksums when available.
+`PrivilegedDebugState` must not be sent to normal Human, RuleBased, LLM,
+or NaMMA DecisionProvider calls.
 
-### Environment
+## EpisodeMemory
 
-Responsibility:
+`EpisodeMemory` is agent-side state, not an independent processing layer
+and not authoritative domain state. It is built from observations and
+action results.
 
-- Expose a control target to agents without exposing private internals.
-- Own episode start, pause, finish, failure, and timeout behavior.
-- Call the observation builder and action executor boundaries.
+Example contents:
 
-Input:
+- known map or known world model,
+- visited states,
+- known targets,
+- failed targets,
+- current plan,
+- loop history.
 
-- Validated action.
-- Episode control command.
-- Runtime configuration.
+## Planner And DecisionProvider
 
-Output:
+The Planner decides whether it can produce a RequestedAction directly or
+whether it needs a DecisionProvider call.
 
-- Agent observation.
-- Action result.
-- Episode status.
-- Optional privileged debug state for tests only.
+DecisionProvider implementations are exchangeable:
 
-State:
+- `HumanDecisionProvider`
+- `RuleBasedDecisionProvider`
+- `LLMDecisionProvider`
+- `NammaDecisionProvider`
+- `RecordedDecisionProvider`
 
-- Episode ID.
-- Turn number.
-- Terminal reason.
-- Last action result.
+NaMMA Ethernet, OCuLink, PCIe, and future links are transport adapters
+under `NammaDecisionProvider`. They do not change the application-level
+DecisionProvider request and response.
 
-### Observation Builder
+## Action Executor
 
-Responsibility:
+The Action Executor turns a `RequestedAction` or plan into a
+`ValidatedAction` and then an `ExecutedAction`. It distinguishes schema
+errors from attempted in-domain failures and must not reveal hidden
+state during validation.
 
-- Convert game state into an agent-facing observation.
-- Keep `Game State`, `Observation`, `Debug State`, and `Episode Memory`
-  separate.
-- Prevent hidden state leakage.
+## Replay Recorder And Replay Store
 
-Input:
+Replay Recorder and Replay Store are not DecisionProviders. They record
+and read runtime events.
 
-- Current game state.
-- Visibility rules.
-- Observation schema version.
-- Debug mode setting.
+Replay responsibilities are split into:
 
-Output:
+- Replay Recorder / Replay Store for recording and reading episode
+  events.
+- `RecordedDecisionProvider` for returning saved decision results.
+- Runtime Replay Mode for re-running the domain from seeds and executed
+  actions.
 
-- `AgentObservation`.
-- Optional `PrivilegedDebugState` for validation and replay tooling.
+## Determinism Context
 
-State:
+The Determinism Context owns reproducibility identity:
 
-- Schema version.
-- Visibility policy.
-- Redaction policy.
+- world seed,
+- episode seed,
+- replay verification identity,
+- configuration hash,
+- source and build identity,
+- RNG stream identity,
+- action ordering,
+- deterministic checksum.
 
-### Episode Memory
+The Runtime Orchestrator references this context, but does not duplicate
+its ownership.
 
-Responsibility:
+## Environment Term
 
-- Store what the agent has learned from past observations.
-- Support planning, exploration, loop detection, and retry.
-- Remain outside the environment's authoritative game state.
+Older documents may use `Environment` for the agent-facing control
+surface. In this architecture, that surface is the combination of
+Runtime Orchestrator and DomainAdapter.
 
-Input:
-
-- Observation sequence.
-- Action results.
-- Planner notes.
-
-Output:
-
-- Memory summary.
-- Known targets.
-- Failed targets.
-- Plan context.
-
-State:
-
-- Known map.
-- Visited cells or states.
-- Known resources.
-- Current plan.
-- Loop and failure history.
-
-### Replay Recorder
-
-Responsibility:
-
-- Capture enough data to inspect, compare, and reproduce episodes.
-- Keep replay evidence separate from normal agent observation.
-- Support both deterministic replay and diagnostic replay modes.
-
-Input:
-
-- Runtime metadata.
-- Seeds.
-- Actions.
-- Observations.
-- Optional snapshots.
-- Provider requests and responses when permitted.
-
-Output:
-
-- Replay record.
-- Replay index.
-- Episode summary.
-
-State:
-
-- Replay writer state.
-- Checksum chain.
-- Storage policy.
-
-### Planner
-
-Responsibility:
-
-- Decide goals, high-level plans, or semantic actions.
-- Use observation and memory, not hidden debug state.
-- Call providers through a common provider interface.
-
-Input:
-
-- Agent observation.
-- Episode memory summary.
-- Provider capability information.
-- Runtime budget.
-
-Output:
-
-- Requested action.
-- Plan.
-- Replan reason.
-
-State:
-
-- Planning horizon.
-- Prompt or structured task context.
-- Provider selection policy.
-
-### Action Executor
-
-Responsibility:
-
-- Convert requested actions or plans into validated executable actions.
-- Reject malformed actions without leaking hidden information.
-- Keep deterministic tactical logic separate from provider reasoning.
-
-Input:
-
-- Requested action.
-- Current observation.
-- Episode memory.
-- Action schema.
-
-Output:
-
-- Validated action.
-- Executed action request.
-- Rejection reason.
-
-State:
-
-- Current path.
-- Retry counters.
-- Last validation errors.
-
-### LLM Provider
-
-Responsibility:
-
-- Produce plans or semantic actions from a provider request.
-- Hide provider-specific HTTP, server, token, or model details behind a
-  common interface.
-
-Input:
-
-- Provider request.
-- Timeout budget.
-- Capability request.
-
-Output:
-
-- Provider response.
-- Provider error.
-- Usage and latency metadata.
-
-State:
-
-- Endpoint configuration.
-- Model selection.
-- Session metadata when needed.
-
-### NaMMA Provider
-
-Responsibility:
-
-- Expose NaMMA as the same application-level provider shape as Human,
-  Rule Based, LLM, and Replay providers.
-- Keep Ethernet, OCuLink, PCIe, and future transports below the provider
-  interface.
-
-Input:
-
-- Provider request.
-- Timeout budget.
-- Capability request.
-
-Output:
-
-- Provider response.
-- Provider error.
-- Capability report.
-
-State:
-
-- Transport status.
-- Capability cache.
-- Request and completion tracking.
-
-## Runtime Boundaries
-
-The most important boundary is between authoritative state and agent
-state:
-
-- `Game State` is internal and authoritative.
-- `Observation` is a redacted current view.
-- `Episode Memory` is built by the agent from past observations.
-- `Debug State` is privileged and never sent to normal providers.
-
-The second most important boundary is between provider planning and
-action execution:
-
-- Providers may propose goals, plans, or semantic actions.
-- The Action Executor validates and executes one runtime action at a
-  time.
-- Hidden state must not be leaked through validation or legal action
-  generation.
+If the term remains in future documents, it must be clear that
+`Environment` does not separately own episode ID, turn number, terminal
+reason, or authoritative domain state.
 
 ## Configuration Categories
 
-Game:
+Game or domain:
 
-- Game or device type.
-- Source version or firmware version.
-- Domain rule configuration.
+- domain adapter type,
+- source or firmware identity,
+- domain rule configuration.
 
 Runtime:
 
-- Determinism mode.
-- Timeout policy.
-- Runtime state machine policy.
+- state machine policy,
+- timeout policy,
+- initial runtime profile.
 
-Provider:
+DecisionProvider:
 
-- Provider type.
-- Endpoint or transport profile.
-- Capability requirements.
+- provider type,
+- local or remote endpoint,
+- transport adapter when needed.
 
 Replay:
 
-- Replay mode.
-- Storage level.
-- Snapshot interval.
+- replay level,
+- storage path,
+- checksum policy.
 
 Debug:
 
-- Privileged state recording policy.
-- Extra checksums.
-- Diagnostic logging.
+- privileged state recording policy,
+- invariant checks,
+- diagnostic logging.
 
 ## Logging Categories
 
-Game:
+Domain:
 
-- Domain events.
-- Terminal events.
+- domain events,
+- terminal condition reports.
 
 Runtime:
 
-- State transitions.
-- Seeds.
-- Episode lifecycle.
+- state transitions,
+- episode lifecycle,
+- timeout decisions.
 
 Replay:
 
-- Replay writer events.
-- Checksum chain.
+- replay writer events,
+- checksum chain.
 
-Provider:
+DecisionProvider:
 
-- Request IDs.
-- Provider status.
-- Latency and errors.
+- request IDs,
+- provider status,
+- latency and errors.
 
 Performance:
 
-- Turn time.
-- Observation time.
-- Provider time.
-- Action time.
-- Runtime time.
+- turn time,
+- observation time,
+- provider time,
+- action time,
+- runtime time.
 
 Debug:
 
-- Privileged diagnostics.
-- Invariant failures.
+- privileged diagnostics,
+- invariant failures.
 
 ## Performance Measurements
 
 Minimum measurements:
 
-- `turn_time`: total elapsed time for one control turn.
-- `observation_time`: time spent building agent observation.
-- `provider_time`: time spent waiting for Human, Rule Based, LLM,
-  NaMMA, or Replay provider output.
-- `action_time`: time spent validating and applying an action.
-- `runtime_time`: deterministic runtime overhead excluding provider
-  latency when possible.
-
-## Design Constraints
-
-- Runtime interfaces must not be Rogue-specific.
-- Rogue-specific fields may exist inside Rogue adapters only.
-- Transport selection must not change provider request semantics.
-- Replay must be useful even when provider output is nondeterministic.
-- Debug state must not be available to normal planners or providers.
+- `turn_time`,
+- `observation_time`,
+- `provider_time`,
+- `action_time`,
+- `runtime_time`.
 
 ## Open Questions
 
@@ -452,5 +326,4 @@ Minimum measurements:
 - JSON.
 - Protocol Buffers.
 - Capability negotiation schema.
-- Provider streaming support.
 - Snapshot interval policy.
