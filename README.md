@@ -4,11 +4,11 @@ NaMMA Rogue Autonomous Agent is a project to let a local AI
 autonomously play the game Rogue: descend, explore, fight, manage
 inventory and food, obtain the amulet, and return to the surface.
 
-The project is currently in the Runtime Architecture design phase. This
-repository contains the Rogueforge Rogue 5.4.4 pristine baseline and a
-minimal Ubuntu 24.04 compatibility copy, but it does not yet contain a
-headless environment, runtime implementation, local AI integration,
-NaMMA implementation, or OCuLink driver.
+The project is currently in the Phase 7 Runtime Contract Skeleton
+phase. This repository contains the Rogueforge Rogue 5.4.4 pristine
+baseline and a minimal Ubuntu 24.04 compatibility copy, but it does not
+yet contain a headless Rogue environment, RogueDomainAdapter, local AI
+integration, NaMMA implementation, or OCuLink driver.
 
 ## Target System
 
@@ -95,10 +95,13 @@ Golden Baseline decision:
 - records clang as pending because it is not installed on the probe
   host.
 
-The current phase is design only. It defines a NaMMA Runtime
-architecture that can later support Rogue, NetHack, Minecraft, ROS2,
-real robots, and Accuvision-style devices without beginning
-implementation.
+The current phase implements a Python reference skeleton for the Runtime
+Contract defined in Phase 6. It uses only a Fake Domain and fake
+DecisionProvider implementations.
+
+Phase 7 does not modify Rogue 5.4.4, does not implement
+RogueDomainAdapter, does not add Rogue reset or step, and does not
+connect Local AI or NaMMA.
 
 Runtime design documents:
 
@@ -111,16 +114,22 @@ Runtime design documents:
 - `docs/runtime-sequence.md`
 - `docs/future-extension.md`
 - `docs/initial-runtime-profile.md`
+- `docs/runtime-contract.md`
+- `docs/runtime-replay-level1.md`
+- `docs/phase7-implementation.md`
 
-Phase 7 is expected to start with a Rogue-only, single-actor runtime
-profile. It should use synchronous DecisionProvider calls, one semantic
-ExecutedAction per turn, JSON-compatible logical objects during
-development, and Level 1 deterministic replay first.
+Phase 7 starts with a Rogue-only, single-actor runtime profile. It uses
+synchronous DecisionProvider calls, one semantic ExecutedAction per turn,
+JSON-compatible logical objects during development, and Level 1
+deterministic replay first.
 
-Agent, Observer, Replay implementation, Reset, Step, Headless, NaMMA,
-LLM, Viewer, Python controller, and 64x160 implementation work remain
-out of scope for this design phase. Implementation should wait until
-PR #6 review is complete.
+Runtime implementation documents:
+
+- `runtime/README.md`
+
+RogueDomainAdapter, Rogue headless control, Local AI, NaMMA, HTTP,
+viewer, training, multi-agent support, streaming, batch execution, and
+64x160 work remain out of scope.
 
 ## License Status
 

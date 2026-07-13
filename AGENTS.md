@@ -32,3 +32,14 @@ display concerns separated.
 - Prefer semantic actions over raw keypress actions.
 - Prefer provider interfaces over coupling to one local inference server.
 - Prefer replayable experiments over one-off terminal demos.
+
+## Long-Running Task Rule
+
+- Commit after each internally consistent milestone.
+- Do not wait until the entire phase is complete.
+- Before interruption or when remaining execution budget appears low,
+  record completed work, current failures, and next command in
+  `docs/work-log.md`.
+- A new session must read `AGENTS.md`, `docs/work-log.md`, `git status`,
+  and recent commits before continuing.
+- Resume from repository state, not from conversation memory.
