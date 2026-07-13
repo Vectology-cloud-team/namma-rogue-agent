@@ -1,4 +1,7 @@
-"""Rogue native backend Protocol."""
+"""Rogue native backend Protocol.
+
+The Protocol hides future native transport choices from RuntimeOrchestrator.
+"""
 
 from __future__ import annotations
 

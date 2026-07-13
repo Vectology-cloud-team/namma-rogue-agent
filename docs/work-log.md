@@ -106,6 +106,19 @@ Phase 8 commits so far:
 - `41b189a Define versioned Rogue native C ABI`
 - `41d8a9d Add RogueDomainAdapter and fake native backend`
 
+PR #8 review-fix notes:
+
+- The seven Rogue adapter Python files were verified as normal LF Git blobs
+  and refreshed as new multi-line blobs with clearer module docstrings.
+- `scripts/check_text_files.py` now flags larger Python files compressed into
+  up to four physical lines and suspicious bytes-per-line density.
+- Native ABI public status, action, direction, and terminal-kind types are now
+  fixed-width `uint32_t` typedefs with macro values.
+- Runtime error was removed from native terminal kinds; backend errors remain
+  status-code or `DomainAdapterError` paths.
+- Native pointer lifetimes and `struct_size` initialization rules are
+  documented in the header and ABI document.
+
 Next command:
 
 ```powershell

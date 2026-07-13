@@ -1,4 +1,8 @@
-"""Rogue-specific runtime adapter boundary."""
+"""Rogue-specific runtime adapter boundary.
+
+This package contains Phase 8 Python-only adapter code. It does not load a
+real Rogue shared library and does not modify Rogue 5.4.4 game code.
+"""
 
 from .adapter import RogueDomainAdapter
 from .backend import RogueNativeBackend

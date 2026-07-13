@@ -1,3 +1,5 @@
+"""Tests for the Runtime -> RogueDomainAdapter -> fake backend path."""
+
 from __future__ import annotations
 
 import json
@@ -172,6 +174,28 @@ class RogueDomainAdapterTests(unittest.TestCase):
         with self.assertRaises(DomainAdapterError) as caught:
             adapter.observe("explosion", 0)
         self.assertIn("observe failed", str(caught.exception))
+
+    def test_backend_exception_faults_runtime_without_episode_outcome(self) -> None:
+        class ExplodingApplyBackend(FakeRogueNativeBackend):
+            def apply_action(self, action, turn: int):
+                raise RuntimeError("native apply exploded")
+
+        backend = ExplodingApplyBackend()
+        adapter = RogueDomainAdapter(backend)
+        provider = SequenceProvider([RequestedAction("WAIT")])
+        runtime = RuntimeOrchestrator(
+            domain=adapter,
+            decision_provider=provider,
+            context=make_context(),
+            max_runtime_turns=1,
+        )
+
+        result = runtime.run_episode(episode_id="runtime-fault")
+
+        self.assertEqual(RuntimeState.FAULTED, result.runtime_state)
+        self.assertEqual(EpisodeOutcome.NO_OUTCOME, result.outcome)
+        self.assertIsNotNone(result.runtime_error)
+        self.assertEqual(0, len(result.replay_episode.events))
 
 
 if __name__ == "__main__":

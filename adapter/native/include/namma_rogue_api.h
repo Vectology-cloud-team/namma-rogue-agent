@@ -15,56 +15,72 @@ extern "C" {
 
 typedef struct namma_rogue_handle namma_rogue_handle_t;
 
-typedef enum namma_rogue_status {
-    NAMMA_ROGUE_OK = 0,
-    NAMMA_ROGUE_INVALID_ARGUMENT = 1,
-    NAMMA_ROGUE_INVALID_STATE = 2,
-    NAMMA_ROGUE_UNSUPPORTED = 3,
-    NAMMA_ROGUE_DOMAIN_TERMINAL = 4,
-    NAMMA_ROGUE_INTERNAL_ERROR = 5
-} namma_rogue_status_t;
+typedef uint32_t namma_rogue_status_t;
+typedef uint32_t namma_rogue_action_type_t;
+typedef uint32_t namma_rogue_direction_t;
+typedef uint32_t namma_rogue_terminal_kind_t;
 
-typedef enum namma_rogue_action_type {
-    NAMMA_ROGUE_ACTION_NONE = 0,
-    NAMMA_ROGUE_ACTION_MOVE = 1,
-    NAMMA_ROGUE_ACTION_WAIT = 2,
-    NAMMA_ROGUE_ACTION_SEARCH = 3,
-    NAMMA_ROGUE_ACTION_OPEN = 4,
-    NAMMA_ROGUE_ACTION_CLOSE = 5,
-    NAMMA_ROGUE_ACTION_PICKUP = 6,
-    NAMMA_ROGUE_ACTION_DROP = 7,
-    NAMMA_ROGUE_ACTION_EAT = 8,
-    NAMMA_ROGUE_ACTION_DRINK = 9,
-    NAMMA_ROGUE_ACTION_READ = 10,
-    NAMMA_ROGUE_ACTION_WIELD = 11,
-    NAMMA_ROGUE_ACTION_WEAR = 12,
-    NAMMA_ROGUE_ACTION_REMOVE = 13,
-    NAMMA_ROGUE_ACTION_THROW = 14,
-    NAMMA_ROGUE_ACTION_DESCEND = 15,
-    NAMMA_ROGUE_ACTION_ASCEND = 16,
-    NAMMA_ROGUE_ACTION_QUIT = 17
-} namma_rogue_action_type_t;
+#define NAMMA_ROGUE_OK ((namma_rogue_status_t)0u)
+#define NAMMA_ROGUE_INVALID_ARGUMENT ((namma_rogue_status_t)1u)
+#define NAMMA_ROGUE_INVALID_STATE ((namma_rogue_status_t)2u)
+#define NAMMA_ROGUE_UNSUPPORTED ((namma_rogue_status_t)3u)
+#define NAMMA_ROGUE_DOMAIN_TERMINAL ((namma_rogue_status_t)4u)
+#define NAMMA_ROGUE_INTERNAL_ERROR ((namma_rogue_status_t)5u)
 
-typedef enum namma_rogue_direction {
-    NAMMA_ROGUE_DIRECTION_NONE = 0,
-    NAMMA_ROGUE_DIRECTION_N = 1,
-    NAMMA_ROGUE_DIRECTION_NE = 2,
-    NAMMA_ROGUE_DIRECTION_E = 3,
-    NAMMA_ROGUE_DIRECTION_SE = 4,
-    NAMMA_ROGUE_DIRECTION_S = 5,
-    NAMMA_ROGUE_DIRECTION_SW = 6,
-    NAMMA_ROGUE_DIRECTION_W = 7,
-    NAMMA_ROGUE_DIRECTION_NW = 8
-} namma_rogue_direction_t;
+#define NAMMA_ROGUE_ACTION_NONE ((namma_rogue_action_type_t)0u)
+#define NAMMA_ROGUE_ACTION_MOVE ((namma_rogue_action_type_t)1u)
+#define NAMMA_ROGUE_ACTION_WAIT ((namma_rogue_action_type_t)2u)
+#define NAMMA_ROGUE_ACTION_SEARCH ((namma_rogue_action_type_t)3u)
+#define NAMMA_ROGUE_ACTION_OPEN ((namma_rogue_action_type_t)4u)
+#define NAMMA_ROGUE_ACTION_CLOSE ((namma_rogue_action_type_t)5u)
+#define NAMMA_ROGUE_ACTION_PICKUP ((namma_rogue_action_type_t)6u)
+#define NAMMA_ROGUE_ACTION_DROP ((namma_rogue_action_type_t)7u)
+#define NAMMA_ROGUE_ACTION_EAT ((namma_rogue_action_type_t)8u)
+#define NAMMA_ROGUE_ACTION_DRINK ((namma_rogue_action_type_t)9u)
+#define NAMMA_ROGUE_ACTION_READ ((namma_rogue_action_type_t)10u)
+#define NAMMA_ROGUE_ACTION_WIELD ((namma_rogue_action_type_t)11u)
+#define NAMMA_ROGUE_ACTION_WEAR ((namma_rogue_action_type_t)12u)
+#define NAMMA_ROGUE_ACTION_REMOVE ((namma_rogue_action_type_t)13u)
+#define NAMMA_ROGUE_ACTION_THROW ((namma_rogue_action_type_t)14u)
+#define NAMMA_ROGUE_ACTION_DESCEND ((namma_rogue_action_type_t)15u)
+#define NAMMA_ROGUE_ACTION_ASCEND ((namma_rogue_action_type_t)16u)
+#define NAMMA_ROGUE_ACTION_QUIT ((namma_rogue_action_type_t)17u)
 
-typedef enum namma_rogue_terminal_kind {
-    NAMMA_ROGUE_TERMINAL_NONE = 0,
-    NAMMA_ROGUE_TERMINAL_SUCCESS = 1,
-    NAMMA_ROGUE_TERMINAL_LOSS = 2,
-    NAMMA_ROGUE_TERMINAL_USER_ABORT = 3,
-    NAMMA_ROGUE_TERMINAL_SAVED = 4,
-    NAMMA_ROGUE_TERMINAL_RUNTIME_ERROR = 5
-} namma_rogue_terminal_kind_t;
+#define NAMMA_ROGUE_DIRECTION_NONE ((namma_rogue_direction_t)0u)
+#define NAMMA_ROGUE_DIRECTION_N ((namma_rogue_direction_t)1u)
+#define NAMMA_ROGUE_DIRECTION_NE ((namma_rogue_direction_t)2u)
+#define NAMMA_ROGUE_DIRECTION_E ((namma_rogue_direction_t)3u)
+#define NAMMA_ROGUE_DIRECTION_SE ((namma_rogue_direction_t)4u)
+#define NAMMA_ROGUE_DIRECTION_S ((namma_rogue_direction_t)5u)
+#define NAMMA_ROGUE_DIRECTION_SW ((namma_rogue_direction_t)6u)
+#define NAMMA_ROGUE_DIRECTION_W ((namma_rogue_direction_t)7u)
+#define NAMMA_ROGUE_DIRECTION_NW ((namma_rogue_direction_t)8u)
+
+#define NAMMA_ROGUE_TERMINAL_NONE ((namma_rogue_terminal_kind_t)0u)
+#define NAMMA_ROGUE_TERMINAL_SUCCESS ((namma_rogue_terminal_kind_t)1u)
+#define NAMMA_ROGUE_TERMINAL_LOSS ((namma_rogue_terminal_kind_t)2u)
+#define NAMMA_ROGUE_TERMINAL_USER_ABORT ((namma_rogue_terminal_kind_t)3u)
+/* Reserved for old Rogue save-and-process-exit behavior, not Runtime PAUSED. */
+#define NAMMA_ROGUE_TERMINAL_SAVED ((namma_rogue_terminal_kind_t)4u)
+
+/*
+ * Struct initialization convention:
+ * - callers zero-initialize every public struct,
+ * - callers set struct_size to sizeof(the struct they pass),
+ * - callees check the minimum supported size before reading or writing,
+ * - callees do not write beyond caller-provided struct_size,
+ * - unknown trailing fields are ignored,
+ * - major ABI mismatches return NAMMA_ROGUE_UNSUPPORTED,
+ * - output data from a failed call is invalid unless documented otherwise.
+ *
+ * Pointer lifetime convention:
+ * - pointer fields below are owned by the handle/backend,
+ * - callers must not free or modify pointed-to memory,
+ * - pointers are invalidated by the next mutating call on the same handle,
+ * - reset and destroy invalidate all prior pointers,
+ * - the ABI is not thread-safe in the Phase 9 implementation profile,
+ * - callers copy data when a longer lifetime is required.
+ */
 
 typedef struct namma_rogue_config {
     uint32_t struct_size;
@@ -109,8 +125,10 @@ typedef struct namma_rogue_observation {
     int32_t hp_max;
     uint8_t terminal;
     uint8_t reserved0[7];
+    /* Backend-owned, read-only, invalidated by reset, destroy, or mutation. */
     const namma_rogue_visible_cell_t *visible_cells;
     size_t visible_cell_count;
+    /* Backend-owned read-only strings with the pointer lifetime above. */
     const char *recent_message;
     const char *terminal_reason;
 } namma_rogue_observation_t;
@@ -131,6 +149,7 @@ typedef struct namma_rogue_validated_action {
     uint8_t reserved0[3];
     namma_rogue_status_t validation_status;
     namma_rogue_requested_action_t normalized_action;
+    /* Backend-owned read-only string with the pointer lifetime above. */
     const char *message;
 } namma_rogue_validated_action_t;
 
@@ -141,6 +160,7 @@ typedef struct namma_rogue_action_result {
     namma_rogue_terminal_kind_t terminal_kind;
     uint8_t consumed_turn;
     uint8_t reserved0[7];
+    /* Backend-owned read-only string with the pointer lifetime above. */
     const char *message;
 } namma_rogue_action_result_t;
 
@@ -150,6 +170,7 @@ typedef struct namma_rogue_terminal_status {
     uint8_t terminal;
     uint8_t reserved0[3];
     namma_rogue_terminal_kind_t terminal_kind;
+    /* Backend-owned read-only string with the pointer lifetime above. */
     const char *reason;
 } namma_rogue_terminal_status_t;
 
@@ -157,6 +178,7 @@ typedef struct namma_rogue_debug_state {
     uint32_t struct_size;
     uint32_t schema_version;
     uint64_t deterministic_checksum;
+    /* Backend-owned read-only bytes with the pointer lifetime above. */
     const void *snapshot_data;
     size_t snapshot_size;
 } namma_rogue_debug_state_t;
@@ -164,6 +186,7 @@ typedef struct namma_rogue_debug_state {
 typedef struct namma_rogue_source_identity {
     uint32_t struct_size;
     uint32_t abi_version;
+    /* Backend-owned read-only strings with the pointer lifetime above. */
     const char *upstream_identity;
     const char *upstream_archive_sha256;
     const char *compatibility_patch_identity;

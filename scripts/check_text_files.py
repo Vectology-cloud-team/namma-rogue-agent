@@ -26,8 +26,9 @@ TARGET_EXTENSIONS = {
     ".yml",
 }
 DEFAULT_MAX_LINE_LENGTH = 500
-PYTHON_SUSPICIOUS_LINE_COUNT = 2
+PYTHON_SUSPICIOUS_LINE_COUNT = 4
 PYTHON_SUSPICIOUS_MIN_BYTES = 300
+PYTHON_SUSPICIOUS_BYTES_PER_LINE = 250
 BIDI_CODEPOINTS = {
     0x061C,
     0x200E,
@@ -137,6 +138,16 @@ def check_bytes(
         errors.append(
             f"{label}: Python file has only {len(raw_lines)} physical lines "
             f"for {len(data)} bytes"
+        )
+    if (
+        suffix == ".py"
+        and len(raw_lines) > 0
+        and len(data) >= PYTHON_SUSPICIOUS_MIN_BYTES
+        and len(data) // len(raw_lines) >= PYTHON_SUSPICIOUS_BYTES_PER_LINE
+    ):
+        errors.append(
+            f"{label}: Python file averages {len(data) // len(raw_lines)} "
+            f"bytes per physical line across {len(raw_lines)} lines"
         )
 
     for line_number, raw_line in enumerate(raw_lines, start=1):

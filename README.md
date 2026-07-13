@@ -99,9 +99,10 @@ Phase 7 implemented a Python reference skeleton for the Runtime Contract
 defined in Phase 6. It uses only a Fake Domain and fake DecisionProvider
 implementations.
 
-Phase 7 does not modify Rogue 5.4.4, does not implement
-RogueDomainAdapter, does not add Rogue reset or step, and does not
-connect Local AI or NaMMA.
+At the end of Phase 7, Rogue 5.4.4 was still unmodified and
+RogueDomainAdapter had not yet been added. Phase 8 adds the
+RogueDomainAdapter skeleton only; Rogue reset, step, real native backend
+loading, Local AI, and NaMMA remain unimplemented.
 
 Runtime design documents:
 

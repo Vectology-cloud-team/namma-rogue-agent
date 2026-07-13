@@ -1,4 +1,8 @@
-"""Rogue DomainAdapter implementation backed by RogueNativeBackend."""
+"""Rogue DomainAdapter implementation backed by RogueNativeBackend.
+
+The adapter translates between Runtime common models and Rogue-specific
+backend models. Phase 8 uses only FakeRogueNativeBackend.
+"""
 
 from __future__ import annotations
 

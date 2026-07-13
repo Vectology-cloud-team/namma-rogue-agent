@@ -19,6 +19,7 @@ The ABI should:
 - expose fixed-width integer fields,
 - carry an ABI version,
 - return explicit status codes,
+- avoid C enum storage in public structures,
 - work from C and C++ callers,
 - avoid Python-specific types,
 - avoid curses types,
@@ -53,12 +54,18 @@ Policy:
 - major changes may break binary or semantic compatibility,
 - minor changes add backward-compatible capabilities,
 - enum values must not be reordered,
+- status, action type, direction, and terminal kind are `uint32_t` typedefs
+  with fixed macro values,
 - request and result structs carry `struct_size`,
 - request and observation schemas may carry independent schema versions,
 - future extensions should be capability-reported, not guessed.
 
 Large reserved areas are avoided in Phase 8. `struct_size` is the preferred
 forward-compatibility mechanism for early development.
+
+Unknown future integer values must not cause undefined behavior. A callee may
+return `NAMMA_ROGUE_UNSUPPORTED` or `NAMMA_ROGUE_INVALID_ARGUMENT` when it
+receives a value that it does not implement.
 
 ## Main API Shape
 
@@ -77,6 +84,27 @@ The Phase 8 header declares these main entry points:
 
 `namma_rogue_handle_t` is opaque. Callers cannot inspect or mutate Rogue
 state directly.
+
+## Struct Initialization
+
+Public structs use this convention:
+
+- callers zero-initialize structures,
+- callers set `struct_size` to `sizeof(the struct they pass)`,
+- callers set the relevant schema or ABI version fields,
+- callees check that `struct_size` is at least the minimum supported size,
+- callees do not write beyond caller-provided `struct_size`,
+- unknown trailing fields are ignored,
+- major ABI mismatch returns `NAMMA_ROGUE_UNSUPPORTED`,
+- minor ABI versions may add backward-compatible fields or functions,
+- output pointers must not be used after a failed call unless the function
+  explicitly documents otherwise.
+
+Phase 8 has no real C implementation, so short-`struct_size` behavior is
+specified rather than executed. Phase 9 implementation tests must include a
+stub or real backend case where a too-small struct returns
+`NAMMA_ROGUE_INVALID_ARGUMENT` or `NAMMA_ROGUE_UNSUPPORTED` before writing
+output.
 
 ## Memory Ownership
 
@@ -133,11 +161,38 @@ Rules:
 - `namma_rogue_destroy` releases the handle,
 - using a destroyed handle is invalid,
 - observations do not expose writable Rogue internals,
-- strings returned by C are immutable and valid only for the documented
+- pointer data returned by C is immutable and valid only for the documented
   lifetime,
-- reset invalidates prior observation and debug-state references,
+- reset invalidates prior observation, message, identity, and debug-state
+  references,
 - variable-length cells, inventory, and messages should use capacity/query
   patterns before production use.
+
+Initial pointer lifetime rule:
+
+- memory is owned by the handle or backend,
+- callers must not free or modify it,
+- pointers are valid until the next mutating API call on the same handle,
+- pointers are invalidated by `namma_rogue_reset`,
+- pointers are invalidated by `namma_rogue_destroy`,
+- the initial implementation profile is not thread-safe,
+- callers must copy data when a longer lifetime is required.
+
+Pointer fields covered by this rule:
+
+- `visible_cells`,
+- `recent_message`,
+- `terminal_reason`,
+- validated action `message`,
+- action result `message`,
+- terminal status `reason`,
+- debug state `snapshot_data`,
+- all source identity strings.
+
+Consecutive `namma_rogue_observe()` calls are read-only from the ABI
+perspective, but a backend may refresh internal scratch buffers while serving
+an observe call. Callers that need to retain previous observation pointers
+must copy the data before any later ABI call.
 
 ## Source Identity
 
@@ -151,9 +206,14 @@ The native backend must be able to report:
 - compiler identity,
 - ABI version.
 
-This identity aligns with the Phase 7 `DeterminismContext`. The exact Golden
-Baseline values should be referenced from the Golden Source documents or build
-metadata instead of copied manually into many places.
+This identity aligns with the Phase 7 `DeterminismContext`. Exact Golden
+Baseline values should be generated from one metadata source in the future
+instead of copied manually into documents, Python defaults, and C build files.
+
+The Phase 8 fake backend reports a fake-backend-scoped identity. It is not the
+formal identity of a real Rogue native backend. Future real backends should
+report the upstream archive SHA-256, compatibility patch hash, source commit,
+compiler identity, and build identity from generated build metadata.
 
 ## Terminal And Error Semantics
 
@@ -165,11 +225,47 @@ Important distinction:
 - `NAMMA_ROGUE_INVALID_ARGUMENT` means the ABI request is malformed.
 - `NAMMA_ROGUE_INVALID_STATE` means the handle or lifecycle state is wrong.
 - `NAMMA_ROGUE_DOMAIN_TERMINAL` means the domain is already terminal.
-- terminal success, loss, abort, save, or error are domain outcomes, not
+- terminal success, loss, abort, or save are Rogue domain outcomes, not
   process exits.
+
+Native backend or ABI errors are status-code failures and map to
+`DomainAdapterError` on the Python side. They are not terminal kinds. A runtime
+fault is represented as RuntimeState `FAULTED` and EpisodeOutcome
+`NO_OUTCOME`.
+
+Terminal kind values:
+
+| Value | Meaning |
+| --- | --- |
+| `NAMMA_ROGUE_TERMINAL_NONE` | The Rogue episode is not terminal. |
+| `NAMMA_ROGUE_TERMINAL_SUCCESS` | Rogue victory, such as amulet return. |
+| `NAMMA_ROGUE_TERMINAL_LOSS` | Rogue domain loss, such as death. |
+| `NAMMA_ROGUE_TERMINAL_USER_ABORT` | User or provider requested quit. |
+| `NAMMA_ROGUE_TERMINAL_SAVED` | Reserved for legacy save-and-process-exit behavior. |
+
+`NAMMA_ROGUE_TERMINAL_SAVED` is not RuntimeState `PAUSED`. Classic Rogue save
+exits the process after writing the save file. Phase 9 does not implement save
+through the ABI; the value is reserved so that a later implementation can
+distinguish save-and-exit from success, loss, and quit.
+
+`NAMMA_ROGUE_TERMINAL_RUNTIME_ERROR` is deliberately not defined. Runtime and
+native backend errors use `namma_rogue_status_t`.
 
 Phase 9 must replace direct `exit()` paths with host-visible terminal results
 before in-process integration is safe.
+
+## Layout Verification
+
+The compile-only native tests verify that:
+
+- status, action type, direction, and terminal kind are 32-bit fields,
+- important fixed-size structs have stable offsets and sizes,
+- pointer-containing structs have offsets computed from pointer alignment,
+- C and C++ see the same header layout rules.
+
+Structs containing pointers or `size_t` can differ between 32-bit and 64-bit
+builds. Tests therefore use pointer-size and alignment formulas for those
+offsets instead of hard-coding 64-bit sizes into the ABI specification.
 
 ## C++ Boundary
 
