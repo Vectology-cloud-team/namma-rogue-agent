@@ -12,8 +12,25 @@ from pathlib import Path
 
 BIDI_RE = re.compile("[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 HEADING_RE = re.compile(rb"^(#{1,6})\s+(.+)$")
+HEADING_MARKER_RE = re.compile(r"(^|\s)#{1,6}\s+\S")
 BULLET_RE = re.compile(r"(^|\s)([-*+]|\d+\.)\s+\S")
+FENCE_RE = re.compile(r"^```([A-Za-z0-9_-]+)?\s*$")
+MERMAID_EDGE_RE = re.compile(r"[-.=]+[>|x]|<[-.=]+")
+MERMAID_COMMANDS = (
+    "flowchart",
+    "graph",
+    "sequenceDiagram",
+    "stateDiagram",
+    "stateDiagram-v2",
+    "classDiagram",
+    "erDiagram",
+    "journey",
+    "gantt",
+    "pie",
+    "participant",
+)
 DEFAULT_LIMIT = 200
+NORMAL_TEXT_LIMIT = 500
 
 
 def repo_markdown_files() -> list[Path]:
@@ -57,6 +74,37 @@ def line_length(line: bytes) -> int:
     return len(line.decode("utf-8", errors="replace"))
 
 
+def is_url_only_line(text: str) -> bool:
+    stripped = text.strip()
+    return stripped.startswith(("http://", "https://")) and " " not in stripped
+
+
+def is_table_line(text: str) -> bool:
+    stripped = text.strip()
+    return stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 2
+
+
+def is_length_exempt(text: str, in_code_block: bool) -> bool:
+    return in_code_block or is_url_only_line(text) or is_table_line(text)
+
+
+def count_markdown_headings(text: str) -> int:
+    return len(HEADING_MARKER_RE.findall(text))
+
+
+def check_mermaid_line(label: str, index: int, text: str) -> list[str]:
+    errors: list[str] = []
+    edge_count = len(MERMAID_EDGE_RE.findall(text))
+    if edge_count > 1:
+        errors.append(f"{label}:{index}: multiple Mermaid edges appear on one line")
+
+    for command in MERMAID_COMMANDS:
+        if len(re.findall(rf"\b{re.escape(command)}\b", text)) > 1:
+            errors.append(f"{label}:{index}: multiple Mermaid commands appear on one line")
+            break
+    return errors
+
+
 def check_bytes(label: str, data: bytes, limit: int) -> list[str]:
     errors: list[str] = []
     if b"\r\n" in data:
@@ -74,21 +122,65 @@ def check_bytes(label: str, data: bytes, limit: int) -> list[str]:
 
     max_length = 0
     max_line = 0
+    in_code_block = False
+    code_language = ""
+    table_pipe_count: int | None = None
     for index, raw in enumerate(raw_lines, start=1):
         text = raw.decode("utf-8", errors="replace")
+        stripped = text.strip()
         length = line_length(raw)
         if length > max_length:
             max_length = length
             max_line = index
-        if length > limit:
+
+        fence_match = FENCE_RE.match(stripped)
+        if fence_match:
+            if in_code_block:
+                in_code_block = False
+                code_language = ""
+            else:
+                in_code_block = True
+                code_language = (fence_match.group(1) or "").lower()
+            table_pipe_count = None
+
+        length_exempt = is_length_exempt(text, in_code_block)
+        if length > limit and not length_exempt:
             errors.append(f"{label}:{index}: line length {length} exceeds {limit}")
+        elif length > NORMAL_TEXT_LIMIT and not length_exempt:
+            errors.append(
+                f"{label}:{index}: normal document line length {length} exceeds "
+                f"{NORMAL_TEXT_LIMIT}"
+            )
         if BIDI_RE.search(text):
             errors.append(f"{label}:{index}: Unicode bidi control character detected")
+
+        if in_code_block:
+            if code_language == "mermaid" and not fence_match:
+                errors.extend(check_mermaid_line(label, index, text))
+            continue
+
+        if is_table_line(text):
+            pipe_count = text.count("|")
+            if (
+                table_pipe_count is not None
+                and pipe_count > table_pipe_count
+                and pipe_count % table_pipe_count == 0
+            ):
+                errors.append(f"{label}:{index}: multiple Markdown table rows appear on one line")
+            if table_pipe_count is None:
+                table_pipe_count = pipe_count
+        elif stripped:
+            table_pipe_count = None
+
+        heading_count = count_markdown_headings(text)
+        if heading_count > 1:
+            errors.append(f"{label}:{index}: multiple headings appear on one line")
         if HEADING_RE.match(raw):
             if re.search(rb"\s#{1,6}\s+\S", raw):
                 errors.append(f"{label}:{index}: multiple headings appear on one line")
             if re.search(rb"\s[-*+]\s+\S", raw):
                 errors.append(f"{label}:{index}: heading and bullet appear on one line")
+
         bullet_matches = list(BULLET_RE.finditer(text))
         if len(bullet_matches) > 1:
             errors.append(f"{label}:{index}: multiple bullet markers appear on one line")
