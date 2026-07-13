@@ -4,11 +4,11 @@ NaMMA Rogue Autonomous Agent is a project to let a local AI
 autonomously play the game Rogue: descend, explore, fight, manage
 inventory and food, obtain the amulet, and return to the surface.
 
-The project is currently in the Rogue compatibility phase. This
+The project is currently in the Runtime Architecture design phase. This
 repository contains the Rogueforge Rogue 5.4.4 pristine baseline and a
 minimal Ubuntu 24.04 compatibility copy, but it does not yet contain a
-headless environment, local AI integration, NaMMA interface, or OCuLink
-driver.
+headless environment, local AI integration, NaMMA implementation, or
+OCuLink driver.
 
 ## Target System
 
@@ -68,19 +68,35 @@ See `docs/architecture.md` and `docs/development-phases.md` for the initial desi
 
 ## Current Development Phase
 
-This branch establishes the first compatibility layer after the Golden
-Baseline decision:
+The previous phase established the first compatibility layer after the
+Golden Baseline decision:
 
 - imports the Rogueforge Rogue 5.4.4 pristine upstream tree,
 - keeps a separate patched build tree,
 - records the ncurses compatibility patch under `patches/`,
 - verifies Ubuntu 24.04 gcc configure, make, launch, and quit,
 - records clang as pending because it is not installed on the probe
-  host,
-- leaves all Agent, Observer, Replay, Reset, Step, Headless, NaMMA,
-  LLM, Viewer, Python controller, and 64x160 work out of scope.
+  host.
 
-Game logic changes remain out of scope for this branch.
+The current phase is design only. It defines a NaMMA Runtime
+architecture that can later support Rogue, NetHack, Minecraft, ROS2,
+real robots, and Accuvision-style devices without beginning
+implementation.
+
+Runtime design documents:
+
+- `docs/runtime-architecture.md`
+- `docs/runtime-state-machine.md`
+- `docs/provider-interface.md`
+- `docs/replay-architecture.md`
+- `docs/observation-model.md`
+- `docs/action-model.md`
+- `docs/runtime-sequence.md`
+- `docs/future-extension.md`
+
+Agent, Observer, Replay, Reset, Step, Headless, NaMMA, LLM, Viewer,
+Python controller, and 64x160 implementation work remain out of scope
+for this design phase.
 
 ## License Status
 
@@ -98,8 +114,8 @@ Rogue 5.4.4 Golden Source evaluation is tracked in
 Current Golden Baseline status:
 
 - Upstream Golden Baseline: Rogueforge Rogue 5.4.4, approved and fixed.
-- Phase 5 ncurses compatibility patch: proposed initial Ubuntu 24.04
-  gcc build profile, pending PR #5 approval.
+- Phase 5 ncurses compatibility patch: accepted initial Ubuntu 24.04
+  gcc build profile after PR #5 merge.
 - GCC 13.3: PASS.
 - Clang: NOT TESTED because it is not installed on `mfr7202505`.
 - Clang verification should happen later in CI or a separate
@@ -126,10 +142,11 @@ absolute Python executable path.
 
 ## Open Questions
 
-- Should the Phase 5 proposed Ubuntu 24.04 gcc build profile be marked
-  accepted after PR #5 is approved and merged?
 - Which NetHack/NLE environment API ideas, if any, are worth referencing
   while keeping Rogue as the target game?
 - What exact NaMMA request/response format should be shared between Ethernet and OCuLink?
 - What latency and throughput targets are required for NaMMA inference?
 - Which replay data is sufficient to reproduce a full episode?
+- Should the first Runtime provider format be JSON, Protocol Buffers,
+  FlatBuffer, or another schema?
+- Which debug state, if any, may be stored in diagnostic replay?
