@@ -92,9 +92,22 @@ Current Phase 8 findings:
   process or block on interactive prompts.
 - RNG state is primarily the global `seed` and `RN` macro, initialized from
   wall-clock time and PID unless controlled.
+- Added `adapter/native/include/namma_rogue_api.h` as a specification header
+  only. It does not connect to Rogue and does not load a shared library.
+- Added `runtime/rogue/RogueDomainAdapter`, `RogueNativeBackend`, and
+  `FakeRogueNativeBackend`.
+- Verified the Runtime path through the Rogue adapter using Replay Level 1.
+- Hidden fake backend state is present in `PrivilegedDebugState` but is not
+  present in AgentObservation or DecisionRequest.
+
+Phase 8 commits so far:
+
+- `f2520f5 Document Rogue control flow and state boundaries`
+- `41b189a Define versioned Rogue native C ABI`
+- `41d8a9d Add RogueDomainAdapter and fake native backend`
 
 Next command:
 
 ```powershell
-python scripts/check_markdown.py
+python -m unittest discover -s tests -p "test_*.py"
 ```

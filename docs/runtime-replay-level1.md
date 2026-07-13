@@ -1,6 +1,7 @@
 # Runtime Replay Level 1
 
-Replay Level 1 is the only replay level implemented in Phase 7.
+Replay Level 1 is the only replay level implemented in the initial runtime
+profile.
 
 ## Stored Items
 
@@ -58,3 +59,19 @@ Replay verification compares:
 - EpisodeOutcome.
 
 Mismatches must be reported. They must not be silently ignored.
+
+## Phase 8 Rogue Adapter Verification
+
+Phase 8 verifies Replay Level 1 through:
+
+```text
+RuntimeOrchestrator
+RogueDomainAdapter
+RogueNativeBackend Protocol
+FakeRogueNativeBackend
+```
+
+The same seed and action sequence produce identical Replay Level 1 events and
+checksums. A different action sequence produces a replay mismatch. Privileged
+debug state is used only for deterministic checksum input and is not sent to
+DecisionProvider requests.
