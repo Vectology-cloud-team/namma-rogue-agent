@@ -120,6 +120,24 @@ The test verified:
   experience fields,
 - `Q`, `y`, and Return completed the normal quit path.
 
+The suspend/resume probe also ran on `mfr7202505`:
+
+```sh
+ROGUE_BINARY=$PWD/rogue python3 -m unittest discover -s tests -p "test_*.py"
+```
+
+Result:
+
+```text
+test_launch_new_game_and_quit ... ok
+test_suspend_resume_accepts_input_and_quits ... ok
+```
+
+The suspend/resume test sends `SIGTSTP`, confirms a stopped state with
+`waitpid(..., WUNTRACED | WNOHANG)`, sends `SIGCONT`, verifies that the
+game accepts one post-resume command, and then quits through the normal
+`Q`, `y`, Return path with exit code 0.
+
 ## Final State
 
 Ubuntu 24.04 with gcc now satisfies:

@@ -98,10 +98,12 @@ Rogue 5.4.4 Golden Source evaluation is tracked in
 Current Golden Baseline status:
 
 - Upstream Golden Baseline: Rogueforge Rogue 5.4.4, approved and fixed.
-- Modern Ubuntu gcc build: passed with the minimal ncurses
-  compatibility patch.
-- Modern Ubuntu clang build: pending because clang is not installed on
-  `mfr7202505`.
+- Phase 5 ncurses compatibility patch: proposed initial Ubuntu 24.04
+  gcc build profile, pending PR #5 approval.
+- GCC 13.3: PASS.
+- Clang: NOT TESTED because it is not installed on `mfr7202505`.
+- Clang verification should happen later in CI or a separate
+  clang-equipped environment.
 - Repository source layout: pristine upstream tree plus separate patched
   compatibility tree.
 - Legacy local modifications: preserved as evidence, not directly
@@ -124,8 +126,8 @@ absolute Python executable path.
 
 ## Open Questions
 
-- Should the Phase 5 compatibility patch be accepted as the initial
-  Ubuntu build profile?
+- Should the Phase 5 proposed Ubuntu 24.04 gcc build profile be marked
+  accepted after PR #5 is approved and merged?
 - Which NetHack/NLE environment API ideas, if any, are worth referencing
   while keeping Rogue as the target game?
 - What exact NaMMA request/response format should be shared between Ethernet and OCuLink?

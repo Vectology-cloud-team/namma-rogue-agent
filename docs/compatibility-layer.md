@@ -58,6 +58,33 @@ This affects only curses cursor restoration after suspend/resume. It
 does not change random number generation, dungeon generation, monsters,
 items, combat, save/load, victory conditions, or `new_level.c`.
 
+## ncurses Cursor Compatibility
+
+The old code restores the physical terminal cursor with `mvcur()` and
+then directly updates the logical cursor position stored inside
+`curscr`:
+
+```c
+curscr->_cury = oy;
+curscr->_curx = ox;
+```
+
+Modern ncurses makes the `WINDOW` internals private, so those fields are
+not available to application code. The replacement calls
+`wmove(curscr, oy, ox)`, which updates the logical cursor position for
+the `curscr` window without immediately writing output to the terminal.
+That corresponds to the intent of the original direct field update.
+
+The helper ignores the `wmove()` return value because `oy` and `ox` are
+captured immediately beforehand with `getyx(curscr, oy, ox)`, so they
+should describe a valid cursor position for the same window during the
+same suspend/resume path. If terminal resize handling is added later,
+this assumption should be reviewed. Phase 5 does not implement terminal
+resize support.
+
+Runtime behavior is checked by the POSIX suspend/resume test in
+`tests/test_rogue_launch.py`.
+
 ## File-Level Change Record
 
 | File | Reason | Before | After | Logic impact |
@@ -124,3 +151,14 @@ Ubuntu 24.04 gcc validation is recorded in `docs/build-ubuntu24.md`.
 
 The launch smoke test is `tests/test_rogue_launch.py`. It is skipped by
 default unless `ROGUE_BINARY` points to a built Rogue executable.
+
+Patch reproducibility is checked by
+`scripts/verify_compatibility_patch.py`. On systems without the external
+`patch` command, the script reports a clear skip. On `mfr7202505`, it
+must report:
+
+```text
+PATCH_APPLY=PASS
+PATCHED_TREE_MATCH=PASS
+PRISTINE_TREE_UNCHANGED=PASS
+```
