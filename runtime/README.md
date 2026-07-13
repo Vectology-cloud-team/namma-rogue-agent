@@ -17,6 +17,14 @@ Implemented in Phase 7:
 - Fake DecisionProviders.
 - Synchronous Runtime Orchestrator.
 
+Action lifecycle rules:
+
+- A RequestedAction becomes an ExecutedAction only after validation accepts it.
+- Schema and observable-rule validation rejection fault the Phase 7 Runtime.
+- Rejected actions are not written to Replay Level 1.
+- In-domain action failure is still an executed action and is recorded.
+- RuntimeOrchestrator instances are one-shot in Phase 7.
+
 Not implemented in Phase 7:
 
 - RogueDomainAdapter.

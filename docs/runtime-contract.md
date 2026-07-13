@@ -76,11 +76,22 @@ The lifecycle is:
 ```text
 RequestedAction
 ValidatedAction
+accepted validation only
 ExecutedAction
 ActionResult
 ```
 
-Schema rejection and in-domain attempted failure are separate paths.
+Rejected actions are not ExecutedAction instances. If validation returns
+`REJECTED_SCHEMA` or `REJECTED_OBSERVABLE_RULE`, the Phase 7 initial
+Runtime Profile treats the DecisionProvider response as a provider contract
+violation, faults the Runtime, does not call `DomainAdapter.apply_action()`,
+does not advance the Domain turn, and does not emit a Replay Level 1 turn
+event.
+
+In-domain attempted failure is different. If validation succeeds and the
+Domain attempts the action, the Runtime creates an ExecutedAction, calls the
+Domain, and records the ActionResult even when the status is
+`ATTEMPT_FAILED_IN_DOMAIN`.
 
 ## Runtime Faults
 
@@ -90,3 +101,11 @@ runtime error information.
 Runtime faults are not EpisodeOutcome values.
 
 Rogue death or Fake Domain loss is `DOMAIN_LOSS`, not `FAULTED`.
+
+## Orchestrator Reuse
+
+The Phase 7 `RuntimeOrchestrator` is one-shot. A single instance runs one
+episode. Calling `run_episode()` a second time raises `InvalidStateTransition`.
+
+Future multi-episode behavior should be implemented as a separate runner
+instead of silently resetting this orchestrator instance.

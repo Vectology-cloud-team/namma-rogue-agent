@@ -5,12 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import uuid
 
-from .actions import ActionResult, ActionStatus, ExecutedAction
+from .actions import ExecutedAction
 from .determinism import DeterminismContext, sha256_json
 from .domain import DomainAdapter
 from .models import (
     DecisionProviderError,
     DomainAdapterError,
+    InvalidStateTransition,
     JsonValue,
     RuntimeContractError,
     json_compatible,
@@ -54,8 +55,21 @@ class RuntimeOrchestrator:
     def __post_init__(self) -> None:
         self.state_machine = RuntimeStateMachine()
         self.memory = EpisodeMemory()
+        self._has_run = False
 
     def run_episode(self, episode_id: str | None = None) -> EpisodeResult:
+        """Run one episode.
+
+        Phase 7 RuntimeOrchestrator instances are one-shot. A caller that
+        needs multiple episodes should construct a fresh orchestrator per
+        episode or introduce a future multi-episode runner.
+        """
+        if self._has_run:
+            raise InvalidStateTransition(
+                "RuntimeOrchestrator instances are one-shot in Phase 7"
+            )
+        self._has_run = True
+
         episode_id = episode_id or str(uuid.uuid4())
         recorder = ReplayRecorder(episode_id)
         outcome = EpisodeOutcome.NO_OUTCOME
@@ -94,21 +108,20 @@ class RuntimeOrchestrator:
                     )
 
                 validated = self.domain.validate_action(decision.requested_action)
+                if not validated.accepted:
+                    raise DecisionProviderError(
+                        "DecisionProvider returned an action rejected by "
+                        f"validation: {validated.validation_status.value}: "
+                        f"{validated.message}"
+                    )
+
                 executed = ExecutedAction(
                     action_id=f"turn-{turn}",
                     action_type=decision.requested_action.action_type,
                     parameters=dict(validated.normalized_parameters),
                     turn=turn,
                 )
-                if not validated.accepted:
-                    result = ActionResult(
-                        action_id=executed.action_id,
-                        status=ActionStatus.REJECTED_SCHEMA,
-                        message=validated.message,
-                        terminal=False,
-                    )
-                else:
-                    result = self.domain.apply_action(validated, turn)
+                result = self.domain.apply_action(validated, turn)
 
                 current_context = current_context.with_action(executed.action_id)
                 terminal = self.domain.terminal_status()
