@@ -1,6 +1,4 @@
 """Tests for the Runtime -> RogueDomainAdapter -> fake backend path.
-
-Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations
@@ -8,10 +6,17 @@ from __future__ import annotations
 import json
 import unittest
 
-from runtime.actions import ActionStatus, RequestedAction
+from runtime.actions import (
+    ActionStatus,
+    RequestedAction,
+)
 from runtime.determinism import DeterminismContext
 from runtime.models import DomainAdapterError, ReplayMismatchError
-from runtime.provider import DecisionRequest, DecisionResponse, DecisionStatus
+from runtime.provider import (
+    DecisionRequest,
+    DecisionResponse,
+    DecisionStatus,
+)
 from runtime.replay import verify_replay_match
 from runtime.rogue import FakeRogueNativeBackend, RogueDomainAdapter
 from runtime.state import EpisodeOutcome, RuntimeState
@@ -76,8 +81,14 @@ class RogueDomainAdapterTests(unittest.TestCase):
         actual, _backend2, _provider2 = run_with_actions(list(actions))
 
         self.assertTrue(backend.reset_called)
-        self.assertEqual(RuntimeState.TERMINATED, expected.runtime_state)
-        self.assertEqual(EpisodeOutcome.SUCCESS, expected.outcome)
+        self.assertEqual(
+            RuntimeState.TERMINATED,
+            expected.runtime_state,
+        )
+        self.assertEqual(
+            EpisodeOutcome.SUCCESS,
+            expected.outcome,
+        )
         verify_replay_match(expected.replay_episode, actual.replay_episode)
 
     def test_different_action_sequence_detects_replay_mismatch(self) -> None:

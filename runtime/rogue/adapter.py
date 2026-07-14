@@ -2,16 +2,23 @@
 
 The adapter translates between Runtime common models and Rogue-specific
 backend models. Phase 8 uses only FakeRogueNativeBackend.
-Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations
 
-from ..actions import RequestedAction, ValidatedAction, ValidationStatus
+from ..actions import (
+    RequestedAction,
+    ValidatedAction,
+    ValidationStatus,
+)
 from ..determinism import DeterminismContext
 from ..domain import DomainResetResult, DomainTerminalStatus
 from ..models import DomainAdapterError
-from ..observations import AgentObservation, DomainState, PrivilegedDebugState
+from ..observations import (
+    AgentObservation,
+    DomainState,
+    PrivilegedDebugState,
+)
 from .backend import RogueNativeBackend
 from .models import (
     PHASE8_SUPPORTED_ACTION_TYPES,

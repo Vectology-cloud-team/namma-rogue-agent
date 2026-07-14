@@ -5,7 +5,6 @@ internals, curses types, or Python objects through the future C ABI.
 
 The default source identity is scoped to Phase 8 fake-backend tests. Real
 native backends must report source identity from build metadata.
-Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations
@@ -35,7 +34,11 @@ ROGUE_ACTION_TYPES: tuple[str, ...] = (
     "QUIT",
 )
 
-PHASE8_SUPPORTED_ACTION_TYPES: tuple[str, ...] = ("MOVE", "WAIT", "QUIT")
+PHASE8_SUPPORTED_ACTION_TYPES: tuple[str, ...] = (
+    "MOVE",
+    "WAIT",
+    "QUIT",
+)
 
 ROGUE_DIRECTIONS: tuple[str, ...] = (
     "N",
@@ -55,7 +58,9 @@ class RogueSourceIdentity:
     identity_scope: str = "phase8_fake_backend"
     upstream_identity: str = "Rogueforge Rogue 5.4.4"
     upstream_archive_sha256: str = "see docs/rogue-544-golden-source.md"
-    compatibility_patch_identity: str = "phase8-fake; future real backend reports patch hash"
+    compatibility_patch_identity: str = (
+        "phase8-fake; future real backend reports patch hash"
+    )
     source_commit: str = "not-connected"
     build_identity: str = "phase8-fake-native-backend"
     compiler_identity: str = "not-applicable"

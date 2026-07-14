@@ -1,14 +1,17 @@
 """Rogue native backend Protocol.
 
 The Protocol hides future native transport choices from RuntimeOrchestrator.
-Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from ..actions import ActionResult, RequestedAction, ValidatedAction
+from ..actions import (
+    ActionResult,
+    RequestedAction,
+    ValidatedAction,
+)
 from ..determinism import DeterminismContext
 from ..domain import DomainTerminalStatus
 from ..observations import PrivilegedDebugState

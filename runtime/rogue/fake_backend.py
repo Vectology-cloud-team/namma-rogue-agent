@@ -2,7 +2,6 @@
 
 This backend is deliberately Rogue-shaped but is not a replacement for the
 Phase 7 generic fake domain or a connection to real Rogue C code.
-Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations
@@ -85,7 +84,10 @@ class FakeRogueNativeBackend:
         self._messages = ["You enter a fake Rogue test room."]
         self._terminal = DomainTerminalStatus(False)
         self._turn_count = 0
-        self._hidden_nonce = (context.world_seed * 31 + context.episode_seed * 17) % 997
+        self._hidden_nonce = (
+            context.world_seed * 31
+            + context.episode_seed * 17
+        ) % 997
         return RogueResetResult(
             observation=self.observe(),
             domain_events=["fake_rogue_reset"],
@@ -160,7 +162,11 @@ class FakeRogueNativeBackend:
         direction = str(action.normalized_parameters.get("direction", "NONE"))
         self.apply_count += 1
         self.applied_actions.append(
-            RogueNativeActionRecord(action_type=action_type, direction=direction, turn=turn)
+            RogueNativeActionRecord(
+                action_type=action_type,
+                direction=direction,
+                turn=turn,
+            )
         )
 
         if action_type == "WAIT":

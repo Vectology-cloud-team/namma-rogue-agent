@@ -1,6 +1,4 @@
 """Text-level checks for the Phase 8 native ABI specification header.
-
-Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations
@@ -9,7 +7,10 @@ from pathlib import Path
 import unittest
 
 
-HEADER = Path(__file__).resolve().parents[1] / "adapter/native/include/namma_rogue_api.h"
+HEADER = (
+    Path(__file__).resolve().parents[1]
+    / "adapter/native/include/namma_rogue_api.h"
+)
 
 
 class NativeAbiHeaderTests(unittest.TestCase):

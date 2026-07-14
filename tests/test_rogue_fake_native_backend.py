@@ -1,13 +1,15 @@
 """Tests for the Phase 8 fake Rogue native backend.
-
-Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from __future__ import annotations
 
 import unittest
 
-from runtime.actions import ActionStatus, RequestedAction, ValidationStatus
+from runtime.actions import (
+    ActionStatus,
+    RequestedAction,
+    ValidationStatus,
+)
 from runtime.determinism import DeterminismContext
 from runtime.models import DomainAdapterError
 from runtime.rogue import FakeRogueNativeBackend, RogueNativeConfig
@@ -35,7 +37,10 @@ class FakeRogueNativeBackendTests(unittest.TestCase):
         self.assertTrue(backend.reset_called)
         self.assertEqual(["fake_rogue_reset"], result.domain_events)
         self.assertEqual({"y": 1, "x": 1}, observation.player_position.to_json_data())
-        self.assertEqual("Rogueforge Rogue 5.4.4", backend.source_identity().upstream_identity)
+        self.assertEqual(
+            "Rogueforge Rogue 5.4.4",
+            backend.source_identity().upstream_identity,
+        )
 
     def test_move_and_wait_are_normalized_and_applied(self) -> None:
         backend = FakeRogueNativeBackend()
@@ -56,7 +61,10 @@ class FakeRogueNativeBackendTests(unittest.TestCase):
 
         self.assertEqual(ActionStatus.SUCCESS, move_result.status)
         self.assertEqual(ActionStatus.SUCCESS, wait_result.status)
-        self.assertEqual(("MOVE", "WAIT"), tuple(a.action_type for a in backend.applied_actions))
+        self.assertEqual(
+            ("MOVE", "WAIT"),
+            tuple(a.action_type for a in backend.applied_actions),
+        )
 
     def test_wall_move_is_executed_domain_failure(self) -> None:
         backend = FakeRogueNativeBackend()

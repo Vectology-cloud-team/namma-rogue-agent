@@ -2,7 +2,6 @@
 
 This package contains Phase 8 Python-only adapter code. It does not load a
 real Rogue shared library and does not modify Rogue 5.4.4 game code.
-Committed blob line counts are guarded by scripts/check_text_files.py.
 """
 
 from .adapter import RogueDomainAdapter

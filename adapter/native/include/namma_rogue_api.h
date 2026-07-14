@@ -4,8 +4,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Committed blob line counts are guarded by scripts/check_text_files.py. */
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -242,7 +240,9 @@ namma_rogue_status_t namma_rogue_source_identity(
     namma_rogue_source_identity_t *identity
 );
 
-void namma_rogue_destroy(namma_rogue_handle_t *handle);
+void namma_rogue_destroy(
+    namma_rogue_handle_t *handle
+);
 
 #ifdef __cplusplus
 }
