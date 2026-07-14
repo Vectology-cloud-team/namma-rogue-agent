@@ -7,6 +7,11 @@
     (((value) + (alignment) - 1u) / (alignment) * (alignment))
 
 #define NAMMA_TEST_PTR_ALIGN _Alignof(void *)
+#define NAMMA_TEST_U64_ALIGN _Alignof(uint64_t)
+#define NAMMA_TEST_MAX_OBS_ALIGN \
+    ((NAMMA_TEST_PTR_ALIGN > NAMMA_TEST_U64_ALIGN) \
+        ? NAMMA_TEST_PTR_ALIGN \
+        : NAMMA_TEST_U64_ALIGN)
 #define NAMMA_TEST_OBS_VISIBLE_CELLS_OFFSET \
     NAMMA_TEST_ALIGN_UP(36u, NAMMA_TEST_PTR_ALIGN)
 #define NAMMA_TEST_OBS_VISIBLE_CELL_COUNT_OFFSET \
@@ -15,10 +20,15 @@
     (NAMMA_TEST_OBS_VISIBLE_CELL_COUNT_OFFSET + sizeof(size_t))
 #define NAMMA_TEST_OBS_TERMINAL_REASON_OFFSET \
     (NAMMA_TEST_OBS_RECENT_MESSAGE_OFFSET + sizeof(char *))
-#define NAMMA_TEST_OBS_SIZE \
+#define NAMMA_TEST_OBS_TURN_OFFSET \
     NAMMA_TEST_ALIGN_UP( \
         NAMMA_TEST_OBS_TERMINAL_REASON_OFFSET + sizeof(char *), \
-        NAMMA_TEST_PTR_ALIGN \
+        NAMMA_TEST_U64_ALIGN \
+    )
+#define NAMMA_TEST_OBS_SIZE \
+    NAMMA_TEST_ALIGN_UP( \
+        NAMMA_TEST_OBS_TURN_OFFSET + sizeof(uint64_t), \
+        NAMMA_TEST_MAX_OBS_ALIGN \
     )
 #define NAMMA_TEST_VALIDATED_MESSAGE_OFFSET \
     NAMMA_TEST_ALIGN_UP(40u, NAMMA_TEST_PTR_ALIGN)
@@ -51,7 +61,7 @@ _Static_assert(NAMMA_ROGUE_ACTION_QUIT == 17u, "action value");
 _Static_assert(NAMMA_ROGUE_DIRECTION_NW == 8u, "direction value");
 _Static_assert(NAMMA_ROGUE_TERMINAL_SAVED == 4u, "terminal value");
 _Static_assert(NAMMA_ROGUE_ABI_VERSION_MAJOR == 0u, "ABI major");
-_Static_assert(NAMMA_ROGUE_ABI_VERSION_MINOR == 1u, "ABI minor");
+_Static_assert(NAMMA_ROGUE_ABI_VERSION_MINOR == 2u, "ABI minor");
 
 _Static_assert(offsetof(namma_rogue_config_t, struct_size) == 0u, "config offset");
 _Static_assert(offsetof(namma_rogue_config_t, abi_version) == 4u, "config offset");
@@ -120,6 +130,10 @@ _Static_assert(
     offsetof(namma_rogue_observation_t, terminal_reason)
         == NAMMA_TEST_OBS_TERMINAL_REASON_OFFSET,
     "observation reason offset"
+);
+_Static_assert(
+    offsetof(namma_rogue_observation_t, turn) == NAMMA_TEST_OBS_TURN_OFFSET,
+    "observation turn offset"
 );
 _Static_assert(sizeof(namma_rogue_observation_t) == NAMMA_TEST_OBS_SIZE, "obs size");
 

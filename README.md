@@ -4,11 +4,12 @@ NaMMA Rogue Autonomous Agent is a project to let a local AI
 autonomously play the game Rogue: descend, explore, fight, manage
 inventory and food, obtain the amulet, and return to the surface.
 
-The project is currently in the Phase 8 Rogue Domain Adapter Boundary
+The project is currently in the Phase 9 Real Native Backend Bootstrap
 phase. This repository contains the Rogueforge Rogue 5.4.4 pristine
-baseline and a minimal Ubuntu 24.04 compatibility copy, but it does not
-yet contain a headless Rogue environment, real Rogue native backend,
-local AI integration, NaMMA implementation, or OCuLink driver.
+baseline, a minimal Ubuntu 24.04 compatibility copy, and a native C ABI
+bootstrap library. It still does not contain a headless Rogue
+environment, full Rogue step API, local AI integration, NaMMA
+implementation, or OCuLink driver.
 
 ## Target System
 
@@ -77,6 +78,7 @@ Replay Store are event recording components, while
 |-- training/
 |-- experiments/
 |-- scripts/
+|-- native/
 |-- tests/
 `-- legacy/
 ```
@@ -143,9 +145,18 @@ Phase 8 design and boundary documents:
 - `docs/phase9-plan.md`
 - `docs/adr/0001-rogue-native-boundary.md`
 
-Rogue headless control, real native backend loading, Local AI, NaMMA,
-HTTP, viewer, training, multi-agent support, streaming, batch execution,
-and 64x160 work remain out of scope.
+Phase 9 adds a real ctypes backend and a minimal native C bootstrap
+library for create, destroy, reset, observe, source identity, terminal
+status, `WAIT`, and `QUIT`.
+
+Phase 9 bootstrap documents:
+
+- `docs/native-bootstrap.md`
+- `native/README.md`
+
+Rogue headless control, `MOVE`, `step()`, inventory, combat, Local AI,
+NaMMA, HTTP, viewer, training, multi-agent support, streaming, batch
+execution, and 64x160 work remain out of scope.
 
 ## License Status
 

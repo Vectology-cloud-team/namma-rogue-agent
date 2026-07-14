@@ -68,9 +68,12 @@ Draft directions:
 
 Phase 9 should begin with:
 
-- `MOVE`
 - `WAIT`
 - `QUIT`
+
+The Phase 9 real native bootstrap supports only `WAIT` and `QUIT`. `MOVE`
+remains available in the fake backend for adapter-boundary tests but is not
+advertised by `CtypesRogueNativeBackend`.
 
 ## Mapping To Existing Rogue Commands
 

@@ -93,6 +93,23 @@ Read before starting:
 - Rogue 5.4.4 pristine and patched source trees.
 - `patches/0001-ncurses-compatibility.patch`.
 
+## Phase 9 Real Native Backend Bootstrap
+
+Status:
+
+- Branch: `feature/rogue-native-bootstrap`.
+- Started from updated `main` after PR #8 merge.
+- Scope is Runtime-to-native-library connectivity only.
+- Added `native/rogue_native_bootstrap.c` as the minimal C ABI bootstrap.
+- Added `runtime/rogue/native_backend.py` as the ctypes backend.
+- Supported real native actions are `WAIT` and `QUIT` only.
+- Observation is limited to `recent_message`, `terminal`, `terminal_reason`,
+  and `turn` in the bootstrap profile.
+- ABI version is major `0`, minor `2`.
+- Rogue 5.4.4 game source, headless control, `step()`, `MOVE`, inventory,
+  combat, pathfinding, Local AI, NaMMA, Ethernet, OCuLink, and 64x160 work
+  remain deferred.
+
 Current Phase 8 findings:
 
 - `main.c::main()` owns process startup.

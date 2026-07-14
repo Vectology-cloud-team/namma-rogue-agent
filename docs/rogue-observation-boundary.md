@@ -64,8 +64,9 @@ Phase 9 should start smaller:
 5. `hp_max`
 6. `visible_cells`
 7. `recent_message`
-8. `terminal`
-9. `terminal_reason`
+8. `turn`
+9. `terminal`
+10. `terminal_reason`
 
 ## Hidden-State Classification
 
@@ -103,6 +104,7 @@ Phase 9 should start smaller:
 Phase 8 uses the smaller contract that should seed Phase 9:
 
 - the native observation carries a single `recent_message`,
+- the native observation carries a `turn` counter for the bootstrap profile,
 - available action types are not carried in the C ABI observation,
 - `RogueDomainAdapter` supplies available action types from static capability
   data,

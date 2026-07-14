@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define NAMMA_ROGUE_ABI_VERSION_MAJOR 0u
-#define NAMMA_ROGUE_ABI_VERSION_MINOR 1u
+#define NAMMA_ROGUE_ABI_VERSION_MINOR 2u
 #define NAMMA_ROGUE_ABI_VERSION \
     ((NAMMA_ROGUE_ABI_VERSION_MAJOR << 16u) | NAMMA_ROGUE_ABI_VERSION_MINOR)
 
@@ -143,6 +143,7 @@ typedef struct namma_rogue_observation {
     /* Backend-owned read-only strings with the pointer lifetime above. */
     const char *recent_message;
     const char *terminal_reason;
+    uint64_t turn;
 } namma_rogue_observation_t;
 
 typedef struct namma_rogue_requested_action {

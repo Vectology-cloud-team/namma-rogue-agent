@@ -52,6 +52,12 @@ class NativeAbiHeaderTests(unittest.TestCase):
             self.assertIn(method_name, RogueNativeBackend.__dict__)
             self.assertIn(c_symbol, text)
 
+    def test_abi_version_is_phase9_bootstrap_minor(self) -> None:
+        text = self.header_text()
+
+        self.assertIn("#define NAMMA_ROGUE_ABI_VERSION_MAJOR 0u", text)
+        self.assertIn("#define NAMMA_ROGUE_ABI_VERSION_MINOR 2u", text)
+
     def test_reset_contract_excludes_observation_and_events(self) -> None:
         text = self.header_text()
         reset_fields = [field.name for field in fields(RogueResetResult)]
@@ -67,9 +73,11 @@ class NativeAbiHeaderTests(unittest.TestCase):
         observation_fields = [field.name for field in fields(RogueNativeObservation)]
 
         self.assertIn("recent_message", observation_fields)
+        self.assertIn("turn", observation_fields)
         self.assertNotIn("recent_messages", observation_fields)
         self.assertNotIn("available_action_types", observation_fields)
         self.assertIn("const char *recent_message;", text)
+        self.assertIn("uint64_t turn;", text)
         self.assertNotIn("recent_messages", text)
         self.assertNotIn("available_action_types", text)
         self.assertEqual(("MOVE", "WAIT", "QUIT"), PHASE8_SUPPORTED_ACTION_TYPES)

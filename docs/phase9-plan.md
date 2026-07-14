@@ -1,22 +1,48 @@
 # Phase 9 Native Integration Plan
 
-Phase 9 is expected to add the first minimal native patch to Rogue 5.4.4.
-Phase 8 does not implement these changes.
+Phase 9 starts with a native backend bootstrap before any Rogue 5.4.4
+game-code patch. The bootstrap proves Runtime-to-native-library connectivity
+without headless Rogue or gameplay control.
 
-## Goal
+## Bootstrap Goal
 
-Expose a minimal deterministic Rogue boundary while preserving game logic:
+Expose the smallest native-library boundary while preserving game logic:
+
+- ctypes native library loading,
+- create and destroy,
+- reset,
+- observe,
+- source identity,
+- terminal status,
+- `WAIT` and `QUIT`,
+- C ABI connection,
+- Python backend connection,
+- Replay Level 1 checksum match for a quit episode.
+
+The bootstrap does not implement `MOVE`, `step()`, fixed-seed Rogue game
+startup, map observation, inventory, combat, or headless Rogue.
+
+## Future Native Integration Goal
+
+After the bootstrap is reviewed, later Phase 9 work may expose a minimal
+deterministic Rogue boundary:
 
 - fixed-seed new-game startup,
 - one command injection path,
 - `MOVE`, `WAIT`, and `QUIT`,
 - minimal observation,
 - terminal status,
-- C ABI connection,
-- Python backend connection,
-- Replay Level 1 checksum match.
+- Replay Level 1 checksum match against real Rogue state.
 
 ## Proposed Task Order
+
+The first task is now the safe bootstrap:
+
+| Task | Source files | Functions | Expected patch size | Game-logic risk | Determinism risk | Test | Rollback |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Native bootstrap library | `native/rogue_native_bootstrap.c`, `runtime/rogue/native_backend.py` | create, destroy, reset, observe, source identity, terminal status, WAIT, QUIT | Medium | None | Low | ctypes backend tests | Revert bootstrap commit |
+
+After bootstrap, future work can begin touching Rogue source:
 
 | Task | Source files | Functions | Expected patch size | Game-logic risk | Determinism risk | Test | Rollback |
 | --- | --- | --- | --- | --- | --- | --- | --- |

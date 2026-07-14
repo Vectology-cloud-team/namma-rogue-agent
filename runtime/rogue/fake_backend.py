@@ -107,6 +107,7 @@ class FakeRogueNativeBackend:
             hp_max=self._hp_max,
             visible_cells=visible_cells,
             recent_message=self._messages[-1] if self._messages else "",
+            turn=self._turn_count,
             terminal=self._terminal.terminal,
             terminal_reason=self._terminal.reason,
         )

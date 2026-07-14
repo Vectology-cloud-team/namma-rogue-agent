@@ -71,6 +71,8 @@ The header defines:
 - `NAMMA_ROGUE_ABI_VERSION_MINOR`
 - `NAMMA_ROGUE_ABI_VERSION`
 
+Phase 9 bootstrap uses major `0` and minor `2`.
+
 Policy:
 
 - major changes may break binary or semantic compatibility,
@@ -132,6 +134,7 @@ avoids a partial observation contract inside reset.
 Phase 8 chooses the smaller Phase 9 starting point:
 
 - C ABI observation returns one `recent_message`,
+- C ABI observation returns a native `turn` counter,
 - C ABI observation does not return available action types,
 - Python `RogueNativeObservation` also carries one `recent_message`,
 - `RogueDomainAdapter` attaches available action types from static Phase 8
