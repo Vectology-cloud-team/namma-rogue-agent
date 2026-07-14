@@ -1,7 +1,7 @@
 """Fake Rogue native backend used to test the Rogue adapter boundary.
 
 This backend is deliberately Rogue-shaped but is not a replacement for the
-Phase 7 generic fake domain or a connection to real Rogue C code.
+Phase 7 generic fake domain or a connection to Rogue 5.4.4 C code.
 """
 
 from __future__ import annotations

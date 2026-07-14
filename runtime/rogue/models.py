@@ -3,8 +3,9 @@
 These models are Python-side boundary models. They do not expose Rogue C
 internals, curses types, or Python objects through the future C ABI.
 
-The default source identity is scoped to Phase 8 fake-backend tests. Real
-native backends must report source identity from build metadata.
+The default source identity is scoped to the Phase 9A native ABI stub. A future
+Rogue-backed native backend must replace it with verified Rogue source and
+build metadata.
 """
 
 from __future__ import annotations
@@ -55,16 +56,14 @@ ROGUE_DIRECTIONS: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class RogueSourceIdentity:
-    identity_scope: str = "phase8_fake_backend"
-    upstream_identity: str = "Rogueforge Rogue 5.4.4"
-    upstream_archive_sha256: str = "see docs/rogue-544-golden-source.md"
-    compatibility_patch_identity: str = (
-        "phase8-fake; future real backend reports patch hash"
-    )
-    source_commit: str = "not-connected"
-    build_identity: str = "phase8-fake-native-backend"
+    identity_scope: str = "phase9_native_abi_stub"
+    upstream_identity: str = "NaMMA Rogue Native ABI Bootstrap Stub"
+    upstream_archive_sha256: str = ""
+    compatibility_patch_identity: str = "not-applicable"
+    source_commit: str = "native/rogue_native_bootstrap.c"
+    build_identity: str = "phase9-native-abi-stub"
     compiler_identity: str = "not-applicable"
-    abi_version: str = "0.1"
+    abi_version: str = "0.2"
 
     def to_json_data(self) -> dict[str, JsonValue]:
         return json_compatible(

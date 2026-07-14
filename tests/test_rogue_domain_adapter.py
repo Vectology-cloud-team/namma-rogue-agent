@@ -29,7 +29,7 @@ def make_context() -> DeterminismContext:
     return DeterminismContext.from_config(
         world_seed=777,
         episode_seed=888,
-        source_identity="Rogueforge Rogue 5.4.4",
+        source_identity="NaMMA Rogue Fake Native Backend",
         build_identity="phase8-fake-native-backend",
         compatibility_patch_identity="phase8-no-rogue-code-change",
         config={"profile": "phase8-rogue-adapter-test"},

@@ -1,7 +1,7 @@
-"""ctypes-backed Rogue native backend bootstrap.
+"""ctypes-backed Rogue-shaped native ABI bootstrap.
 
-Phase 9 uses this backend to prove that the Runtime can talk to a real native
-library through the Phase 8 ABI. It does not load modified Rogue game logic and
+Phase 9A uses this backend to prove that the Runtime can talk to a native ABI
+stub through the Phase 8 boundary. It does not load Rogue 5.4.4 game logic and
 does not implement headless Rogue play.
 """
 
@@ -141,7 +141,12 @@ class RogueSourceIdentityError(RogueNativeBackendError):
 
 
 class RogueCloseError(RogueNativeBackendError):
-    """Raised when native close or destroy fails."""
+    """Raised for Python-side close or ctypes destroy invocation failures.
+
+    The C ABI function `namma_rogue_destroy()` returns void. It releases the
+    handle and has no recoverable status result, so this error does not
+    represent a C status returned by destroy.
+    """
 
 
 class NammaRogueConfig(ctypes.Structure):
@@ -275,7 +280,7 @@ class NammaRogueSourceIdentity(ctypes.Structure):
 
 
 class CtypesRogueNativeBackend:
-    """Real native-library bootstrap backend for Rogue."""
+    """ctypes backend for the Phase 9A Rogue-shaped native ABI stub."""
 
     def __init__(self, library_path: str | Path) -> None:
         self.library_path = Path(library_path)
@@ -289,12 +294,12 @@ class CtypesRogueNativeBackend:
         self._closed = False
         self.config = RogueNativeConfig(
             source_identity=RogueSourceIdentity(
-                identity_scope="phase9_native_bootstrap",
-                upstream_identity="Rogueforge Rogue 5.4.4",
-                upstream_archive_sha256="reported-by-native-library",
-                compatibility_patch_identity="reported-by-native-library",
-                source_commit="reported-by-native-library",
-                build_identity=f"ctypes:{self.library_path.name}",
+                identity_scope="phase9_native_abi_stub",
+                upstream_identity="NaMMA Rogue Native ABI Bootstrap Stub",
+                upstream_archive_sha256="",
+                compatibility_patch_identity="not-applicable",
+                source_commit="native/rogue_native_bootstrap.c",
+                build_identity="phase9-native-abi-stub",
                 compiler_identity="reported-by-native-library",
                 abi_version=self.abi_version_text,
             ),
@@ -477,7 +482,7 @@ class CtypesRogueNativeBackend:
             )
         abi_version = int(identity.abi_version)
         return RogueSourceIdentity(
-            identity_scope="phase9_native_bootstrap",
+            identity_scope="phase9_native_abi_stub",
             upstream_identity=self._decode(identity.upstream_identity),
             upstream_archive_sha256=self._decode(identity.upstream_archive_sha256),
             compatibility_patch_identity=self._decode(

@@ -171,7 +171,7 @@ NAMMA_ROGUE_EXPORT namma_rogue_status_t namma_rogue_validate_action(
     uint8_t accepted = 0u;
     namma_rogue_validation_status_t validation_status =
         NAMMA_ROGUE_VALIDATION_REJECTED_SCHEMA;
-    const char *message = "Only WAIT and QUIT are supported in Phase 9 bootstrap.";
+    const char *message = "Only WAIT and QUIT are supported in Phase 9A stub.";
 
     if (handle == NULL || requested == NULL || validated == NULL) {
         return NAMMA_ROGUE_INVALID_ARGUMENT;
@@ -361,13 +361,11 @@ NAMMA_ROGUE_EXPORT namma_rogue_status_t namma_rogue_source_identity(
     }
 
     identity->abi_version = NAMMA_ROGUE_ABI_VERSION;
-    identity->upstream_identity = "Rogueforge Rogue 5.4.4";
-    identity->upstream_archive_sha256 =
-        "7d37a61fc098bda0e6fac30799da347294067e8e079e4b40d6c781468e08e8a1";
-    identity->compatibility_patch_identity =
-        "Phase 9 native bootstrap; Rogue game source unchanged";
+    identity->upstream_identity = "NaMMA Rogue Native ABI Bootstrap Stub";
+    identity->upstream_archive_sha256 = "";
+    identity->compatibility_patch_identity = "not-applicable";
     identity->source_commit = "native/rogue_native_bootstrap.c";
-    identity->build_identity = "phase9-native-bootstrap";
+    identity->build_identity = "phase9-native-abi-stub";
 #if defined(__VERSION__)
     identity->compiler_identity = __VERSION__;
 #else

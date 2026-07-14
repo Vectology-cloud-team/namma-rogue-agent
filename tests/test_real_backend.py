@@ -1,4 +1,4 @@
-"""Tests for the Phase 9 ctypes Rogue native backend bootstrap."""
+"""Tests for the Phase 9A ctypes native ABI bootstrap stub."""
 
 from __future__ import annotations
 
@@ -27,6 +27,9 @@ from runtime.state import EpisodeOutcome, RuntimeState
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NATIVE_SOURCE = REPO_ROOT / "native" / "rogue_native_bootstrap.c"
 NATIVE_INCLUDE = REPO_ROOT / "adapter" / "native" / "include"
+STUB_IDENTITY_SCOPE = "phase9_native_abi_stub"
+STUB_UPSTREAM_IDENTITY = "NaMMA Rogue Native ABI Bootstrap Stub"
+STUB_BUILD_IDENTITY = "phase9-native-abi-stub"
 
 
 def compiler() -> str | None:
@@ -62,10 +65,13 @@ def make_context() -> DeterminismContext:
     return DeterminismContext.from_config(
         world_seed=9001,
         episode_seed=42,
-        source_identity="Rogueforge Rogue 5.4.4",
-        build_identity="phase9-native-bootstrap-test",
-        compatibility_patch_identity="phase9-native-bootstrap",
-        config={"profile": "phase9-native-bootstrap-test"},
+        source_identity=STUB_UPSTREAM_IDENTITY,
+        build_identity=STUB_BUILD_IDENTITY,
+        compatibility_patch_identity="not-applicable",
+        config={
+            "profile": "phase9-native-abi-stub-test",
+            "identity_scope": STUB_IDENTITY_SCOPE,
+        },
     )
 
 
@@ -90,8 +96,12 @@ class SequenceProvider:
 
 @unittest.skipIf(compiler() is None, "C compiler is not available")
 class CtypesRogueNativeBackendTests(unittest.TestCase):
-    def build_backend(self, temp_dir: Path) -> CtypesRogueNativeBackend:
-        library = shared_library_path(temp_dir, "namma_rogue_bootstrap")
+    def build_backend(
+        self,
+        temp_dir: Path,
+        name: str = "namma_rogue_bootstrap",
+    ) -> CtypesRogueNativeBackend:
+        library = shared_library_path(temp_dir, name)
         compile_shared_library(NATIVE_SOURCE, library)
         return CtypesRogueNativeBackend(library)
 
@@ -110,7 +120,13 @@ class CtypesRogueNativeBackendTests(unittest.TestCase):
             self.assertEqual(0, observation.turn)
             self.assertFalse(observation.terminal)
             self.assertFalse(terminal.terminal)
-            self.assertEqual("Rogueforge Rogue 5.4.4", identity.upstream_identity)
+            self.assertEqual(STUB_IDENTITY_SCOPE, identity.identity_scope)
+            self.assertEqual(STUB_UPSTREAM_IDENTITY, identity.upstream_identity)
+            self.assertNotIn("Rogueforge Rogue 5.4.4", identity.upstream_identity)
+            self.assertEqual("", identity.upstream_archive_sha256)
+            self.assertEqual("not-applicable", identity.compatibility_patch_identity)
+            self.assertEqual("native/rogue_native_bootstrap.c", identity.source_commit)
+            self.assertEqual(STUB_BUILD_IDENTITY, identity.build_identity)
 
             wait = backend.validate_action(RequestedAction("WAIT"))
             self.assertTrue(wait.accepted)
@@ -134,7 +150,7 @@ class CtypesRogueNativeBackendTests(unittest.TestCase):
             backend.close()
             backend.close()
 
-    def test_runtime_runs_quit_episode_through_real_backend(self) -> None:
+    def test_runtime_runs_quit_episode_through_native_abi_stub(self) -> None:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
             backend = self.build_backend(Path(temp))
             adapter = RogueDomainAdapter(backend)
@@ -146,12 +162,54 @@ class CtypesRogueNativeBackendTests(unittest.TestCase):
                 max_runtime_turns=3,
             )
 
-            result = runtime.run_episode("phase9-real-backend")
+            result = runtime.run_episode("phase9-native-abi-stub")
 
             self.assertEqual(RuntimeState.TERMINATED, result.runtime_state)
             self.assertEqual(EpisodeOutcome.USER_ABORT, result.outcome)
             self.assertEqual(1, len(result.replay_episode.events))
+            event = result.replay_episode.events[0]
+            self.assertEqual(STUB_UPSTREAM_IDENTITY, event.source_identity)
+            self.assertEqual(STUB_BUILD_IDENTITY, event.build_identity)
+            self.assertEqual("not-applicable", event.compatibility_patch_identity)
             self.assertEqual(["WAIT", "QUIT"], provider.requests[0].allowed_action_schema["action_types"])
+
+    def test_stub_diagnostic_checksum_is_deterministic_only(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
+            first = self.build_backend(Path(temp))
+            first.create(first.config)
+            first.reset(make_context())
+            first_checksum = first.privileged_debug_state().payload[
+                "replay_verification_state"
+            ]["native_checksum"]
+            same_checksum = first.privileged_debug_state().payload[
+                "replay_verification_state"
+            ]["native_checksum"]
+            self.assertEqual(first_checksum, same_checksum)
+
+            wait = first.validate_action(RequestedAction("WAIT"))
+            first.apply_action(wait, turn=0)
+            changed_by_turn = first.privileged_debug_state().payload[
+                "replay_verification_state"
+            ]["native_checksum"]
+            self.assertNotEqual(first_checksum, changed_by_turn)
+            first.close()
+
+            second = self.build_backend(Path(temp), "namma_rogue_bootstrap_seed")
+            second.create(second.config)
+            altered_context = DeterminismContext.from_config(
+                world_seed=make_context().world_seed + 1,
+                episode_seed=make_context().episode_seed,
+                source_identity=STUB_UPSTREAM_IDENTITY,
+                build_identity=STUB_BUILD_IDENTITY,
+                compatibility_patch_identity="not-applicable",
+                config={"profile": "phase9-native-abi-stub-test"},
+            )
+            second.reset(altered_context)
+            changed_by_seed = second.privileged_debug_state().payload[
+                "replay_verification_state"
+            ]["native_checksum"]
+            self.assertNotEqual(first_checksum, changed_by_seed)
+            second.close()
 
     def test_backend_error_classes_are_distinct(self) -> None:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:

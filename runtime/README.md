@@ -5,8 +5,8 @@ Runtime Contract.
 
 The Phase 7 core runtime remains domain-independent. Phase 8 adds a Rogue
 adapter skeleton that is exercised only through a Fake Rogue Native Backend.
-Phase 9 adds a ctypes-backed native bootstrap backend while keeping Rogue
-gameplay, headless control, and AI integration out of scope.
+Phase 9A adds a ctypes-backed native ABI stub while keeping Rogue 5.4.4
+linkage, gameplay, headless control, and AI integration out of scope.
 
 Implemented in Phase 7:
 
@@ -60,24 +60,26 @@ Phase 8 Rogue contract choices:
 
 Still not implemented at the end of Phase 8:
 
-- real Rogue native backend loading,
+- Rogue 5.4.4-linked native backend loading,
 - Rogue reset or step in C,
 - curses separation,
 - `ctypes.CDLL` integration,
 - Local AI,
 - NaMMA.
 
-Added in Phase 9:
+Added in Phase 9A:
 
 - `runtime.rogue.CtypesRogueNativeBackend`,
-- a native C bootstrap library loaded through ctypes,
+- a native ABI stub library loaded through ctypes,
 - ABI version checks with major rejection and minor compatibility,
+- stub-scoped source identity (`phase9_native_abi_stub`),
 - distinct native load, ABI, symbol, lifecycle, observe, action, and close
   errors,
-- real native `WAIT` and `QUIT` bootstrap tests.
+- `WAIT` and `QUIT` stub-action bootstrap tests.
 
-Still not implemented after Phase 9 bootstrap:
+Still not implemented after Phase 9A bootstrap:
 
+- Rogue 5.4.4 linked native backend,
 - Rogue game-code modification,
 - headless Rogue,
 - `step()`,

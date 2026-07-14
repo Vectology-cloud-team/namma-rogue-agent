@@ -190,6 +190,10 @@ typedef struct namma_rogue_terminal_status {
 typedef struct namma_rogue_debug_state {
     uint32_t struct_size;
     uint32_t schema_version;
+    /*
+     * Phase 9A native ABI stubs may expose a deterministic diagnostic value
+     * here. That value is not a cryptographic or production replay checksum.
+     */
     uint64_t deterministic_checksum;
     /* Backend-owned read-only bytes with the pointer lifetime above. */
     const void *snapshot_data;
@@ -253,6 +257,10 @@ namma_rogue_status_t namma_rogue_source_identity(
     namma_rogue_source_identity_t *identity
 );
 
+/*
+ * Releases the handle. There is no recoverable failure status. A caller must
+ * not call this twice for the same active handle.
+ */
 void namma_rogue_destroy(
     namma_rogue_handle_t *handle
 );

@@ -1,8 +1,8 @@
 # Rogue Native ABI
 
 Phase 8 defines the intended boundary between the Python Runtime and future
-native Rogue 5.4.4 integration. The real Rogue native implementation is not
-added in Phase 8.
+native Rogue 5.4.4 integration. Phase 9A adds only a native ABI stub; the
+Rogue 5.4.4-linked native implementation is still future work.
 
 The specification header lives at:
 
@@ -71,7 +71,7 @@ The header defines:
 - `NAMMA_ROGUE_ABI_VERSION_MINOR`
 - `NAMMA_ROGUE_ABI_VERSION`
 
-Phase 9 bootstrap uses major `0` and minor `2`.
+Phase 9A bootstrap uses major `0` and minor `2`.
 
 Policy:
 
@@ -234,7 +234,7 @@ ABI limit.
 Rules:
 
 - the caller owns the handle after `namma_rogue_create` succeeds,
-- `namma_rogue_destroy` releases the handle,
+- `namma_rogue_destroy` releases the handle and returns no recoverable status,
 - using a destroyed handle is invalid,
 - observations do not expose writable Rogue internals,
 - pointer data returned by C is immutable and valid only for the documented
@@ -286,10 +286,51 @@ This identity aligns with the Phase 7 `DeterminismContext`. Exact Golden
 Baseline values should be generated from one metadata source in the future
 instead of copied manually into documents, Python defaults, and C build files.
 
-The Phase 8 fake backend reports a fake-backend-scoped identity. It is not the
-formal identity of a real Rogue native backend. Future real backends should
-report the upstream archive SHA-256, compatibility patch hash, source commit,
-compiler identity, and build identity from generated build metadata.
+The Phase 9A native ABI stub reports a stub-scoped identity:
+
+```text
+identity_scope: phase9_native_abi_stub
+upstream_identity: NaMMA Rogue Native ABI Bootstrap Stub
+upstream_archive_sha256: ""
+compatibility_patch_identity: not-applicable
+source_commit: native/rogue_native_bootstrap.c
+build_identity: phase9-native-abi-stub
+```
+
+ABI v0.2 does not include an `identity_scope` field in
+`namma_rogue_source_identity_t`. The Python backend attaches this scope while
+converting the native struct to `RogueSourceIdentity`.
+
+The Phase 9A stub identity is not the formal identity of a Rogue 5.4.4-linked
+native backend. Future Rogue-backed native backends should report the upstream
+archive SHA-256, compatibility patch hash, source commit, compiler identity,
+and build identity from generated build metadata.
+
+## Phase 9A Diagnostic Checksum
+
+The Phase 9A native stub diagnostic checksum is not a cryptographic or
+production replay checksum.
+
+It exists only to prove deterministic values can cross the ABI.
+
+The Rogue-backed implementation must replace it with a canonical state digest,
+expected to use SHA-256 or an equivalently specified algorithm.
+
+## Destroy Contract
+
+`namma_rogue_destroy()`:
+
+- releases the handle,
+- has no recoverable failure result,
+- must not be called twice for the same active handle.
+
+Python close errors may represent ctypes invocation failures or local wrapper
+errors. They do not represent a C status returned by destroy because the ABI
+function returns `void`.
+
+Compatibility wrappers such as `rogue_destroy()` and `rogue_close()` are for
+diagnostic compatibility only. A caller must use only one destroy spelling for
+the same handle. The Python backend uses `namma_rogue_destroy()` only.
 
 ## Terminal And Error Semantics
 

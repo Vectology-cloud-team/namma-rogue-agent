@@ -71,9 +71,10 @@ Phase 9 should begin with:
 - `WAIT`
 - `QUIT`
 
-The Phase 9 real native bootstrap supports only `WAIT` and `QUIT`. `MOVE`
-remains available in the fake backend for adapter-boundary tests but is not
-advertised by `CtypesRogueNativeBackend`.
+The Phase 9A native ABI stub supports only `WAIT` and `QUIT` stub actions.
+They do not call Rogue 5.4.4 `command()`, `playit()`, `readchar()`, or any
+Rogue gameplay function. `MOVE` remains available in the fake backend for
+adapter-boundary tests but is not advertised by `CtypesRogueNativeBackend`.
 
 ## Mapping To Existing Rogue Commands
 

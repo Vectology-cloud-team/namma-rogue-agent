@@ -1,7 +1,7 @@
 # Rogue Observation Boundary
 
-Phase 8 defines the Rogue observation boundary without extracting real Rogue
-state from C yet.
+Phase 8 defines the Rogue observation boundary without extracting Rogue 5.4.4
+game state from C yet.
 
 ## Terms
 
