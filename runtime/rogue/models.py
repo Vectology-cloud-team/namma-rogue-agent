@@ -146,11 +146,10 @@ class RogueNativeObservation:
     hp: int
     hp_max: int
     visible_cells: tuple[RogueVisibleCell, ...]
-    recent_messages: tuple[str, ...]
+    recent_message: str
     terminal: bool = False
     terminal_reason: str = ""
     status_effects: tuple[str, ...] = ()
-    available_action_types: tuple[str, ...] = PHASE8_SUPPORTED_ACTION_TYPES
 
     def to_agent_payload(self) -> dict[str, JsonValue]:
         return json_compatible(
@@ -167,7 +166,7 @@ class RogueNativeObservation:
                         key=lambda cell: (cell.position.y, cell.position.x),
                     )
                 ],
-                "recent_messages": list(self.recent_messages),
+                "recent_message": self.recent_message,
                 "terminal": self.terminal,
                 "terminal_reason": self.terminal_reason,
                 "status_effects": list(self.status_effects),
@@ -177,11 +176,13 @@ class RogueNativeObservation:
 
 @dataclass(frozen=True)
 class RogueResetResult:
-    observation: RogueNativeObservation
-    domain_events: list[str] = field(default_factory=list)
+    schema_version: str
+    status: str = "OK"
+    message: str = ""
 
     def to_json_data(self) -> dict[str, JsonValue]:
         return {
-            "observation": self.observation.to_agent_payload(),
-            "domain_events": list(self.domain_events),
+            "schema_version": self.schema_version,
+            "status": self.status,
+            "message": self.message,
         }

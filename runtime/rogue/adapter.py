@@ -48,17 +48,18 @@ class RogueDomainAdapter:
         if not self._created:
             self._call_backend("create", self._backend.create, self._config)
             self._created = True
-        result = self._call_backend("reset", self._backend.reset, context)
+        self._call_backend("reset", self._backend.reset, context)
+        observation = self._call_backend("observe", self._backend.observe)
         identity = self._call_backend("source_identity", self._backend.source_identity)
         return DomainResetResult(
             domain_state=DomainState(
                 domain_name="rogue",
                 payload={
                     "source_identity": identity.to_json_data(),
-                    "observation": result.observation.to_agent_payload(),
+                    "observation": observation.to_agent_payload(),
                 },
             ),
-            domain_events=list(result.domain_events),
+            domain_events=["reset"],
         )
 
     def observe(self, episode_id: str, turn: int) -> AgentObservation:
@@ -70,7 +71,7 @@ class RogueDomainAdapter:
             turn=turn,
             task="play_rogue",
             payload=native.to_agent_payload(),
-            available_action_types=list(native.available_action_types),
+            available_action_types=list(PHASE8_SUPPORTED_ACTION_TYPES),
         )
 
     def validate_action(self, action: RequestedAction) -> ValidatedAction:

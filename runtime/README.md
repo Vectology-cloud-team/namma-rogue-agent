@@ -45,6 +45,17 @@ Added in Phase 8:
 - Rogue-specific semantic action and observation models.
 - Replay Level 1 tests through the Rogue adapter path.
 
+Phase 8 Rogue contract choices:
+
+- only the Fake Rogue Native Backend is implemented,
+- the real C backend is not implemented,
+- reset returns reset status only,
+- the adapter explicitly observes and reads source identity after reset,
+- native observation carries one recent message,
+- available action types are adapter-supplied static capability data,
+- the native ABI is host in-process only and is separate from any future
+  NaMMA transport.
+
 Still not implemented:
 
 - real Rogue native backend loading,

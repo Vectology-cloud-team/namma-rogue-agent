@@ -20,6 +20,13 @@
         NAMMA_TEST_OBS_TERMINAL_REASON_OFFSET + sizeof(char *), \
         NAMMA_TEST_PTR_ALIGN \
     )
+#define NAMMA_TEST_VALIDATED_MESSAGE_OFFSET \
+    NAMMA_TEST_ALIGN_UP(40u, NAMMA_TEST_PTR_ALIGN)
+#define NAMMA_TEST_VALIDATED_SIZE \
+    NAMMA_TEST_ALIGN_UP( \
+        NAMMA_TEST_VALIDATED_MESSAGE_OFFSET + sizeof(char *), \
+        NAMMA_TEST_PTR_ALIGN \
+    )
 
 _Static_assert(sizeof(namma_rogue_status_t) == sizeof(uint32_t), "status width");
 _Static_assert(sizeof(namma_rogue_action_type_t) == sizeof(uint32_t), "action width");
@@ -28,16 +35,34 @@ _Static_assert(
     sizeof(namma_rogue_terminal_kind_t) == sizeof(uint32_t),
     "terminal width"
 );
+_Static_assert(
+    sizeof(namma_rogue_validation_status_t) == sizeof(uint32_t),
+    "validation width"
+);
 
 _Static_assert(NAMMA_ROGUE_OK == 0u, "status value");
+_Static_assert(NAMMA_ROGUE_VALIDATION_VALID == 0u, "validation value");
+_Static_assert(NAMMA_ROGUE_VALIDATION_REJECTED_SCHEMA == 1u, "validation value");
+_Static_assert(
+    NAMMA_ROGUE_VALIDATION_REJECTED_OBSERVABLE_RULE == 2u,
+    "validation value"
+);
 _Static_assert(NAMMA_ROGUE_ACTION_QUIT == 17u, "action value");
 _Static_assert(NAMMA_ROGUE_DIRECTION_NW == 8u, "direction value");
 _Static_assert(NAMMA_ROGUE_TERMINAL_SAVED == 4u, "terminal value");
+_Static_assert(NAMMA_ROGUE_ABI_VERSION_MAJOR == 0u, "ABI major");
+_Static_assert(NAMMA_ROGUE_ABI_VERSION_MINOR == 1u, "ABI minor");
 
 _Static_assert(offsetof(namma_rogue_config_t, struct_size) == 0u, "config offset");
 _Static_assert(offsetof(namma_rogue_config_t, abi_version) == 4u, "config offset");
 _Static_assert(offsetof(namma_rogue_config_t, flags) == 8u, "config offset");
 _Static_assert(sizeof(namma_rogue_config_t) == 12u, "config size");
+
+_Static_assert(
+    offsetof(namma_rogue_reset_result_t, status) == 8u,
+    "reset result offset"
+);
+_Static_assert(sizeof(namma_rogue_reset_result_t) == 12u, "reset result size");
 
 _Static_assert(
     offsetof(namma_rogue_requested_action_t, action_type) == 8u,
@@ -48,6 +73,24 @@ _Static_assert(
     "requested action offset"
 );
 _Static_assert(sizeof(namma_rogue_requested_action_t) == 24u, "requested action size");
+
+_Static_assert(
+    offsetof(namma_rogue_validated_action_t, validation_status) == 12u,
+    "validated action offset"
+);
+_Static_assert(
+    offsetof(namma_rogue_validated_action_t, normalized_action) == 16u,
+    "validated action offset"
+);
+_Static_assert(
+    offsetof(namma_rogue_validated_action_t, message)
+        == NAMMA_TEST_VALIDATED_MESSAGE_OFFSET,
+    "validated action message offset"
+);
+_Static_assert(
+    sizeof(namma_rogue_validated_action_t) == NAMMA_TEST_VALIDATED_SIZE,
+    "validated action size"
+);
 
 _Static_assert(
     offsetof(namma_rogue_visible_cell_t, position) == 4u,

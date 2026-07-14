@@ -55,6 +55,21 @@ Status:
   phase.
 - Real native loading, real reset, real step, curses removal, Local AI, NaMMA,
   and 64x160 work remain deferred.
+- PR #8 review follow-up keeps the same scope. It aligns adapter lifecycle,
+  reset, observation, validation, and ABI documentation without adding a real
+  backend.
+- `RogueDomainAdapter.close()` first calls backend close, ignores later close
+  calls, and does not mark the adapter closed if backend close fails.
+- Backend reset returns reset status only. The adapter then calls observe and
+  source identity explicitly.
+- Observation uses one `recent_message`; available action types are static
+  adapter capability data.
+- The C ABI reset result has no domain event count. Future C events require a
+  complete event structure, array, count, lifetime, and schema contract.
+- C ABI validation uses `namma_rogue_validation_status_t` separately from
+  function-call `namma_rogue_status_t`.
+- The native ABI is host in-process only and is not a NaMMA transport ABI,
+  wire protocol, shared-memory ABI, or replay format.
 
 Initial validation before Phase 8 edits:
 

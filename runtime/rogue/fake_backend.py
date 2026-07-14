@@ -51,6 +51,7 @@ class FakeRogueNativeBackend:
         self.closed = False
         self.close_count = 0
         self.apply_count = 0
+        self.call_log: list[str] = []
         self.applied_actions: list[RogueNativeActionRecord] = []
         self._config = RogueNativeConfig()
         self._context: DeterminismContext | None = None
@@ -65,6 +66,7 @@ class FakeRogueNativeBackend:
         self._hidden_nonce = 0
 
     def create(self, config: RogueNativeConfig) -> None:
+        self.call_log.append("create")
         self._ensure_open()
         if self.created:
             raise DomainAdapterError("fake Rogue backend was already created")
@@ -72,6 +74,7 @@ class FakeRogueNativeBackend:
         self.created = True
 
     def reset(self, context: DeterminismContext) -> RogueResetResult:
+        self.call_log.append("reset")
         self._ensure_ready()
         self._context = context
         self.reset_called = True
@@ -89,11 +92,11 @@ class FakeRogueNativeBackend:
             + context.episode_seed * 17
         ) % 997
         return RogueResetResult(
-            observation=self.observe(),
-            domain_events=["fake_rogue_reset"],
+            schema_version=self._config.native_schema_version,
         )
 
     def observe(self) -> RogueNativeObservation:
+        self.call_log.append("observe")
         self._ensure_ready()
         visible_cells = tuple(self._visible_cells())
         return RogueNativeObservation(
@@ -103,13 +106,13 @@ class FakeRogueNativeBackend:
             hp=self._hp,
             hp_max=self._hp_max,
             visible_cells=visible_cells,
-            recent_messages=tuple(self._messages[-3:]),
+            recent_message=self._messages[-1] if self._messages else "",
             terminal=self._terminal.terminal,
             terminal_reason=self._terminal.reason,
-            available_action_types=PHASE8_SUPPORTED_ACTION_TYPES,
         )
 
     def validate_action(self, action: RequestedAction) -> ValidatedAction:
+        self.call_log.append("validate_action")
         self._ensure_ready()
         action_type = action.action_type.upper()
         if action_type not in PHASE8_SUPPORTED_ACTION_TYPES:
@@ -147,6 +150,7 @@ class FakeRogueNativeBackend:
         )
 
     def apply_action(self, action: ValidatedAction, turn: int) -> ActionResult:
+        self.call_log.append("apply_action")
         self._ensure_ready()
         if not action.accepted:
             raise DomainAdapterError("fake backend cannot apply rejected action")
@@ -196,10 +200,12 @@ class FakeRogueNativeBackend:
         raise DomainAdapterError(f"unexpected accepted action {action_type!r}")
 
     def terminal_status(self) -> DomainTerminalStatus:
+        self.call_log.append("terminal_status")
         self._ensure_ready()
         return self._terminal
 
     def privileged_debug_state(self) -> PrivilegedDebugState:
+        self.call_log.append("privileged_debug_state")
         self._ensure_ready()
         return PrivilegedDebugState(
             domain_name="rogue",
@@ -220,10 +226,12 @@ class FakeRogueNativeBackend:
         )
 
     def source_identity(self) -> RogueSourceIdentity:
+        self.call_log.append("source_identity")
         self._ensure_ready()
         return self._config.source_identity
 
     def close(self) -> None:
+        self.call_log.append("close")
         if self.closed:
             return
         self.close_count += 1

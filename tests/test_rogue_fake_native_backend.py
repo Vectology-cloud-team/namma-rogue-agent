@@ -35,8 +35,14 @@ class FakeRogueNativeBackendTests(unittest.TestCase):
         observation = backend.observe()
 
         self.assertTrue(backend.reset_called)
-        self.assertEqual(["fake_rogue_reset"], result.domain_events)
+        self.assertEqual("OK", result.status)
+        self.assertFalse(hasattr(result, "observation"))
+        self.assertFalse(hasattr(result, "domain_events"))
         self.assertEqual({"y": 1, "x": 1}, observation.player_position.to_json_data())
+        self.assertEqual(
+            "You enter a fake Rogue test room.",
+            observation.recent_message,
+        )
         self.assertEqual(
             "Rogueforge Rogue 5.4.4",
             backend.source_identity().upstream_identity,

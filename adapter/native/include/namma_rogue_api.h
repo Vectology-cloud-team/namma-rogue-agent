@@ -19,6 +19,7 @@ typedef uint32_t namma_rogue_status_t;
 typedef uint32_t namma_rogue_action_type_t;
 typedef uint32_t namma_rogue_direction_t;
 typedef uint32_t namma_rogue_terminal_kind_t;
+typedef uint32_t namma_rogue_validation_status_t;
 
 #define NAMMA_ROGUE_OK ((namma_rogue_status_t)0u)
 #define NAMMA_ROGUE_INVALID_ARGUMENT ((namma_rogue_status_t)1u)
@@ -26,6 +27,13 @@ typedef uint32_t namma_rogue_terminal_kind_t;
 #define NAMMA_ROGUE_UNSUPPORTED ((namma_rogue_status_t)3u)
 #define NAMMA_ROGUE_DOMAIN_TERMINAL ((namma_rogue_status_t)4u)
 #define NAMMA_ROGUE_INTERNAL_ERROR ((namma_rogue_status_t)5u)
+
+#define NAMMA_ROGUE_VALIDATION_VALID \
+    ((namma_rogue_validation_status_t)0u)
+#define NAMMA_ROGUE_VALIDATION_REJECTED_SCHEMA \
+    ((namma_rogue_validation_status_t)1u)
+#define NAMMA_ROGUE_VALIDATION_REJECTED_OBSERVABLE_RULE \
+    ((namma_rogue_validation_status_t)2u)
 
 #define NAMMA_ROGUE_ACTION_NONE ((namma_rogue_action_type_t)0u)
 #define NAMMA_ROGUE_ACTION_MOVE ((namma_rogue_action_type_t)1u)
@@ -80,6 +88,11 @@ typedef uint32_t namma_rogue_terminal_kind_t;
  * - reset and destroy invalidate all prior pointers,
  * - the ABI is not thread-safe in the Phase 9 implementation profile,
  * - callers copy data when a longer lifetime is required.
+ *
+ * This is an in-process host native ABI. It contains pointer fields, size_t
+ * fields, backend-owned memory lifetimes, and host compiler layout rules. It
+ * is not an Ethernet, OCuLink, PCIe, shared-memory, replay, or NaMMA
+ * transport ABI.
  */
 
 typedef struct namma_rogue_config {
@@ -99,7 +112,6 @@ typedef struct namma_rogue_reset_result {
     uint32_t struct_size;
     uint32_t schema_version;
     namma_rogue_status_t status;
-    uint32_t domain_event_count;
 } namma_rogue_reset_result_t;
 
 typedef struct namma_rogue_position {
@@ -147,7 +159,7 @@ typedef struct namma_rogue_validated_action {
     uint32_t schema_version;
     uint8_t accepted;
     uint8_t reserved0[3];
-    namma_rogue_status_t validation_status;
+    namma_rogue_validation_status_t validation_status;
     namma_rogue_requested_action_t normalized_action;
     /* Backend-owned read-only string with the pointer lifetime above. */
     const char *message;

@@ -51,7 +51,7 @@ Candidate fields:
 - `visible_items`
 - `inventory`
 - `equipment`
-- `recent_messages`
+- `recent_message`
 - `terminal`
 - `terminal_reason`
 
@@ -63,7 +63,7 @@ Phase 9 should start smaller:
 4. `hp`
 5. `hp_max`
 6. `visible_cells`
-7. `recent_messages`
+7. `recent_message`
 8. `terminal`
 9. `terminal_reason`
 
@@ -95,8 +95,19 @@ Phase 9 should start smaller:
 | `rooms[]` and `passages[]` | Debug or derived visible cells | Reveals map topology |
 | `mlist` | Visible monsters only | Off-screen leakage |
 | `lvl_obj` | Visible items only | Off-screen leakage and identity leakage |
-| `huh` and message buffers | Recent messages | UI wording stability |
+| `huh` and message buffers | One recent message initially | UI wording stability |
 | `seed` and `dnum` | Replay debug only | Future information |
+
+## Phase 8 Native Observation Contract
+
+Phase 8 uses the smaller contract that should seed Phase 9:
+
+- the native observation carries a single `recent_message`,
+- available action types are not carried in the C ABI observation,
+- `RogueDomainAdapter` supplies available action types from static capability
+  data,
+- visible cells remain the only variable-length observation array in the
+  initial native ABI draft.
 
 ## Replay Relationship
 

@@ -9,6 +9,8 @@ import unittest
 from runtime.actions import (
     ActionStatus,
     RequestedAction,
+    ValidatedAction,
+    ValidationStatus,
 )
 from runtime.determinism import DeterminismContext
 from runtime.models import DomainAdapterError, ReplayMismatchError
@@ -91,6 +93,21 @@ class RogueDomainAdapterTests(unittest.TestCase):
         )
         verify_replay_match(expected.replay_episode, actual.replay_episode)
 
+    def test_reset_observes_and_reads_source_identity_after_backend_reset(self) -> None:
+        backend = FakeRogueNativeBackend()
+        adapter = RogueDomainAdapter(backend)
+
+        result = adapter.reset(make_context())
+
+        self.assertEqual(
+            ["create", "reset", "observe", "source_identity"],
+            backend.call_log,
+        )
+        self.assertEqual(["reset"], result.domain_events)
+        payload = result.domain_state.payload
+        self.assertIn("observation", payload)
+        self.assertIn("source_identity", payload)
+
     def test_different_action_sequence_detects_replay_mismatch(self) -> None:
         expected, _backend, _provider = run_with_actions(
             [RequestedAction("WAIT"), RequestedAction("QUIT")]
@@ -165,11 +182,40 @@ class RogueDomainAdapterTests(unittest.TestCase):
         adapter = RogueDomainAdapter(backend)
         adapter.reset(make_context())
         adapter.close()
+        self.assertEqual(1, backend.close_count)
         adapter.close()
 
         self.assertEqual(1, backend.close_count)
         with self.assertRaises(DomainAdapterError):
             adapter.observe("closed", 0)
+        with self.assertRaises(DomainAdapterError):
+            adapter.reset(make_context())
+        with self.assertRaises(DomainAdapterError):
+            adapter.apply_action(
+                ValidatedAction(
+                    requested_action=RequestedAction("WAIT"),
+                    normalized_parameters={},
+                    validation_status=ValidationStatus.VALID,
+                ),
+                0,
+            )
+
+    def test_close_failure_leaves_adapter_open(self) -> None:
+        class ExplodingCloseBackend(FakeRogueNativeBackend):
+            def close(self) -> None:
+                self.call_log.append("close")
+                raise RuntimeError("native close exploded")
+
+        backend = ExplodingCloseBackend()
+        adapter = RogueDomainAdapter(backend)
+        adapter.reset(make_context())
+
+        with self.assertRaises(DomainAdapterError) as caught:
+            adapter.close()
+
+        self.assertIn("close failed", str(caught.exception))
+        observation = adapter.observe("after-close-failure", 0)
+        self.assertEqual("play_rogue", observation.task)
 
     def test_backend_exception_is_wrapped_as_domain_adapter_error(self) -> None:
         class ExplodingBackend(FakeRogueNativeBackend):

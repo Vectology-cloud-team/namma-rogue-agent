@@ -18,6 +18,8 @@ The Runtime distinguishes:
 - accepted or rejected by the DomainAdapter,
 - must not reveal hidden state,
 - may normalize direction or parameters.
+- maps to the C ABI `namma_rogue_validation_status_t` values:
+  `VALID`, `REJECTED_SCHEMA`, and `REJECTED_OBSERVABLE_RULE`.
 
 `ExecutedAction`:
 
@@ -110,6 +112,11 @@ Validation must not reveal:
 It is acceptable for a syntactically valid action to fail after execution.
 For example, moving into a wall or trying an unavailable interaction can be an
 executed in-domain failure.
+
+Function-call status and action-validation status are separate. Native ABI
+functions return `namma_rogue_status_t` for ABI call success or failure. The
+validated action structure uses `namma_rogue_validation_status_t` for
+observable validation results.
 
 ## Phase 8 Adapter Contract
 

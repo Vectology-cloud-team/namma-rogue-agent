@@ -25,7 +25,29 @@ The ABI should:
 - avoid curses types,
 - avoid exposing Rogue internal structs,
 - avoid direct access to Rogue global symbols,
-- be independent of transport choice.
+- stay behind the Python `RogueNativeBackend` Protocol.
+
+## Host Native ABI Scope
+
+This ABI is an in-process host native ABI.
+
+It is not:
+
+- an Ethernet wire protocol,
+- an OCuLink or PCIe DMA layout,
+- a shared-memory ABI,
+- a serialized replay format,
+- a NaMMA transport protocol.
+
+Reason:
+
+- it contains pointer fields,
+- it contains `size_t`,
+- it assumes backend-owned memory lifetime rules,
+- it depends on host compiler ABI and alignment.
+
+Future NaMMA communication must use a separate Transport Adapter and an
+explicit serialized format. Phase 8 does not choose that transport format.
 
 ## Explicit Non-Goals
 
@@ -84,6 +106,57 @@ The Phase 8 header declares these main entry points:
 
 `namma_rogue_handle_t` is opaque. Callers cannot inspect or mutate Rogue
 state directly.
+
+## Reset Contract
+
+`namma_rogue_reset` initializes or reinitializes the domain and returns only a
+reset result:
+
+- `struct_size`,
+- `schema_version`,
+- `status`.
+
+The reset result does not contain an observation and does not contain domain
+events. The Python `RogueDomainAdapter.reset()` mirrors this contract:
+
+1. call backend `reset`,
+2. call backend `observe`,
+3. call backend `source_identity`.
+
+The adapter builds Runtime `DomainResetResult` from the post-reset
+observation and source identity. This keeps the C ABI reset result small and
+avoids a partial observation contract inside reset.
+
+## Observation Contract
+
+Phase 8 chooses the smaller Phase 9 starting point:
+
+- C ABI observation returns one `recent_message`,
+- C ABI observation does not return available action types,
+- Python `RogueNativeObservation` also carries one `recent_message`,
+- `RogueDomainAdapter` attaches available action types from static Phase 8
+  capability data.
+
+`visible_cells` are a backend-owned read-only array plus count. Each cell
+carries position, glyph, terrain, and walkability. `terminal_reason` is a
+backend-owned read-only string with the same pointer lifetime rules as
+`recent_message`.
+
+## Domain Events
+
+The Phase 8 C ABI does not return domain events from reset or action calls.
+It deliberately does not expose event counts without event data. If a future C
+ABI returns domain events, it must define:
+
+- an event structure,
+- an event array,
+- an event count,
+- pointer lifetime,
+- schema version.
+
+The Python fake backend may still include Runtime `ActionResult.domain_events`
+for tests and Replay Level 1. These events are Python-side adapter artifacts,
+not C ABI reset-result fields.
 
 ## Struct Initialization
 
@@ -232,6 +305,19 @@ Native backend or ABI errors are status-code failures and map to
 `DomainAdapterError` on the Python side. They are not terminal kinds. A runtime
 fault is represented as RuntimeState `FAULTED` and EpisodeOutcome
 `NO_OUTCOME`.
+
+Action validation uses `namma_rogue_validation_status_t`, not
+`namma_rogue_status_t`.
+
+| Validation value | Meaning |
+| --- | --- |
+| `NAMMA_ROGUE_VALIDATION_VALID` | The action is valid for application. |
+| `NAMMA_ROGUE_VALIDATION_REJECTED_SCHEMA` | The request does not match the action schema. |
+| `NAMMA_ROGUE_VALIDATION_REJECTED_OBSERVABLE_RULE` | The request is rejected using observable rules only. |
+
+`namma_rogue_status_t` remains reserved for ABI call success or failure, such
+as invalid pointers, unsupported ABI versions, invalid handles, or internal
+errors.
 
 Terminal kind values:
 

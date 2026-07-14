@@ -95,3 +95,16 @@ Phase 9 must first contain:
 
 The Native ABI must not expose Rogue internal pointers, curses types, or
 Python objects.
+
+The selected ABI is an in-process host native ABI only. It is not an Ethernet
+wire protocol, OCuLink or PCIe DMA layout, shared-memory ABI, serialized
+replay format, or NaMMA transport protocol. The reason is that the ABI uses
+pointers, `size_t`, backend-owned memory lifetimes, and host compiler layout
+rules. Future NaMMA communication must sit behind a separate Transport
+Adapter with an explicit serialized representation.
+
+Phase 8 also chooses the smaller initial observation contract: one
+`recent_message` in the C ABI and Python native observation, with available
+action types supplied by `RogueDomainAdapter` as static capability data. Reset
+returns only reset status; the adapter calls observe and source-identity
+queries after reset succeeds.

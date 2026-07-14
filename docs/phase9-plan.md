@@ -53,9 +53,14 @@ Start with:
 - HP,
 - max HP,
 - visible cells,
-- recent messages,
+- one recent message,
 - terminal flag,
 - terminal reason.
+
+The Phase 9 ABI reset result should remain small: reset status only, followed
+by an explicit observe call and source-identity query. Domain event counts
+must not be added without a complete event structure, array, count, lifetime,
+and schema contract.
 
 Defer:
 
