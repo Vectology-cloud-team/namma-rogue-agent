@@ -13,6 +13,10 @@ display concerns separated.
 - The same seed and the same action sequence must reproduce the same result.
 - Do not break random-number reproducibility.
 - Version every observation and action schema change.
+- Keep Runtime common types, Rogue adapter types, and Rogue native ABI types
+  separated.
+- Do not expose Rogue internal pointers, curses types, or Python objects
+  across the Native ABI boundary.
 - Do not convert free-form AI text directly into game commands.
 - Validate all structured AI output before execution.
 - Do not expose hidden game state through normal agent observations or
@@ -32,6 +36,8 @@ display concerns separated.
 - Prefer semantic actions over raw keypress actions.
 - Prefer provider interfaces over coupling to one local inference server.
 - Prefer replayable experiments over one-off terminal demos.
+- Prefer an in-process C ABI behind `RogueNativeBackend` for AI control;
+  treat PTY control as diagnostic only.
 
 ## Long-Running Task Rule
 

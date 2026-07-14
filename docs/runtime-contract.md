@@ -1,8 +1,8 @@
 # Runtime Contract
 
-This document summarizes the Phase 7 Runtime Contract reference
-implementation. The Python code is a reference implementation of the
-logical contract, not a permanent protocol choice.
+This document summarizes the Runtime Contract reference implementation.
+The Python code is a reference implementation of the logical contract, not
+a permanent protocol choice.
 
 ## Scope
 
@@ -19,9 +19,16 @@ Included:
 - Fake DecisionProviders.
 - Synchronous Runtime Orchestrator.
 
-Excluded:
+Added in Phase 8:
 
-- RogueDomainAdapter.
+- RogueDomainAdapter skeleton.
+- RogueNativeBackend Protocol.
+- FakeRogueNativeBackend.
+- Rogue-specific semantic action and observation conversion.
+
+Still excluded:
+
+- Real Rogue native backend loading.
 - Rogue reset and step.
 - Rogue headless conversion.
 - Local AI.
@@ -101,6 +108,21 @@ runtime error information.
 Runtime faults are not EpisodeOutcome values.
 
 Rogue death or Fake Domain loss is `DOMAIN_LOSS`, not `FAULTED`.
+
+## Phase 8 Rogue Adapter Path
+
+Phase 8 verifies this path:
+
+```text
+RuntimeOrchestrator
+RogueDomainAdapter
+RogueNativeBackend Protocol
+FakeRogueNativeBackend
+```
+
+The fake backend is Rogue-shaped but does not replace the Phase 7 generic
+Fake Domain. It exists to test Rogue-specific conversion, hidden-state
+redaction, and Replay Level 1 behavior before real C integration.
 
 ## Orchestrator Reuse
 

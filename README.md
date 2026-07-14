@@ -4,11 +4,11 @@ NaMMA Rogue Autonomous Agent is a project to let a local AI
 autonomously play the game Rogue: descend, explore, fight, manage
 inventory and food, obtain the amulet, and return to the surface.
 
-The project is currently in the Phase 7 Runtime Contract Skeleton
+The project is currently in the Phase 8 Rogue Domain Adapter Boundary
 phase. This repository contains the Rogueforge Rogue 5.4.4 pristine
 baseline and a minimal Ubuntu 24.04 compatibility copy, but it does not
-yet contain a headless Rogue environment, RogueDomainAdapter, local AI
-integration, NaMMA implementation, or OCuLink driver.
+yet contain a headless Rogue environment, real Rogue native backend,
+local AI integration, NaMMA implementation, or OCuLink driver.
 
 ## Target System
 
@@ -95,13 +95,14 @@ Golden Baseline decision:
 - records clang as pending because it is not installed on the probe
   host.
 
-The current phase implements a Python reference skeleton for the Runtime
-Contract defined in Phase 6. It uses only a Fake Domain and fake
-DecisionProvider implementations.
+Phase 7 implemented a Python reference skeleton for the Runtime Contract
+defined in Phase 6. It uses only a Fake Domain and fake DecisionProvider
+implementations.
 
-Phase 7 does not modify Rogue 5.4.4, does not implement
-RogueDomainAdapter, does not add Rogue reset or step, and does not
-connect Local AI or NaMMA.
+At the end of Phase 7, Rogue 5.4.4 was still unmodified and
+RogueDomainAdapter had not yet been added. Phase 8 adds the
+RogueDomainAdapter skeleton only; Rogue reset, step, real native backend
+loading, Local AI, and NaMMA remain unimplemented.
 
 Runtime design documents:
 
@@ -127,9 +128,24 @@ Runtime implementation documents:
 
 - `runtime/README.md`
 
-RogueDomainAdapter, Rogue headless control, Local AI, NaMMA, HTTP,
-viewer, training, multi-agent support, streaming, batch execution, and
-64x160 work remain out of scope.
+Phase 8 defines the Rogue native boundary and adds a RogueDomainAdapter
+skeleton that is tested only with a Fake Rogue Native Backend.
+
+Phase 8 design and boundary documents:
+
+- `docs/rogue-control-flow.md`
+- `docs/rogue-state-inventory.md`
+- `docs/rogue-io-boundaries.md`
+- `docs/rogue-global-state.md`
+- `docs/rogue-observation-boundary.md`
+- `docs/rogue-action-mapping.md`
+- `docs/rogue-native-abi.md`
+- `docs/phase9-plan.md`
+- `docs/adr/0001-rogue-native-boundary.md`
+
+Rogue headless control, real native backend loading, Local AI, NaMMA,
+HTTP, viewer, training, multi-agent support, streaming, batch execution,
+and 64x160 work remain out of scope.
 
 ## License Status
 

@@ -65,6 +65,89 @@ class TextFileCheckTests(unittest.TestCase):
             any("Python file has only 1 physical lines" in error for error in errors)
         )
 
+    def test_hundred_line_equivalent_python_collapsed_to_one_line_fails(self):
+        normal_lines = [f"def function_{index}():\n    return {index}\n" for index in range(50)]
+        collapsed = " ".join(line.replace("\n", " ") for line in normal_lines) + "\n"
+        errors = self.errors_for("runtime/rogue/collapsed.py", collapsed)
+        self.assertTrue(
+            any("Python file has only 1 physical lines" in error for error in errors)
+        )
+
+    def test_2000_character_one_line_python_fails_for_review_paths(self):
+        collapsed = " ".join(
+            f"def collapsed_{index}(): return {index};"
+            for index in range(90)
+        )
+        self.assertGreater(len(collapsed), 2000)
+
+        for path in (
+            "runtime/rogue/adapter.py",
+            "runtime/rogue/backend.py",
+            "runtime/rogue/fake_backend.py",
+            "tests/test_rogue_domain_adapter.py",
+        ):
+            errors = self.errors_for(path, collapsed + "\n")
+            self.assertTrue(
+                any("Python file has only 1 physical lines" in error for error in errors),
+                path,
+            )
+
+    def test_multiple_classes_and_defs_on_one_line_fail_for_review_paths(self):
+        collapsed = (
+            "class First: pass "
+            "class Second: pass "
+            "def function_one(): return 1 "
+            "def function_two(): return 2\n"
+        )
+
+        for path in (
+            "runtime/rogue/adapter.py",
+            "runtime/rogue/backend.py",
+            "runtime/rogue/fake_backend.py",
+            "tests/test_rogue_domain_adapter.py",
+        ):
+            errors = self.errors_for(path, collapsed)
+            self.assertTrue(
+                any("multiple Python class/def blocks" in error for error in errors),
+                path,
+            )
+
+    def test_normal_multiline_python_passes_for_review_paths(self):
+        normal = (
+            "from __future__ import annotations\n\n"
+            "class Example:\n"
+            "    def value(self):\n"
+            "        return 1\n"
+        )
+
+        for path in (
+            "runtime/rogue/adapter.py",
+            "runtime/rogue/backend.py",
+            "runtime/rogue/fake_backend.py",
+            "tests/test_rogue_domain_adapter.py",
+        ):
+            self.assertEqual([], self.errors_for(path, normal), path)
+
+    def test_large_python_under_ten_lines_fails(self):
+        collapsed = "\n".join(
+            " ".join(f"def f{line}_{part}(): return {part};" for part in range(8))
+            for line in range(9)
+        )
+        errors = self.errors_for("runtime/rogue/collapsed9.py", collapsed)
+        self.assertTrue(
+            any("Python file has only 9 physical lines" in error for error in errors)
+        )
+
+    def test_four_line_large_python_fails_density_check(self):
+        collapsed_lines = [
+            " ".join(f"def f{index}_{part}(): return {part};" for part in range(20))
+            for index in range(4)
+        ]
+        errors = self.errors_for("runtime/rogue/collapsed4.py", "\n".join(collapsed_lines))
+        self.assertTrue(
+            any("bytes per physical line" in error for error in errors)
+        )
+
     def test_concatenated_python_imports_are_detected(self):
         bad_source = (
             "import os "
@@ -75,9 +158,87 @@ class TextFileCheckTests(unittest.TestCase):
             any("multiple Python import statements" in error for error in errors)
         )
 
+    def test_multiple_from_imports_are_detected(self):
+        bad_source = (
+            "from os import path "
+            "from sys import argv\n"
+        )
+        errors = self.errors_for("bad.py", bad_source)
+        self.assertTrue(
+            any("multiple Python from-import statements" in error for error in errors)
+        )
+
+    def test_class_and_def_on_same_line_are_detected(self):
+        bad_source = (
+            "class A: pass "
+            "def f(): return None\n"
+        )
+        errors = self.errors_for("bad.py", bad_source)
+        expected = "class/function collision"
+        self.assertTrue(any(expected in error for error in errors))
+
+    def test_docstring_closing_before_import_is_detected(self):
+        bad_source = (
+            '"""module docs""" '
+            "import os\n"
+        )
+        errors = self.errors_for("bad.py", bad_source)
+        self.assertTrue(
+            any("docstring closes before code on same line" in error for error in errors)
+        )
+
     def test_normal_python_passes(self):
         text = "import os\n\n\ndef main():\n    return os.name\n"
         self.assertEqual([], self.errors_for("good.py", text))
+
+    def test_large_header_under_twenty_lines_fails(self):
+        collapsed = "\n".join(
+            " ".join(f"#define VALUE_{line}_{part} {part}" for part in range(8))
+            for line in range(10)
+        )
+        errors = self.errors_for("adapter/native/include/collapsed.h", collapsed)
+        self.assertTrue(
+            any("C-like file has only 10 physical lines" in error for error in errors)
+        )
+
+    def test_c_preprocessor_and_typedef_collisions_are_detected(self):
+        source = (
+            "#ifndef A #define A #include <stdint.h>\n"
+            "#define A 1 #define B 2\n"
+            "typedef uint32_t a_t; typedef uint32_t b_t;\n"
+            "int a(void); int b(void);\n"
+        )
+        errors = self.errors_for("adapter/native/include/bad.h", source)
+        self.assertTrue(any("multiple C preprocessor directives" in error for error in errors))
+        self.assertTrue(any("multiple C #define directives" in error for error in errors))
+        self.assertTrue(any("multiple C typedefs" in error for error in errors))
+        self.assertTrue(any("multiple C function prototypes" in error for error in errors))
+
+    def test_runtime_rogue_and_tests_paths_are_text_targets(self):
+        self.assertTrue(check_text_files.target_text_path("runtime/rogue/adapter.py"))
+        self.assertTrue(check_text_files.target_text_path("runtime/rogue/backend.py"))
+        self.assertTrue(
+            check_text_files.target_text_path("runtime/rogue/fake_backend.py")
+        )
+        self.assertTrue(check_text_files.target_text_path("tests/test_rogue_domain_adapter.py"))
+        self.assertTrue(
+            check_text_files.target_text_path(
+                "adapter/native/include/namma_rogue_api.h"
+            )
+        )
+        self.assertTrue(
+            check_text_files.target_text_path(
+                "tests/native/test_namma_rogue_api_layout.c"
+            )
+        )
+        self.assertIsNone(check_text_files.allowlist_reason("runtime/rogue/adapter.py"))
+        self.assertIsNone(check_text_files.allowlist_reason("runtime/rogue/backend.py"))
+        self.assertIsNone(
+            check_text_files.allowlist_reason("runtime/rogue/fake_backend.py")
+        )
+        self.assertIsNone(
+            check_text_files.allowlist_reason("tests/test_rogue_domain_adapter.py")
+        )
 
     def test_long_url_is_not_overflagged(self):
         url = "https://example.com/" + ("a" * 600) + "\n"
@@ -139,7 +300,7 @@ class TextFileCheckTests(unittest.TestCase):
         )
 
     @unittest.skipIf(shutil.which("git") is None, "git is not available")
-    def test_git_blob_mode_detects_concatenated_python(self):
+    def test_git_blob_mode_detects_concatenated_python_in_runtime_rogue(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             with chdir(repo):
@@ -149,16 +310,17 @@ class TextFileCheckTests(unittest.TestCase):
                     check=True,
                     stdout=subprocess.PIPE,
                 )
-                bad_source = (
-                    "import os "
-                    "import sys\n"
+                Path("runtime/rogue").mkdir(parents=True)
+                bad_source = " ".join(
+                    f"def collapsed_{index}(): return {index};"
+                    for index in range(50)
                 )
-                Path("bad.py").write_text(
-                    bad_source,
+                Path("runtime/rogue/collapsed.py").write_text(
+                    bad_source + "\n",
                     encoding="utf-8",
                     newline="\n",
                 )
-                subprocess.run(["git", "add", "bad.py"], check=True)
+                subprocess.run(["git", "add", "runtime/rogue/collapsed.py"], check=True)
                 subprocess.run(
                     [
                         "git",
@@ -180,8 +342,166 @@ class TextFileCheckTests(unittest.TestCase):
                         check_text_files.DEFAULT_MAX_LINE_LENGTH,
                     )
         self.assertTrue(
-            any("multiple Python import statements" in error for error in errors)
+            any("Python file has only 1 physical lines" in error for error in errors)
         )
+
+    @unittest.skipIf(shutil.which("git") is None, "git is not available")
+    def test_git_blob_mode_reads_committed_blob_not_worktree(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            with chdir(repo):
+                subprocess.run(["git", "init"], check=True, stdout=subprocess.PIPE)
+                subprocess.run(
+                    ["git", "config", "core.autocrlf", "false"],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
+                Path("runtime/rogue").mkdir(parents=True)
+                collapsed = " ".join(
+                    f"def committed_{index}(): return {index};"
+                    for index in range(50)
+                )
+                target = Path("runtime/rogue/adapter.py")
+                target.write_text(collapsed + "\n", encoding="utf-8", newline="\n")
+                subprocess.run(["git", "add", str(target)], check=True)
+                subprocess.run(
+                    [
+                        "git",
+                        "-c",
+                        "user.email=test@example.com",
+                        "-c",
+                        "user.name=Test",
+                        "commit",
+                        "-m",
+                        "collapsed blob",
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
+                target.write_text(
+                    "def normal():\n    return 1\n",
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    blob_errors = check_text_files.check_files(
+                        check_text_files.git_ref_text_files("HEAD"),
+                        check_text_files.DEFAULT_MAX_LINE_LENGTH,
+                    )
+                    worktree_errors = check_text_files.check_files(
+                        check_text_files.worktree_text_files(),
+                        check_text_files.DEFAULT_MAX_LINE_LENGTH,
+                    )
+        self.assertTrue(
+            any("Python file has only 1 physical lines" in error for error in blob_errors)
+        )
+        self.assertEqual([], worktree_errors)
+
+    @unittest.skipIf(shutil.which("git") is None, "git is not available")
+    def test_git_blob_mode_detects_concatenated_python_in_tests_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            with chdir(repo):
+                subprocess.run(["git", "init"], check=True, stdout=subprocess.PIPE)
+                subprocess.run(
+                    ["git", "config", "core.autocrlf", "false"],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
+                Path("tests").mkdir()
+                bad_source = " ".join(
+                    f"def collapsed_test_{index}(): return {index};"
+                    for index in range(50)
+                )
+                Path("tests/test_collapsed.py").write_text(
+                    bad_source + "\n",
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                subprocess.run(["git", "add", "tests/test_collapsed.py"], check=True)
+                subprocess.run(
+                    [
+                        "git",
+                        "-c",
+                        "user.email=test@example.com",
+                        "-c",
+                        "user.name=Test",
+                        "commit",
+                        "-m",
+                        "fixture",
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    files = check_text_files.git_ref_text_files("HEAD")
+                    errors = check_text_files.check_files(
+                        files,
+                        check_text_files.DEFAULT_MAX_LINE_LENGTH,
+                    )
+        self.assertTrue(
+            any("Python file has only 1 physical lines" in error for error in errors)
+        )
+
+    @unittest.skipIf(shutil.which("git") is None, "git is not available")
+    def test_git_blob_mode_detects_all_review_collapse_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            with chdir(repo):
+                subprocess.run(["git", "init"], check=True, stdout=subprocess.PIPE)
+                subprocess.run(
+                    ["git", "config", "core.autocrlf", "false"],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
+                collapsed = " ".join(
+                    f"def collapsed_{index}(): return {index};"
+                    for index in range(90)
+                )
+                paths = (
+                    "runtime/rogue/adapter.py",
+                    "runtime/rogue/backend.py",
+                    "runtime/rogue/fake_backend.py",
+                    "tests/test_rogue_domain_adapter.py",
+                )
+                for path in paths:
+                    target = Path(path)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(
+                        collapsed + "\n",
+                        encoding="utf-8",
+                        newline="\n",
+                    )
+                subprocess.run(["git", "add", *paths], check=True)
+                subprocess.run(
+                    [
+                        "git",
+                        "-c",
+                        "user.email=test@example.com",
+                        "-c",
+                        "user.name=Test",
+                        "commit",
+                        "-m",
+                        "collapsed blobs",
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    errors = check_text_files.check_files(
+                        check_text_files.git_ref_text_files("HEAD"),
+                        check_text_files.DEFAULT_MAX_LINE_LENGTH,
+                    )
+
+        for path in paths:
+            self.assertTrue(
+                any(
+                    path in error
+                    and "Python file has only 1 physical lines" in error
+                    for error in errors
+                ),
+                path,
+            )
 
 
 if __name__ == "__main__":
