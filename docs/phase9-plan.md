@@ -1,22 +1,64 @@
 # Phase 9 Native Integration Plan
 
-Phase 9 is expected to add the first minimal native patch to Rogue 5.4.4.
-Phase 8 does not implement these changes.
+Phase 9 starts with a native ABI bootstrap stub before any Rogue 5.4.4
+game-code patch. The Phase 9A bootstrap proves ctypes-to-C connectivity
+without linking the native ABI to Rogue 5.4.4, headless Rogue, or gameplay
+control.
 
-## Goal
+## Phase 9A: Native ABI Bootstrap Stub
 
-Expose a minimal deterministic Rogue boundary while preserving game logic:
+Expose the smallest native-library stub boundary while preserving game logic:
+
+- ctypes native library loading,
+- create and destroy,
+- reset,
+- observe,
+- source identity,
+- terminal status,
+- `WAIT` and `QUIT` stub actions,
+- C ABI connection,
+- Python backend connection,
+- Replay Level 1 checksum match for a quit episode.
+
+The Phase 9A bootstrap does not implement `MOVE`, `step()`, fixed-seed Rogue
+game startup, map observation, inventory, combat, headless Rogue, or any link
+from the Native ABI to Rogue 5.4.4 game code.
+
+## Phase 9B Candidate: Native ABI Stub to Rogue 5.4.4 Linkage
+
+After the Phase 9A bootstrap is reviewed and merged, a later Phase 9B may
+begin connecting the native ABI boundary to Rogue 5.4.4. Phase 9B is not
+implemented by the bootstrap PR.
+
+Minimum entry conditions:
+
+- Phase 9A is merged.
+- Pristine and patched source identity are fixed.
+- The Native ABI stub is stable.
+- Rogue startup path investigation is current.
+- `exit`, signal, save, death, and victory paths are investigated.
+- Rogue globals reset feasibility is investigated.
+- Integration avoids calling `main()` directly.
+- In-process and subprocess approaches are compared before implementation.
+
+Future Phase 9B work may expose a minimal deterministic Rogue boundary:
 
 - fixed-seed new-game startup,
 - one command injection path,
 - `MOVE`, `WAIT`, and `QUIT`,
 - minimal observation,
 - terminal status,
-- C ABI connection,
-- Python backend connection,
-- Replay Level 1 checksum match.
+- Replay Level 1 checksum match against Rogue-backed state.
 
 ## Proposed Task Order
+
+The first task is now the safe Phase 9A bootstrap:
+
+| Task | Source files | Functions | Expected patch size | Game-logic risk | Determinism risk | Test | Rollback |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Native ABI stub library | `native/rogue_native_bootstrap.c`, `runtime/rogue/native_backend.py` | create, destroy, reset, observe, source identity, terminal status, WAIT, QUIT | Medium | None | Low | ctypes backend tests | Revert bootstrap commit |
+
+After bootstrap, future work can begin touching Rogue source:
 
 | Task | Source files | Functions | Expected patch size | Game-logic risk | Determinism risk | Test | Rollback |
 | --- | --- | --- | --- | --- | --- | --- | --- |

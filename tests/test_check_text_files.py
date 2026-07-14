@@ -84,11 +84,44 @@ class TextFileCheckTests(unittest.TestCase):
             "runtime/rogue/adapter.py",
             "runtime/rogue/backend.py",
             "runtime/rogue/fake_backend.py",
+            "runtime/rogue/native_backend.py",
             "tests/test_rogue_domain_adapter.py",
+            "tests/test_real_backend.py",
         ):
             errors = self.errors_for(path, collapsed + "\n")
             self.assertTrue(
                 any("Python file has only 1 physical lines" in error for error in errors),
+                path,
+            )
+
+    def test_2000_character_one_line_c_fails_for_native_paths(self):
+        collapsed = " ".join(
+            f"int native_stub_function_{index}(void);"
+            for index in range(90)
+        )
+        self.assertGreater(len(collapsed), 2000)
+
+        for path in (
+            "native/rogue_native_bootstrap.c",
+            "adapter/native/include/namma_rogue_api.h",
+            "tests/native/test_namma_rogue_api_layout.c",
+        ):
+            errors = self.errors_for(path, collapsed + "\n")
+            self.assertTrue(
+                any("C-like file has only 1 physical lines" in error for error in errors),
+                path,
+            )
+
+    def test_concatenated_c_includes_are_detected_for_native_paths(self):
+        bad_source = "#include <stdint.h> #include <stddef.h>\n"
+
+        for path in (
+            "native/rogue_native_bootstrap.c",
+            "adapter/native/include/namma_rogue_api.h",
+        ):
+            errors = self.errors_for(path, bad_source)
+            self.assertTrue(
+                any("multiple C preprocessor directives" in error for error in errors),
                 path,
             )
 
@@ -104,7 +137,9 @@ class TextFileCheckTests(unittest.TestCase):
             "runtime/rogue/adapter.py",
             "runtime/rogue/backend.py",
             "runtime/rogue/fake_backend.py",
+            "runtime/rogue/native_backend.py",
             "tests/test_rogue_domain_adapter.py",
+            "tests/test_real_backend.py",
         ):
             errors = self.errors_for(path, collapsed)
             self.assertTrue(
@@ -124,7 +159,28 @@ class TextFileCheckTests(unittest.TestCase):
             "runtime/rogue/adapter.py",
             "runtime/rogue/backend.py",
             "runtime/rogue/fake_backend.py",
+            "runtime/rogue/native_backend.py",
             "tests/test_rogue_domain_adapter.py",
+            "tests/test_real_backend.py",
+        ):
+            self.assertEqual([], self.errors_for(path, normal), path)
+
+    def test_normal_multiline_c_passes_for_native_paths(self):
+        normal = (
+            "#include <stdint.h>\n"
+            "#include <stddef.h>\n"
+            "\n"
+            "#define VALUE_ONE 1u\n"
+            "#define VALUE_TWO 2u\n"
+            "\n"
+            "typedef uint32_t example_status_t;\n"
+            "\n"
+            "int example_function(void);\n"
+        )
+
+        for path in (
+            "native/rogue_native_bootstrap.c",
+            "adapter/native/include/namma_rogue_api.h",
         ):
             self.assertEqual([], self.errors_for(path, normal), path)
 
@@ -220,7 +276,14 @@ class TextFileCheckTests(unittest.TestCase):
         self.assertTrue(
             check_text_files.target_text_path("runtime/rogue/fake_backend.py")
         )
+        self.assertTrue(
+            check_text_files.target_text_path("runtime/rogue/native_backend.py")
+        )
         self.assertTrue(check_text_files.target_text_path("tests/test_rogue_domain_adapter.py"))
+        self.assertTrue(check_text_files.target_text_path("tests/test_real_backend.py"))
+        self.assertTrue(
+            check_text_files.target_text_path("native/rogue_native_bootstrap.c")
+        )
         self.assertTrue(
             check_text_files.target_text_path(
                 "adapter/native/include/namma_rogue_api.h"
@@ -237,7 +300,14 @@ class TextFileCheckTests(unittest.TestCase):
             check_text_files.allowlist_reason("runtime/rogue/fake_backend.py")
         )
         self.assertIsNone(
+            check_text_files.allowlist_reason("runtime/rogue/native_backend.py")
+        )
+        self.assertIsNone(
             check_text_files.allowlist_reason("tests/test_rogue_domain_adapter.py")
+        )
+        self.assertIsNone(check_text_files.allowlist_reason("tests/test_real_backend.py"))
+        self.assertIsNone(
+            check_text_files.allowlist_reason("native/rogue_native_bootstrap.c")
         )
 
     def test_long_url_is_not_overflagged(self):
@@ -462,7 +532,9 @@ class TextFileCheckTests(unittest.TestCase):
                     "runtime/rogue/adapter.py",
                     "runtime/rogue/backend.py",
                     "runtime/rogue/fake_backend.py",
+                    "runtime/rogue/native_backend.py",
                     "tests/test_rogue_domain_adapter.py",
+                    "tests/test_real_backend.py",
                 )
                 for path in paths:
                     target = Path(path)

@@ -29,6 +29,8 @@
 - Screen scraping can be brittle and should not be the primary interface.
 - The future Rogue native backend must contain `exit()`, signal, save, death,
   and victory paths before in-process reset and step are safe.
+- The Phase 9A native ABI stub proves ctypes-to-C connectivity but does not
+  link to Rogue 5.4.4 or execute Rogue game logic.
 - Rogue global state and static command state may make multi-episode
   in-process execution fragile unless reset coverage is explicit.
 - Local AI latency may be too high for per-turn inference.
@@ -61,17 +63,19 @@
 - Should replay store full observations or hashes plus periodic snapshots?
 - What are the latency targets for mini PC local AI and NaMMA?
 - What parts of existing assets, if any, can be reused safely?
-- Should Phase 9 first split input at `readchar()` or at narrower
+- For Phase 9B, should Rogue input first split at `readchar()` or at narrower
   `command()` call sites?
 - Which minimal observation fields are sufficient for the first replayable
   Rogue step test?
 
 ## Immediate Recommendation
 
-Keep Phase 8 limited to boundary design, adapter skeleton, and fake backend
-verification. Do not begin Rogue headless work, real reset/step, Local AI,
-NaMMA, or 64x160 work from this branch.
+Keep Phase 9A bootstrap limited to native ABI stub loading, create, destroy,
+reset, observe, source identity, terminal status, `WAIT`, and `QUIT` stub
+actions. Do not begin Rogue 5.4.4 linkage, Rogue headless work, real `step()`,
+Local AI, NaMMA, or 64x160 work from this branch.
 
 Rogueforge Rogue 5.4.4 is the fixed upstream Golden Baseline. The
-current source task is defining how the Python Runtime will cross into a
-future native Rogue backend without exposing hidden state or Rogue internals.
+current source task is proving that the Python Runtime can cross into a native
+C ABI stub without exposing hidden state or Rogue internals. A later Phase 9B
+must decide how the stable stub links to Rogue 5.4.4.

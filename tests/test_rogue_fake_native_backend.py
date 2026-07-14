@@ -19,7 +19,7 @@ def make_context() -> DeterminismContext:
     return DeterminismContext.from_config(
         world_seed=123,
         episode_seed=456,
-        source_identity="Rogueforge Rogue 5.4.4",
+        source_identity="NaMMA Rogue Fake Native Backend",
         build_identity="fake-native-backend",
         compatibility_patch_identity="phase8-fake",
         config={"test": "fake_rogue_native_backend"},
@@ -44,8 +44,12 @@ class FakeRogueNativeBackendTests(unittest.TestCase):
             observation.recent_message,
         )
         self.assertEqual(
-            "Rogueforge Rogue 5.4.4",
+            "NaMMA Rogue Native ABI Bootstrap Stub",
             backend.source_identity().upstream_identity,
+        )
+        self.assertEqual(
+            "phase9_native_abi_stub",
+            backend.source_identity().identity_scope,
         )
 
     def test_move_and_wait_are_normalized_and_applied(self) -> None:

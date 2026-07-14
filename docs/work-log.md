@@ -93,6 +93,46 @@ Read before starting:
 - Rogue 5.4.4 pristine and patched source trees.
 - `patches/0001-ncurses-compatibility.patch`.
 
+## Phase 9A Native ABI Bootstrap Stub
+
+Status:
+
+- Branch: `feature/rogue-native-bootstrap`.
+- Started from updated `main` after PR #8 merge.
+- Scope is Runtime-to-native ABI stub connectivity only.
+- Added `native/rogue_native_bootstrap.c` as the minimal C ABI stub.
+- Added `runtime/rogue/native_backend.py` as the ctypes backend for the stub.
+- Supported native stub actions are `WAIT` and `QUIT` only.
+- Observation is limited to `recent_message`, `terminal`, `terminal_reason`,
+  and `turn` in the bootstrap profile.
+- ABI version is major `0`, minor `2`.
+- Rogue 5.4.4 linkage, Rogue 5.4.4 game source changes, headless control,
+  `step()`, `MOVE`, inventory, combat, pathfinding, Local AI, NaMMA,
+  Ethernet, OCuLink, and 64x160 work remain deferred.
+- Source identity for the stub is `phase9_native_abi_stub`; it must not report
+  Rogueforge Rogue 5.4.4 or the Rogueforge archive SHA until a future backend
+  actually links to Rogue 5.4.4.
+- `WAIT` and `QUIT` do not call Rogue `command()`, `playit()`, `readchar()`, or
+  gameplay functions in Phase 9A. They are stub state transitions.
+- The native diagnostic checksum is an XOR-based deterministic diagnostic
+  value only. It is not a cryptographic or production replay checksum.
+
+PR #9 review-fix notes:
+
+- Local `git show HEAD:<path>` inspection showed normal physical line counts
+  before the review fix: `runtime/rogue/native_backend.py` 674 lines,
+  `native/rogue_native_bootstrap.c` 427 lines, `tests/test_real_backend.py`
+  217 lines, and `adapter/native/include/namma_rogue_api.h` 264 lines.
+- The GitHub-reported 1-3 line blobs were not reproduced in local HEAD or
+  origin-tracking state. The practical guard is to keep explicit regression
+  tests for native, runtime, and tests paths so collapsed files cannot pass in
+  either worktree or `--git-ref` mode.
+- `scripts/check_text_files.py` targets `.py`, `.c`, `.cpp`, and `.h` files
+  under `runtime/`, `native/`, `tests/`, and `adapter/native/include/`; these
+  paths are not allowlisted.
+- `namma_rogue_destroy()` remains a `void` API. Python `RogueCloseError`
+  represents ctypes invocation or local wrapper errors, not a C destroy status.
+
 Current Phase 8 findings:
 
 - `main.c::main()` owns process startup.

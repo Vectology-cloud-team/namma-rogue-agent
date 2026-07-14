@@ -39,7 +39,8 @@ class RogueDomainAdapter:
         config: RogueNativeConfig | None = None,
     ) -> None:
         self._backend = backend
-        self._config = config or RogueNativeConfig()
+        backend_config = getattr(backend, "config", None)
+        self._config = config or backend_config or RogueNativeConfig()
         self._created = False
         self._closed = False
 
@@ -71,7 +72,7 @@ class RogueDomainAdapter:
             turn=turn,
             task="play_rogue",
             payload=native.to_agent_payload(),
-            available_action_types=list(PHASE8_SUPPORTED_ACTION_TYPES),
+            available_action_types=list(self._config.supported_action_types),
         )
 
     def validate_action(self, action: RequestedAction) -> ValidatedAction:
@@ -115,7 +116,7 @@ class RogueDomainAdapter:
 
     def _schema_rejection(self, action: RequestedAction) -> ValidatedAction | None:
         action_type = action.action_type.upper()
-        if action_type not in PHASE8_SUPPORTED_ACTION_TYPES:
+        if action_type not in self._config.supported_action_types:
             return ValidatedAction(
                 requested_action=action,
                 normalized_parameters={},
