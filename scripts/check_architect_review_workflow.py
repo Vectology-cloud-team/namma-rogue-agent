@@ -25,6 +25,9 @@ FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ACTION_USES_RE = re.compile(
     r"(?m)^\s*uses:\s+([^@\s]+)@([^\s#]+)(?:\s+#\s*([^\s]+))?\s*$"
 )
+GITHUB_SCRIPT_RESERVED_REDECLARATION_RE = re.compile(
+    r"(?m)^\s*(?:const|let|var)\s+(?:core|github|context)\s*="
+)
 PINNED_ACTIONS = {
     "actions/checkout": {
         "sha": "93cb6efe18208431cddfb8368fd83d5badbf9bfd",
@@ -204,6 +207,11 @@ def check_reviewer_text(text: str) -> list[CheckResult]:
     _add(results, "reviewer validates artifact paths", "Artifact path traversal detected" in review_job)
     _add(results, "reviewer validates artifact size", "maxArtifactBytes" in review_job)
     _add(results, "reviewer validates diff size", "maxDiffBytes" in review_job)
+    _add(
+        results,
+        "github-script does not redeclare injected identifiers",
+        not GITHUB_SCRIPT_RESERVED_REDECLARATION_RE.search(review_job),
+    )
     _add(results, "reviewer uses trusted base checkout", "ref: ${{ steps.validate.outputs.base_sha }}" in review_job)
     _add(results, "trusted prompt is verified", "Trusted architect-review prompt is missing from the base SHA." in review_job)
     _add(results, "reviewer uses OpenAI API key", "OPENAI_API_KEY" in review_job and "openai-api-key: ${{ secrets.OPENAI_API_KEY }}" in review_job)

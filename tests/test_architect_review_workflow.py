@@ -123,6 +123,24 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
         )
         self.assertIn("reviewer checks current head SHA", labels)
 
+    def test_github_script_rejects_injected_identifier_redeclaration(self):
+        for identifier in ("core", "github", "context"):
+            for declaration in ("const", "let", "var"):
+                with self.subTest(identifier=identifier, declaration=declaration):
+                    reviewer = self.reviewer_text().replace(
+                        "const expectedRepository = process.env.EXPECTED_REPOSITORY;",
+                        f"{declaration} {identifier} = null;\n"
+                        "            const expectedRepository = "
+                        "process.env.EXPECTED_REPOSITORY;",
+                    )
+                    labels = self.failed_labels(
+                        check_architect_review_workflow.check_reviewer_text(reviewer)
+                    )
+                    self.assertIn(
+                        "github-script does not redeclare injected identifiers",
+                        labels,
+                    )
+
     def test_stale_artifact_skips_comment(self):
         reviewer = self.reviewer_text()
         labels = self.failed_labels(
