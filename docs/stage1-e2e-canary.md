@@ -17,7 +17,8 @@ procedure retries the collection step up to three times.
 
 ## Operational Notes
 
-If review collection fails, the canary procedure does not retry the failed
-collection step.
+If review collection fails because of a transient service error, the canary
+procedure may retry the failed collection step up to three times.
 
-This intentional inconsistency should be visible to a document reviewer.
+This document is intentionally small so review workflow behavior is easy to
+inspect.
