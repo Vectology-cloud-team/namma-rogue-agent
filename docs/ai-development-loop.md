@@ -20,6 +20,18 @@ Stage 1 is review-only:
 
 The workflow uses prompt version `architect-review-v1`.
 
+The review prompt is trusted only when it comes from the pull request
+base SHA. The workflow checks out:
+
+- `trusted-base/`: `${{ github.event.pull_request.base.sha }}`
+- `review-target/`: `refs/pull/${{ github.event.pull_request.number }}/merge`
+
+Codex receives the prompt from `trusted-base/` and reviews the repository
+state in `review-target/`. A pull request can change its own copy of
+`.github/codex/prompts/architect-review.md`, but that copy is not used
+as the review prompt. If the trusted base prompt is missing, the workflow
+fails closed instead of falling back to the pull request copy.
+
 ### Trigger
 
 The workflow is triggered by `pull_request` events:
@@ -74,17 +86,20 @@ It uses the defaults provided by `openai/codex-action@v1`.
 Comment posting is isolated in a second job. That job does not check out
 the repository and does not receive `OPENAI_API_KEY`.
 
-The comment contains:
+The sticky comment contains:
 
 - marker: `<!-- namma-ai-architect-review -->`
 - heading: `## Automated Architect Review`
 - reviewed head SHA
 - workflow run ID
 - prompt version
+- verdict
 - Codex final message
+- an explicit note that the review is AI-generated and does not replace
+  human merge judgment
 
-The workflow deduplicates comments by marker and reviewed SHA. A repeated
-run for the same commit updates the existing comment instead of creating
+The workflow deduplicates comments by marker only. A later run for a new
+head SHA updates the same marker-owned comment instead of creating
 another one.
 
 ## Stage 2 Plan

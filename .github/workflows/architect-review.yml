@@ -41,16 +41,34 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout PR merge ref
-        uses: actions/checkout@v5
+      - name: Checkout trusted base
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
-          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-base
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Checkout PR merge ref
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          path: review-target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify trusted prompt
+        env:
+          TRUSTED_PROMPT: ${{ github.workspace }}/trusted-base/.github/codex/prompts/architect-review.md
+        run: |
+          if [ ! -f "$TRUSTED_PROMPT" ]; then
+            echo "Trusted architect-review prompt is missing from the base SHA."
+            exit 1
+          fi
+
       - name: Run Codex
         id: run_codex
-        uses: openai/codex-action@v1
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -63,7 +81,8 @@ jobs:
           PROMPT_VERSION: architect-review-v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: .github/codex/prompts/architect-review.md
+          prompt-file: ${{ github.workspace }}/trusted-base/.github/codex/prompts/architect-review.md
+          working-directory: ${{ github.workspace }}/review-target
           permission-profile: ":read-only"
           safety-strategy: drop-sudo
 
@@ -77,7 +96,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Post or update PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           FINAL_MESSAGE: ${{ needs.review.outputs.final_message }}
           REVIEWED_SHA: ${{ needs.review.outputs.reviewed_sha }}
@@ -88,6 +107,8 @@ jobs:
             const reviewedSha = process.env.REVIEWED_SHA;
             const promptVersion = process.env.PROMPT_VERSION;
             const finalMessage = process.env.FINAL_MESSAGE || 'No final message was produced.';
+            const verdictMatch = finalMessage.match(/^VERDICT: .+$/m);
+            const verdict = verdictMatch ? verdictMatch[0] : 'VERDICT: HUMAN_DECISION_REQUIRED';
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const issue_number = context.payload.pull_request.number;
@@ -96,9 +117,12 @@ jobs:
               '',
               '## Automated Architect Review',
               '',
+              '> This is an AI-generated review. It does not replace human merge judgment.',
+              '',
               `- Reviewed commit: \`${reviewedSha}\``,
-              `- Workflow run: \`${context.runId}\``,
+              `- Workflow run: [${context.runId}](https://github.com/${owner}/${repo}/actions/runs/${context.runId})`,
               `- Prompt version: \`${promptVersion}\``,
+              `- Verdict: \`${verdict}\``,
               '',
               finalMessage,
             ].join('\n');
@@ -112,8 +136,7 @@ jobs:
 
             const existing = comments.find((comment) =>
               comment.body &&
-              comment.body.includes(marker) &&
-              comment.body.includes(`Reviewed commit: \`${reviewedSha}\``)
+              comment.body.includes(marker)
             );
 
             if (existing) {
