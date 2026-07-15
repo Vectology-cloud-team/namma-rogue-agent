@@ -1,0 +1,158 @@
+name: Architect Review Collect
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+concurrency:
+  group: architect-review-collect-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    name: Collect untrusted review input
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout PR merge ref
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          path: review-target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Collect review input artifact
+        working-directory: review-target
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/architect-review-input
+          COLLECTOR_WORKFLOW_NAME: Architect Review Collect
+          COLLECTOR_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          MAX_DIFF_BYTES: "200000"
+          MAX_CHANGED_FILES: "200"
+          MAX_ARTIFACT_BYTES: "250000"
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          max_diff_bytes = int(os.environ["MAX_DIFF_BYTES"])
+          max_changed_files = int(os.environ["MAX_CHANGED_FILES"])
+          max_artifact_bytes = int(os.environ["MAX_ARTIFACT_BYTES"])
+          output_dir = Path(os.environ["OUTPUT_DIR"]).resolve()
+
+          event_path = Path(os.environ["GITHUB_EVENT_PATH"])
+          event = json.loads(event_path.read_text(encoding="utf-8"))
+          pull_request = event["pull_request"]
+          repository = event["repository"]["full_name"]
+          base_sha = pull_request["base"]["sha"]
+          head_sha = pull_request["head"]["sha"]
+          range_spec = f"{base_sha}...{head_sha}"
+
+          def git_output(args: list[str]) -> bytes:
+              return subprocess.check_output(["git", *args])
+
+          merge_sha = git_output(["rev-parse", "HEAD"]).decode("ascii").strip()
+          changed_output = git_output(
+              ["diff", "--name-only", "--find-renames", "-z", range_spec]
+          )
+          changed_files = [
+              item.decode("utf-8", errors="replace")
+              for item in changed_output.split(b"\0")
+              if item
+          ]
+          if len(changed_files) > max_changed_files:
+              raise SystemExit(
+                  f"Changed file count {len(changed_files)} exceeds {max_changed_files}"
+              )
+
+          text_files: list[str] = []
+          binary_files: list[str] = []
+          for changed_file in changed_files:
+              stat = git_output(["diff", "--numstat", range_spec, "--", changed_file])
+              first_line = stat.decode("utf-8", errors="replace").splitlines()
+              if first_line and first_line[0].startswith("-\t-"):
+                  binary_files.append(changed_file)
+              else:
+                  text_files.append(changed_file)
+
+          if text_files:
+              diff_bytes = git_output(
+                  [
+                      "diff",
+                      "--find-renames",
+                      "--no-ext-diff",
+                      "--no-color",
+                      range_spec,
+                      "--",
+                      *text_files,
+                  ]
+              )
+          else:
+              diff_bytes = b""
+          if len(diff_bytes) > max_diff_bytes:
+              raise SystemExit(
+                  f"Diff size {len(diff_bytes)} exceeds {max_diff_bytes} bytes"
+              )
+
+          manifest = {
+              "schema_version": "architect-review-input-v1",
+              "repository": repository,
+              "pull_request_number": int(pull_request["number"]),
+              "base_sha": base_sha,
+              "head_sha": head_sha,
+              "merge_sha": merge_sha,
+              "actor": event["sender"]["login"],
+              "author_association": pull_request["author_association"],
+              "draft": bool(pull_request["draft"]),
+              "base_repository": pull_request["base"]["repo"]["full_name"],
+              "head_repository": pull_request["head"]["repo"]["full_name"],
+              "collector_workflow_name": os.environ["COLLECTOR_WORKFLOW_NAME"],
+              "collector_workflow_run_id": int(os.environ["COLLECTOR_WORKFLOW_RUN_ID"]),
+              "changed_file_count": len(changed_files),
+              "binary_file_count": len(binary_files),
+              "binary_files_omitted": binary_files,
+              "diff_bytes": len(diff_bytes),
+              "limits": {
+                  "max_diff_bytes": max_diff_bytes,
+                  "max_changed_files": max_changed_files,
+                  "max_artifact_bytes": max_artifact_bytes,
+              },
+          }
+
+          if output_dir.exists():
+              shutil.rmtree(output_dir)
+          output_dir.mkdir(parents=True)
+          diff_path = output_dir / "review.diff"
+          manifest_path = output_dir / "manifest.json"
+          diff_path.write_bytes(diff_bytes)
+          manifest_path.write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+
+          artifact_bytes = diff_path.stat().st_size + manifest_path.stat().st_size
+          if artifact_bytes > max_artifact_bytes:
+              raise SystemExit(
+                  f"Artifact size {artifact_bytes} exceeds {max_artifact_bytes} bytes"
+              )
+          PY
+
+      - name: Upload review input artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: architect-review-input-${{ github.run_id }}
+          path: ${{ runner.temp }}/architect-review-input
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: false

@@ -1,63 +1,244 @@
 name: Architect Review
 
 on:
-  pull_request:
+  workflow_run:
+    workflows:
+      - Architect Review Collect
     types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
+      - completed
 
 concurrency:
-  group: architect-review-${{ github.event.pull_request.number }}
+  group: architect-review-${{ github.event.workflow_run.id }}
   cancel-in-progress: true
 
 jobs:
   review:
-    name: Run Codex architect review
+    name: Run privileged architect review
     if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.user.type != 'Bot' &&
-      (
-        github.event.pull_request.author_association == 'OWNER' ||
-        github.event.pull_request.author_association == 'MEMBER' ||
-        github.event.pull_request.author_association == 'COLLABORATOR'
-      )
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.name == 'Architect Review Collect' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.repository.full_name == github.repository &&
+      github.repository == 'Vectology-cloud-team/namma-rogue-agent'
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
+      pull-requests: read
     outputs:
       final_message: ${{ steps.run_codex.outputs.final-message }}
-      reviewed_sha: ${{ github.event.pull_request.head.sha }}
+      pr_number: ${{ steps.validate.outputs.pr_number }}
+      reviewed_sha: ${{ steps.validate.outputs.head_sha }}
+      should_review: ${{ steps.validate.outputs.should_review }}
       prompt_version: architect-review-v1
     steps:
-      - name: Check API key availability
+      - name: Download collector artifact
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: architect-review-input-${{ github.event.workflow_run.id }}
+          path: review-input
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Validate review input
+        id: validate
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
-          HAS_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY != '' }}
-        run: |
-          if [ "$HAS_OPENAI_API_KEY" != "true" ]; then
-            echo "OPENAI_API_KEY is not available for this trusted PR event."
-            exit 1
-          fi
+          EXPECTED_REPOSITORY: Vectology-cloud-team/namma-rogue-agent
+          EXPECTED_COLLECTOR_WORKFLOW: Architect Review Collect
+          REVIEW_INPUT_DIR: ${{ github.workspace }}/review-input
+          MAX_DIFF_BYTES: "200000"
+          MAX_CHANGED_FILES: "200"
+          MAX_ARTIFACT_BYTES: "250000"
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const core = require('@actions/core');
+
+            const expectedRepository = process.env.EXPECTED_REPOSITORY;
+            const expectedCollectorWorkflow = process.env.EXPECTED_COLLECTOR_WORKFLOW;
+            const root = path.resolve(process.env.REVIEW_INPUT_DIR);
+            const maxDiffBytes = Number(process.env.MAX_DIFF_BYTES);
+            const maxChangedFiles = Number(process.env.MAX_CHANGED_FILES);
+            const maxArtifactBytes = Number(process.env.MAX_ARTIFACT_BYTES);
+            const allowedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+            const shaPattern = /^[0-9a-f]{40}$/;
+            const expectedKeys = [
+              'actor',
+              'author_association',
+              'base_repository',
+              'base_sha',
+              'binary_file_count',
+              'binary_files_omitted',
+              'changed_file_count',
+              'collector_workflow_name',
+              'collector_workflow_run_id',
+              'diff_bytes',
+              'draft',
+              'head_repository',
+              'head_sha',
+              'limits',
+              'merge_sha',
+              'pull_request_number',
+              'repository',
+              'schema_version',
+            ];
+
+            function fail(message) {
+              core.setFailed(message);
+              throw new Error(message);
+            }
+
+            function skip(message, manifest) {
+              core.info(message);
+              core.setOutput('should_review', 'false');
+              if (manifest) {
+                core.setOutput('pr_number', String(manifest.pull_request_number));
+                core.setOutput('head_sha', String(manifest.head_sha));
+                core.setOutput('base_sha', String(manifest.base_sha));
+              }
+            }
+
+            if (context.payload.workflow_run.name !== expectedCollectorWorkflow) {
+              fail('Unexpected collector workflow name.');
+            }
+            if (context.payload.workflow_run.event !== 'pull_request') {
+              fail('Collector workflow_run was not triggered by pull_request.');
+            }
+            if (context.payload.workflow_run.repository.full_name !== expectedRepository) {
+              fail('Collector workflow_run repository does not match expected repository.');
+            }
+            if (context.repo.owner + '/' + context.repo.repo !== expectedRepository) {
+              fail('Reviewer repository identity does not match expected repository.');
+            }
+
+            const entries = fs.readdirSync(root, { withFileTypes: true });
+            const names = entries.map((entry) => entry.name).sort();
+            const expectedNames = ['manifest.json', 'review.diff'];
+            if (JSON.stringify(names) !== JSON.stringify(expectedNames)) {
+              fail(`Unexpected artifact contents: ${names.join(', ')}`);
+            }
+            for (const entry of entries) {
+              if (!entry.isFile() || entry.isSymbolicLink()) {
+                fail(`Unsafe artifact entry: ${entry.name}`);
+              }
+              const resolved = path.resolve(root, entry.name);
+              if (!resolved.startsWith(root + path.sep)) {
+                fail(`Artifact path traversal detected: ${entry.name}`);
+              }
+            }
+
+            const manifestPath = path.resolve(root, 'manifest.json');
+            const diffPath = path.resolve(root, 'review.diff');
+            const manifestRaw = fs.readFileSync(manifestPath, 'utf8');
+            const diffBytes = fs.statSync(diffPath).size;
+            const manifestBytes = Buffer.byteLength(manifestRaw, 'utf8');
+            if (diffBytes > maxDiffBytes) {
+              fail('review.diff exceeds the configured maximum size.');
+            }
+            if (diffBytes + manifestBytes > maxArtifactBytes) {
+              fail('Review input artifact exceeds the configured maximum size.');
+            }
+
+            let manifest;
+            try {
+              manifest = JSON.parse(manifestRaw);
+            } catch (error) {
+              fail(`manifest.json is not valid JSON: ${error.message}`);
+            }
+            const keys = Object.keys(manifest).sort();
+            if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)) {
+              fail(`manifest.json schema keys do not match: ${keys.join(', ')}`);
+            }
+            if (manifest.schema_version !== 'architect-review-input-v1') {
+              fail('Unsupported manifest schema_version.');
+            }
+            if (manifest.repository !== expectedRepository) {
+              fail('Manifest repository does not match expected repository.');
+            }
+            if (manifest.collector_workflow_name !== expectedCollectorWorkflow) {
+              fail('Manifest collector workflow name does not match.');
+            }
+            if (manifest.collector_workflow_run_id !== context.payload.workflow_run.id) {
+              fail('Manifest collector workflow run ID does not match workflow_run payload.');
+            }
+            if (!Number.isInteger(manifest.pull_request_number)) {
+              fail('Manifest pull_request_number must be an integer.');
+            }
+            for (const key of ['base_sha', 'head_sha', 'merge_sha']) {
+              if (!shaPattern.test(manifest[key])) {
+                fail(`Manifest ${key} must be a full commit SHA.`);
+              }
+            }
+            if (!Number.isInteger(manifest.changed_file_count)) {
+              fail('Manifest changed_file_count must be an integer.');
+            }
+            if (manifest.changed_file_count > maxChangedFiles) {
+              fail('Manifest changed_file_count exceeds configured maximum.');
+            }
+            if (!Number.isInteger(manifest.diff_bytes) || manifest.diff_bytes !== diffBytes) {
+              fail('Manifest diff_bytes does not match review.diff.');
+            }
+            if (!Array.isArray(manifest.binary_files_omitted)) {
+              fail('Manifest binary_files_omitted must be an array.');
+            }
+            if (manifest.binary_file_count !== manifest.binary_files_omitted.length) {
+              fail('Manifest binary_file_count does not match binary_files_omitted.');
+            }
+            if (
+              manifest.limits.max_diff_bytes !== maxDiffBytes ||
+              manifest.limits.max_changed_files !== maxChangedFiles ||
+              manifest.limits.max_artifact_bytes !== maxArtifactBytes
+            ) {
+              fail('Manifest limits do not match reviewer limits.');
+            }
+
+            const { owner, repo } = context.repo;
+            const pull = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: manifest.pull_request_number,
+            });
+            const pr = pull.data;
+            if (pr.head.sha !== manifest.head_sha) {
+              skip('Stale review artifact: pull request head SHA has changed.', manifest);
+              return;
+            }
+            if (pr.draft) {
+              skip('Skipping draft pull request.', manifest);
+              return;
+            }
+            if (pr.head.repo.full_name !== expectedRepository) {
+              skip('Skipping fork or external pull request.', manifest);
+              return;
+            }
+            if (pr.user.type === 'Bot') {
+              skip('Skipping bot-authored pull request.', manifest);
+              return;
+            }
+            if (!allowedAssociations.has(pr.author_association)) {
+              skip('Skipping pull request from author without write-level association.', manifest);
+              return;
+            }
+
+            core.setOutput('should_review', 'true');
+            core.setOutput('pr_number', String(manifest.pull_request_number));
+            core.setOutput('head_sha', manifest.head_sha);
+            core.setOutput('base_sha', manifest.base_sha);
 
       - name: Checkout trusted base
+        if: steps.validate.outputs.should_review == 'true'
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ steps.validate.outputs.base_sha }}
           path: trusted-base
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Checkout PR merge ref
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-        with:
-          ref: refs/pull/${{ github.event.pull_request.number }}/merge
-          path: review-target
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Verify trusted prompt
+        if: steps.validate.outputs.should_review == 'true'
         env:
           TRUSTED_PROMPT: ${{ github.workspace }}/trusted-base/.github/codex/prompts/architect-review.md
         run: |
@@ -66,30 +247,38 @@ jobs:
             exit 1
           fi
 
+      - name: Check API key availability
+        if: steps.validate.outputs.should_review == 'true'
+        env:
+          HAS_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY != '' }}
+        run: |
+          if [ "$HAS_OPENAI_API_KEY" != "true" ]; then
+            echo "OPENAI_API_KEY is not available for this trusted reviewer event."
+            exit 1
+          fi
+
       - name: Run Codex
+        if: steps.validate.outputs.should_review == 'true'
         id: run_codex
         uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ steps.validate.outputs.pr_number }}
+          BASE_SHA: ${{ steps.validate.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.validate.outputs.head_sha }}
+          REVIEW_MANIFEST: ${{ github.workspace }}/review-input/manifest.json
+          REVIEW_DIFF: ${{ github.workspace }}/review-input/review.diff
           PROMPT_VERSION: architect-review-v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: ${{ github.workspace }}/trusted-base/.github/codex/prompts/architect-review.md
-          working-directory: ${{ github.workspace }}/review-target
+          working-directory: ${{ github.workspace }}
           permission-profile: ":read-only"
           safety-strategy: drop-sudo
 
   post_feedback:
     name: Post architect review comment
     needs: review
-    if: needs.review.result == 'success'
+    if: needs.review.result == 'success' && needs.review.outputs.should_review == 'true'
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -99,6 +288,7 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           FINAL_MESSAGE: ${{ needs.review.outputs.final_message }}
+          PR_NUMBER: ${{ needs.review.outputs.pr_number }}
           REVIEWED_SHA: ${{ needs.review.outputs.reviewed_sha }}
           PROMPT_VERSION: ${{ needs.review.outputs.prompt_version }}
         with:
@@ -111,7 +301,7 @@ jobs:
             const verdict = verdictMatch ? verdictMatch[0] : 'VERDICT: HUMAN_DECISION_REQUIRED';
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const issue_number = context.payload.pull_request.number;
+            const issue_number = Number(process.env.PR_NUMBER);
             const body = [
               marker,
               '',

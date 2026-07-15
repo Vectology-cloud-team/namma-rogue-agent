@@ -5,9 +5,11 @@ GitHub pull request loop.
 
 ## Stage 1: Automated Architect Review
 
-Stage 1 adds an automated architect-review workflow for pull requests.
-The workflow runs the official `openai/codex-action@v1` action and posts
-a single pull request comment with the review result.
+Stage 1 adds an automated architect-review control plane for pull
+requests. It is split into an unprivileged collector and a privileged
+reviewer. The reviewer runs the official `openai/codex-action@v1`
+action and posts a single sticky pull request comment with the review
+result.
 
 Stage 1 is review-only:
 
@@ -20,43 +22,87 @@ Stage 1 is review-only:
 
 The workflow uses prompt version `architect-review-v1`.
 
-The review prompt is trusted only when it comes from the pull request
-base SHA. The workflow checks out:
+PR #10 is the Stage 1 control-plane bootstrap pull request. Because the
+privileged reviewer workflow and trusted prompt do not exist on the
+default branch until this PR is merged, PR #10 must be reviewed and
+merged by humans. The bootstrap behavior must not be weakened by adding
+a fallback to a pull-request-controlled prompt. After PR #10 is merged,
+run a separate canary pull request to verify the end-to-end AI review
+loop.
 
-- `trusted-base/`: `${{ github.event.pull_request.base.sha }}`
-- `review-target/`: `refs/pull/${{ github.event.pull_request.number }}/merge`
+The review prompt is trusted only when it comes from the default branch
+or the pull request base SHA validated by the privileged reviewer. The
+Stage 1 control plane is split as follows:
 
-Codex receives the prompt from `trusted-base/` and reviews the repository
-state in `review-target/`. A pull request can change its own copy of
-`.github/codex/prompts/architect-review.md`, but that copy is not used
-as the review prompt. If the trusted base prompt is missing, the workflow
-fails closed instead of falling back to the pull request copy.
+- `.github/workflows/architect-review-collect.yml`: unprivileged
+  collector triggered by `pull_request`
+- `.github/workflows/architect-review.yml`: privileged reviewer
+  triggered by `workflow_run`
+
+The collector checks out the pull request merge ref only to produce
+`manifest.json` and `review.diff`. It does not run Codex, does not use
+`OPENAI_API_KEY`, does not run repository scripts or tests, and does not
+have write permissions.
+
+The reviewer downloads the collector artifact, validates the manifest,
+checks the current pull request state through the GitHub API, and then
+loads the trusted prompt from the validated base SHA. Codex reviews the
+diff artifact as untrusted data. A pull request can change its own copy
+of `.github/codex/prompts/architect-review.md`, workflow files, or other
+configuration, but those copies are not used as trusted reviewer policy.
+If the trusted base prompt is missing, the reviewer fails closed instead
+of falling back to the pull request copy.
 
 ### Trigger
 
-The workflow is triggered by `pull_request` events:
+The collector workflow is triggered by `pull_request` events:
 
 - `opened`
 - `synchronize`
 - `reopened`
 - `ready_for_review`
 
-The workflow intentionally does not use `pull_request_target`.
+The reviewer workflow is triggered by `workflow_run` completion from the
+collector workflow. Neither workflow uses `pull_request_target`.
 
-The review job only runs when all of these are true:
+The privileged reviewer only proceeds when all of these are true:
 
+- The collector workflow concluded successfully.
+- The completed workflow name exactly matches `Architect Review Collect`.
+- The original event was `pull_request`.
+- The repository identity matches `Vectology-cloud-team/namma-rogue-agent`.
 - The pull request is not a draft.
 - The pull request branch is in this repository, not a fork.
 - The author is not a bot.
 - The author association is `OWNER`, `MEMBER`, or `COLLABORATOR`.
+- The current pull request head SHA matches the artifact manifest.
 - The repository secret `OPENAI_API_KEY` is available.
 
 Dependabot and other unapproved bot pull requests are excluded by the bot
 filter.
 
+### Artifact Limits
+
+The collector artifact contains:
+
+- `manifest.json`
+- `review.diff`
+
+The collector enforces:
+
+- maximum diff bytes,
+- maximum changed file count,
+- maximum artifact bytes,
+- binary file omission from the review diff.
+
+The reviewer validates the manifest schema, exact artifact file names,
+artifact sizes, repository identity, collector workflow identity, pull
+request number, and current head SHA before running Codex. A stale
+artifact is skipped without posting a comment.
+
 ### Checkout And Permissions
 
-The review job checks out the pull request merge ref:
+The collector checks out the pull request merge ref:
 
 ```yaml
 ref: refs/pull/${{ github.event.pull_request.number }}/merge
@@ -71,6 +117,10 @@ permissions:
   contents: read
 ```
 
+The privileged review job can read actions artifacts, read contents, and
+read pull request state. Comment posting is isolated in a separate job
+with pull request comment write permissions and no `OPENAI_API_KEY`.
+
 The Codex action runs with:
 
 ```yaml
@@ -81,10 +131,15 @@ safety-strategy: drop-sudo
 The workflow does not set an explicit Codex model or effort in Stage 1.
 It uses the defaults provided by `openai/codex-action@v1`.
 
+All third-party Actions are pinned to full commit SHAs with a human
+version comment. Repository settings should enable the equivalent of
+`Require actions to be pinned to a full-length commit SHA` when
+available.
+
 ### Comment Posting
 
-Comment posting is isolated in a second job. That job does not check out
-the repository and does not receive `OPENAI_API_KEY`.
+Comment posting is isolated in a second reviewer job. That job does not
+check out the repository and does not receive `OPENAI_API_KEY`.
 
 The sticky comment contains:
 
@@ -137,7 +192,9 @@ returns `VERDICT: APPROVE`.
 To stop the Stage 1 review loop:
 
 - disable the `Architect Review` workflow in GitHub Actions,
+- disable the `Architect Review Collect` workflow in GitHub Actions,
 - remove or rename `.github/workflows/architect-review.yml`,
+- remove or rename `.github/workflows/architect-review-collect.yml`,
 - remove the `OPENAI_API_KEY` repository secret,
 - convert a pull request back to draft,
 - use a fork or bot account that is intentionally excluded.

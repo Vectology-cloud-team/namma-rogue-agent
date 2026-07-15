@@ -22,156 +22,145 @@ SPEC.loader.exec_module(check_architect_review_workflow)
 
 
 class ArchitectReviewWorkflowTests(unittest.TestCase):
+    def collector_text(self):
+        return check_architect_review_workflow.COLLECTOR_WORKFLOW_PATH.read_text(
+            encoding="utf-8"
+        )
+
+    def reviewer_text(self):
+        return check_architect_review_workflow.REVIEWER_WORKFLOW_PATH.read_text(
+            encoding="utf-8"
+        )
+
     def failed_labels(self, results):
         return {result.label for result in results if not result.passed}
 
-    def test_repository_workflow_passes_static_checks(self):
+    def test_repository_workflows_pass_static_checks(self):
         results = check_architect_review_workflow.run_checks()
         self.assertEqual(set(), self.failed_labels(results))
 
-    def test_pull_request_target_is_rejected(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
-        workflow = workflow.replace("pull_request:", "pull_request_target:")
+    def test_collector_has_no_secrets_reference(self):
         labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
+            check_architect_review_workflow.check_collector_text(self.collector_text())
         )
-        self.assertIn("does not use pull_request_target", labels)
+        self.assertNotIn("collector has no secrets references", labels)
+        self.assertNotIn("collector has no OpenAI API key", labels)
 
-    def test_dangerous_codex_permission_profile_is_rejected(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
-        workflow = workflow.replace(
-            'permission-profile: ":read-only"',
-            "permission-profile: danger-full-access",
-        )
+    def test_collector_has_no_codex_action(self):
         labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
+            check_architect_review_workflow.check_collector_text(self.collector_text())
         )
-        self.assertIn("uses read-only permission profile", labels)
-        self.assertIn("does not use danger-full-access", labels)
+        self.assertNotIn("collector does not run Codex action", labels)
 
-    def test_workspace_write_permission_profile_is_rejected(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
-        workflow = workflow.replace(
-            'permission-profile: ":read-only"',
-            "permission-profile: workspace-write",
-        )
+    def test_collector_has_no_write_permission(self):
         labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
+            check_architect_review_workflow.check_collector_text(self.collector_text())
         )
-        self.assertIn("uses read-only permission profile", labels)
-        self.assertIn("does not use workspace-write", labels)
+        self.assertNotIn("collector has no write permission", labels)
+        self.assertIn("permissions:\n      contents: read", self.collector_text())
 
-    def test_post_feedback_openai_key_is_rejected(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
+    def test_reviewer_only_references_openai_api_key(self):
+        self.assertNotIn("OPENAI_API_KEY", self.collector_text())
+        self.assertIn("OPENAI_API_KEY", self.reviewer_text())
+
+    def test_reviewer_uses_workflow_run_trigger(self):
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(self.reviewer_text())
         )
-        workflow = workflow.replace(
-            "    permissions:\n      issues: write\n      pull-requests: write\n",
-            "    permissions:\n      issues: write\n      pull-requests: write\n"
-            "    env:\n      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}\n",
+        self.assertNotIn("reviewer uses workflow_run trigger", labels)
+        self.assertNotIn("reviewer watches collector workflow", labels)
+
+    def test_reviewer_checks_collector_workflow_name(self):
+        reviewer = self.reviewer_text().replace(
+            "github.event.workflow_run.name == 'Architect Review Collect'",
+            "true",
         )
         labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
+            check_architect_review_workflow.check_reviewer_text(reviewer)
         )
-        self.assertIn("post_feedback has no OpenAI API key", labels)
+        self.assertIn("reviewer checks workflow name", labels)
 
-    def test_checkout_credential_persistence_is_rejected(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
-        workflow = workflow.replace(
-            "persist-credentials: false",
-            "persist-credentials: true",
+    def test_reviewer_checks_source_event_type(self):
+        reviewer = self.reviewer_text().replace(
+            "github.event.workflow_run.event == 'pull_request'",
+            "true",
         )
         labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
+            check_architect_review_workflow.check_reviewer_text(reviewer)
         )
-        self.assertIn("checkout does not persist credentials", labels)
+        self.assertIn("reviewer checks source event type", labels)
 
-    def test_pr_prompt_is_not_used_as_review_prompt(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
+    def test_reviewer_checks_repository_identity(self):
+        reviewer = self.reviewer_text().replace(
+            "github.event.workflow_run.repository.full_name == github.repository",
+            "true",
+        )
+        reviewer = reviewer.replace(
+            "github.repository == 'Vectology-cloud-team/namma-rogue-agent'",
+            "true",
         )
         labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
+            check_architect_review_workflow.check_reviewer_text(reviewer)
         )
-        self.assertNotIn("uses trusted base prompt file", labels)
-        self.assertNotIn("does not use PR prompt as prompt-file", labels)
-        self.assertIn(
-            "prompt-file: ${{ github.workspace }}/trusted-base/.github/codex/prompts/architect-review.md",
-            workflow,
-        )
-        self.assertNotIn(
-            "prompt-file: .github/codex/prompts/architect-review.md",
-            workflow,
-        )
+        self.assertIn("reviewer checks workflow repository", labels)
+        self.assertIn("reviewer checks expected repository", labels)
 
-    def test_missing_base_prompt_fail_closed_check_is_required(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
+    def test_reviewer_validates_manifest_schema(self):
+        reviewer = self.reviewer_text().replace("expectedKeys", "removedExpectedKeys")
+        reviewer = reviewer.replace("manifest.schema_version", "manifest.removed")
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(reviewer)
         )
-        workflow = workflow.replace(
+        self.assertIn("reviewer validates manifest schema", labels)
+
+    def test_reviewer_checks_current_pr_head_sha(self):
+        reviewer = self.reviewer_text().replace(
+            "pr.head.sha !== manifest.head_sha",
+            "false",
+        )
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(reviewer)
+        )
+        self.assertIn("reviewer checks current head SHA", labels)
+
+    def test_stale_artifact_skips_comment(self):
+        reviewer = self.reviewer_text()
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(reviewer)
+        )
+        self.assertNotIn("reviewer skips stale artifact without comment", labels)
+        self.assertIn("needs.review.outputs.should_review == 'true'", reviewer)
+
+    def test_artifact_size_limit_exists(self):
+        collector_labels = self.failed_labels(
+            check_architect_review_workflow.check_collector_text(self.collector_text())
+        )
+        reviewer_labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(self.reviewer_text())
+        )
+        self.assertNotIn("collector has max artifact bytes", collector_labels)
+        self.assertNotIn("reviewer validates artifact size", reviewer_labels)
+
+    def test_pr_strings_are_not_embedded_directly_in_shell(self):
+        collector_labels = self.failed_labels(
+            check_architect_review_workflow.check_collector_text(self.collector_text())
+        )
+        self.assertNotIn("collector does not shell-expand PR title", collector_labels)
+        self.assertNotIn("github.event.pull_request.title", self.collector_text())
+
+    def test_trusted_prompt_missing_fails_closed(self):
+        reviewer = self.reviewer_text().replace(
             "Trusted architect-review prompt is missing from the base SHA.",
-            "Prompt missing; using PR copy.",
+            "Using pull request prompt fallback.",
         )
         labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
+            check_architect_review_workflow.check_reviewer_text(reviewer)
         )
         self.assertIn("trusted prompt is verified", labels)
 
-    def test_mutable_action_tag_is_rejected(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
-        workflow = workflow.replace(
-            "actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5",
-            "actions/checkout@v5",
-        )
-        labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
-        )
-        self.assertIn("all actions use full commit SHAs", labels)
-        self.assertIn("actions/checkout is pinned to reviewed SHA", labels)
-
-    def test_unapproved_action_is_rejected(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
-        workflow = workflow.replace(
-            "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7",
-            "third-party/example@1111111111111111111111111111111111111111 # v1",
-        )
-        labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
-        )
-        self.assertIn("only allowed actions are used", labels)
-        self.assertIn("actions/github-script action is used", labels)
-
-    def test_missing_action_version_comment_is_rejected(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
-        workflow = workflow.replace(
-            "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1",
-            "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56",
-        )
-        labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
-        )
-        self.assertIn("openai/codex-action keeps version comment", labels)
-
-    def test_same_pr_different_head_sha_uses_sticky_comment(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
+    def test_sticky_comment_is_one_per_pr(self):
         post_job = check_architect_review_workflow._job_section(
-            workflow,
+            self.reviewer_text(),
             "post_feedback",
         )
         existing_block = check_architect_review_workflow.existing_comment_block(
@@ -179,46 +168,61 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
         )
         self.assertIn("comment.body.includes(marker)", existing_block)
         self.assertNotIn("reviewedSha", existing_block)
-        self.assertNotIn("Reviewed commit", existing_block)
 
     def test_existing_marker_comment_is_updated(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
-        labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
-        )
-        self.assertNotIn("deduplicates by marker", labels)
-        self.assertNotIn("sticky comment ignores reviewed SHA for matching", labels)
-        self.assertIn("github.rest.issues.updateComment", workflow)
+        self.assertIn("github.rest.issues.updateComment", self.reviewer_text())
 
     def test_missing_marker_comment_is_created(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("github.rest.issues.createComment", workflow)
+        self.assertIn("github.rest.issues.createComment", self.reviewer_text())
 
-    def test_explicit_model_and_effort_are_rejected_for_stage1(self):
-        workflow = check_architect_review_workflow.WORKFLOW_PATH.read_text(
-            encoding="utf-8"
-        )
-        workflow = workflow.replace(
-            "safety-strategy: drop-sudo",
-            "safety-strategy: drop-sudo\n          model: gpt-test\n"
-            "          effort: high",
+    def test_all_actions_are_full_sha_pinned(self):
+        combined = check_architect_review_workflow.all_workflow_text(
+            self.collector_text(),
+            self.reviewer_text(),
         )
         labels = self.failed_labels(
-            check_architect_review_workflow.check_workflow_text(workflow)
+            check_architect_review_workflow.check_action_pinning(combined)
         )
-        self.assertIn("does not set explicit model", labels)
-        self.assertIn("does not set explicit effort", labels)
+        self.assertNotIn("all actions use full commit SHAs", labels)
+        self.assertNotIn("only allowed actions are used", labels)
 
-    def test_prompt_requires_verdict_and_sections(self):
+    def test_mutable_action_tag_is_rejected(self):
+        combined = check_architect_review_workflow.all_workflow_text(
+            self.collector_text(),
+            self.reviewer_text(),
+        ).replace(
+            "actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5",
+            "actions/checkout@v5",
+        )
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_action_pinning(combined)
+        )
+        self.assertIn("all actions use full commit SHAs", labels)
+        self.assertIn("actions/checkout is pinned to reviewed SHA", labels)
+
+    def test_unapproved_action_is_rejected(self):
+        combined = check_architect_review_workflow.all_workflow_text(
+            self.collector_text(),
+            self.reviewer_text(),
+        ).replace(
+            "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5",
+            "unknown/example@1111111111111111111111111111111111111111 # v1",
+        )
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_action_pinning(combined)
+        )
+        self.assertIn("only allowed actions are used", labels)
+        self.assertIn("actions/download-artifact action is used", labels)
+
+    def test_prompt_requires_untrusted_diff_boundary(self):
         prompt = check_architect_review_workflow.PROMPT_PATH.read_text(
             encoding="utf-8"
         )
-        results = check_architect_review_workflow.check_prompt_text(prompt)
-        self.assertEqual(set(), self.failed_labels(results))
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_prompt_text(prompt)
+        )
+        self.assertNotIn("prompt treats review input as untrusted", labels)
+        self.assertNotIn("prompt forbids executing PR content", labels)
 
 
 if __name__ == "__main__":
