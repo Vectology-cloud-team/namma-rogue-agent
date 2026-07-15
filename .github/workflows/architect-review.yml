@@ -1,0 +1,133 @@
+name: Architect Review
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+concurrency:
+  group: architect-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Run Codex architect review
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type != 'Bot' &&
+      (
+        github.event.pull_request.author_association == 'OWNER' ||
+        github.event.pull_request.author_association == 'MEMBER' ||
+        github.event.pull_request.author_association == 'COLLABORATOR'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      final_message: ${{ steps.run_codex.outputs.final-message }}
+      reviewed_sha: ${{ github.event.pull_request.head.sha }}
+      prompt_version: architect-review-v1
+    steps:
+      - name: Check API key availability
+        env:
+          HAS_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY != '' }}
+        run: |
+          if [ "$HAS_OPENAI_API_KEY" != "true" ]; then
+            echo "OPENAI_API_KEY is not available for this trusted PR event."
+            exit 1
+          fi
+
+      - name: Checkout PR merge ref
+        uses: actions/checkout@v5
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run Codex
+        id: run_codex
+        uses: openai/codex-action@v1
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PROMPT_VERSION: architect-review-v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/architect-review.md
+          permission-profile: ":read-only"
+          safety-strategy: drop-sudo
+
+  post_feedback:
+    name: Post architect review comment
+    needs: review
+    if: needs.review.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Post or update PR comment
+        uses: actions/github-script@v7
+        env:
+          FINAL_MESSAGE: ${{ needs.review.outputs.final_message }}
+          REVIEWED_SHA: ${{ needs.review.outputs.reviewed_sha }}
+          PROMPT_VERSION: ${{ needs.review.outputs.prompt_version }}
+        with:
+          script: |
+            const marker = '<!-- namma-ai-architect-review -->';
+            const reviewedSha = process.env.REVIEWED_SHA;
+            const promptVersion = process.env.PROMPT_VERSION;
+            const finalMessage = process.env.FINAL_MESSAGE || 'No final message was produced.';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.pull_request.number;
+            const body = [
+              marker,
+              '',
+              '## Automated Architect Review',
+              '',
+              `- Reviewed commit: \`${reviewedSha}\``,
+              `- Workflow run: \`${context.runId}\``,
+              `- Prompt version: \`${promptVersion}\``,
+              '',
+              finalMessage,
+            ].join('\n');
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find((comment) =>
+              comment.body &&
+              comment.body.includes(marker) &&
+              comment.body.includes(`Reviewed commit: \`${reviewedSha}\``)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
