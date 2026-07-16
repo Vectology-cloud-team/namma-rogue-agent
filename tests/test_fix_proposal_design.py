@@ -100,9 +100,20 @@ class FixProposalDesignTests(unittest.TestCase):
     def test_schema_file_has_required_contract(self):
         schema = check_fix_proposal_design.validate_schema_file()
         self.assertEqual("NaMMA AI Fix Proposal", schema["title"])
+        self.assertFalse(schema["additionalProperties"])
         self.assertIn("head_sha", schema["required"])
         self.assertIn("human_approval_required", schema["required"])
-        self.assertEqual("modify", schema["properties"]["changes"]["items"]["properties"]["operation"]["const"])
+        change_schema = schema["properties"]["changes"]["items"]
+        finding_schema = schema["properties"]["findings_addressed"]["items"]
+        self.assertFalse(change_schema["additionalProperties"])
+        self.assertFalse(finding_schema["additionalProperties"])
+        self.assertIn("rationale", change_schema["required"])
+        self.assertIn("finding_id", finding_schema["required"])
+        self.assertEqual("modify", change_schema["properties"]["operation"]["const"])
+        self.assertEqual(
+            ["critical", "high", "medium", "low"],
+            finding_schema["properties"]["severity"]["enum"],
+        )
 
     def test_valid_proposal_passes(self):
         check_fix_proposal_design.validate_fix_proposal(
@@ -131,6 +142,11 @@ class FixProposalDesignTests(unittest.TestCase):
     def test_path_traversal_is_rejected(self):
         proposal = self.valid_proposal()
         proposal["changes"] = [self.valid_change("docs/../secret.txt")]
+        self.assert_rejects(proposal, "PATH_TRAVERSAL")
+
+    def test_backslash_path_traversal_is_rejected(self):
+        proposal = self.valid_proposal()
+        proposal["changes"] = [self.valid_change(r"docs\..\secret.txt")]
         self.assert_rejects(proposal, "PATH_TRAVERSAL")
 
     def test_workflow_change_is_rejected(self):
@@ -205,10 +221,38 @@ class FixProposalDesignTests(unittest.TestCase):
         ]
         self.assert_rejects(proposal, "DUPLICATE_PATH")
 
+    def test_normalized_duplicate_path_is_rejected(self):
+        proposal = self.valid_proposal()
+        first = self.valid_change("src/example.py")
+        second = self.valid_change(r"src\example.py")
+        second["patch"] = self.valid_patch("src/example.py")
+        proposal["changes"] = [first, second]
+        self.assert_rejects(proposal, "DUPLICATE_PATH")
+
     def test_original_blob_sha_is_required(self):
         proposal = self.valid_proposal()
         del proposal["changes"][0]["original_blob_sha"]
-        self.assert_rejects(proposal, "INVALID_SHA")
+        self.assert_rejects(proposal, "INVALID_PROPOSAL")
+
+    def test_change_rationale_is_required(self):
+        proposal = self.valid_proposal()
+        del proposal["changes"][0]["rationale"]
+        self.assert_rejects(proposal, "INVALID_PROPOSAL")
+
+    def test_unexpected_top_level_property_is_rejected(self):
+        proposal = self.valid_proposal()
+        proposal["extra"] = "not allowed"
+        self.assert_rejects(proposal, "INVALID_PROPOSAL")
+
+    def test_unexpected_change_property_is_rejected(self):
+        proposal = self.valid_proposal()
+        proposal["changes"][0]["mode"] = "100644"
+        self.assert_rejects(proposal, "INVALID_PROPOSAL")
+
+    def test_invalid_finding_severity_is_rejected(self):
+        proposal = self.valid_proposal()
+        proposal["findings_addressed"][0]["severity"] = "urgent"
+        self.assert_rejects(proposal, "INVALID_PROPOSAL")
 
     def test_patch_path_mismatch_is_rejected(self):
         proposal = self.valid_proposal()
@@ -248,6 +292,35 @@ class FixProposalDesignTests(unittest.TestCase):
                 approved_proposal_hash=proposal_hash,
             )
         self.assertEqual("STALE_APPROVAL", raised.exception.code)
+
+    def test_trusted_approval_binding_record_is_required(self):
+        proposal = self.valid_proposal()
+        proposal_hash = check_fix_proposal_design.proposal_content_hash(proposal)
+        cases = [
+            ("", FULL_SHA_B, proposal_hash),
+            (proposal["proposal_id"], "", proposal_hash),
+            (proposal["proposal_id"], FULL_SHA_B, ""),
+        ]
+        for approved_proposal_id, approved_head_sha, approved_hash in cases:
+            with self.subTest(
+                approved_proposal_id=approved_proposal_id,
+                approved_head_sha=approved_head_sha,
+                approved_hash=approved_hash,
+            ):
+                with self.assertRaises(
+                    check_fix_proposal_design.ProposalValidationError
+                ) as raised:
+                    check_fix_proposal_design.validate_approval_gate(
+                        proposal,
+                        self.policy,
+                        labels={self.policy.proposal_label, self.policy.approval_label},
+                        approver_association="OWNER",
+                        current_head_sha=FULL_SHA_B,
+                        approved_head_sha=approved_head_sha,
+                        approved_proposal_id=approved_proposal_id,
+                        approved_proposal_hash=approved_hash,
+                    )
+                self.assertEqual("APPROVAL_BINDING_MISSING", raised.exception.code)
 
     def test_approval_requires_owner_or_member_and_matching_hash(self):
         proposal = self.valid_proposal()

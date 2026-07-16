@@ -53,6 +53,27 @@ REQUIRED_PROTECTED_PATHS = {
     ".github/codex/prompts/**",
     ".github/codex/review-policy.yml",
 }
+PROPOSAL_KEYS = {
+    "schema_version",
+    "proposal_id",
+    "repository",
+    "pull_request_number",
+    "base_sha",
+    "head_sha",
+    "review_comment_id",
+    "reviewed_at",
+    "generator",
+    "summary",
+    "findings_addressed",
+    "changes",
+    "tests_recommended",
+    "risks",
+    "human_approval_required",
+}
+GENERATOR_KEYS = {"model", "reasoning_effort", "policy_version"}
+FINDING_KEYS = {"finding_id", "severity", "category"}
+FINDING_SEVERITIES = {"critical", "high", "medium", "low"}
+CHANGE_KEYS = {"path", "operation", "original_blob_sha", "patch", "rationale"}
 
 
 @dataclass(frozen=True)
@@ -221,7 +242,7 @@ def normalize_repo_path(path: str) -> str:
     return path.replace("\\", "/").lstrip("/")
 
 
-def reject_path(path: str, policy: FixPolicy) -> None:
+def reject_path(path: str, policy: FixPolicy) -> str:
     normalized = normalize_repo_path(path)
     if not normalized or normalized != path.replace("\\", "/"):
         raise ProposalValidationError("INVALID_PATH", "path must be relative")
@@ -241,6 +262,26 @@ def reject_path(path: str, policy: FixPolicy) -> None:
                 "PROTECTED_PATH",
                 f"{normalized} is protected",
             )
+    return normalized
+
+
+def reject_unexpected_keys(
+    obj: dict[str, Any],
+    allowed: set[str],
+    context: str,
+) -> None:
+    extra = set(obj).difference(allowed)
+    if extra:
+        raise ProposalValidationError(
+            "INVALID_PROPOSAL",
+            f"{context} has unexpected fields: {sorted(extra)}",
+        )
+    missing = allowed.difference(obj)
+    if missing:
+        raise ProposalValidationError(
+            "INVALID_PROPOSAL",
+            f"{context} is missing fields: {sorted(missing)}",
+        )
 
 
 def require_full_sha(value: Any, field_name: str) -> None:
@@ -319,6 +360,7 @@ def validate_fix_proposal(
     expected_repository: str = EXPECTED_REPOSITORY,
 ) -> None:
     policy = policy or load_fix_policy()
+    reject_unexpected_keys(proposal, PROPOSAL_KEYS, "proposal")
     if proposal.get("schema_version") != "1.0":
         raise ProposalValidationError("INVALID_PROPOSAL", "schema_version must be 1.0")
     require_string(proposal.get("proposal_id"), "proposal_id")
@@ -356,6 +398,7 @@ def validate_fix_proposal(
     generator = proposal.get("generator")
     if not isinstance(generator, dict):
         raise ProposalValidationError("INVALID_PROPOSAL", "generator is required")
+    reject_unexpected_keys(generator, GENERATOR_KEYS, "generator")
     for field_name in ("model", "reasoning_effort", "policy_version"):
         require_string(generator.get(field_name), f"generator.{field_name}")
     findings = proposal.get("findings_addressed")
@@ -364,6 +407,20 @@ def validate_fix_proposal(
             "INVALID_PROPOSAL",
             "at least one finding must be addressed",
         )
+    for finding in findings:
+        if not isinstance(finding, dict):
+            raise ProposalValidationError(
+                "INVALID_PROPOSAL",
+                "finding must be object",
+            )
+        reject_unexpected_keys(finding, FINDING_KEYS, "finding")
+        for field_name in FINDING_KEYS:
+            require_string(finding.get(field_name), f"finding.{field_name}")
+        if finding["severity"] not in FINDING_SEVERITIES:
+            raise ProposalValidationError(
+                "INVALID_PROPOSAL",
+                "finding severity is invalid",
+            )
     changes = proposal.get("changes")
     if not isinstance(changes, list) or not changes:
         raise ProposalValidationError(
@@ -380,11 +437,12 @@ def validate_fix_proposal(
     for change in changes:
         if not isinstance(change, dict):
             raise ProposalValidationError("INVALID_PROPOSAL", "change must be object")
+        reject_unexpected_keys(change, CHANGE_KEYS, "change")
         path = require_string(change.get("path"), "changes.path")
-        if path in paths:
+        normalized_path = reject_path(path, policy)
+        if normalized_path in paths:
             raise ProposalValidationError("DUPLICATE_PATH", "duplicate change path")
-        paths.add(path)
-        reject_path(path, policy)
+        paths.add(normalized_path)
         if change.get("operation") not in policy.allowed_operations:
             raise ProposalValidationError(
                 "FORBIDDEN_OPERATION",
@@ -425,6 +483,11 @@ def validate_approval_gate(
         raise ProposalValidationError(
             "APPROVER_NOT_ALLOWED",
             "approval must come from OWNER or MEMBER",
+        )
+    if not approved_proposal_id or not approved_proposal_hash or not approved_head_sha:
+        raise ProposalValidationError(
+            "APPROVAL_BINDING_MISSING",
+            "trusted approval record must bind proposal ID, hash, and head SHA",
         )
     if proposal["head_sha"] != current_head_sha or approved_head_sha != current_head_sha:
         raise ProposalValidationError(
@@ -479,6 +542,7 @@ def check_design_documents(policy: FixPolicy) -> list[CheckResult]:
         policy.proposal_label,
         policy.approval_label,
         PROPOSAL_MARKER,
+        "trusted approval record",
         "PROPOSAL_READY -> repository commit is forbidden",
         "head SHA changes invalidate proposal and approval",
         "Threat Model",

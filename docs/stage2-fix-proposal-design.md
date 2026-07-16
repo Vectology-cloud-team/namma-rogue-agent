@@ -90,14 +90,25 @@ only when all of these are true:
 
 - `ai-fix-proposal` is still present,
 - `ai-fix-approved` was applied by an `OWNER` or `MEMBER`,
+- a trusted approval record exists for the label event,
 - the latest proposal targets the current head SHA,
 - the head SHA did not change after proposal generation,
-- the approval names the current proposal ID,
-- the approved proposal hash matches the current proposal content,
+- the approval record names the current proposal ID,
+- the approval record includes the current head SHA,
+- the approval record stores the proposal content hash,
+- the approval record's hash matches the current proposal content,
 - the proposal ID is unique for the reviewed head SHA.
 
 `ai-fix-approved` only permits a future Stage 2C sandbox apply attempt.
 It does not permit commit, push, merge, or production branch writes.
+
+The label alone is not the approval binding. It is only the human intent
+signal. A future verifier must bind that label event to a trusted
+approval record captured from trusted proposal metadata, such as an
+auditable proposal record or structured approval comment. That record
+must include the proposal ID, target head SHA, proposal content hash,
+approver identity, and approver association. If the binding record is
+missing, ambiguous, stale, or has a mismatched hash, approval is invalid.
 
 ## Proposal Schema
 
@@ -185,7 +196,8 @@ PROPOSAL_REQUESTED
     v
 PROPOSAL_READY
     |
-    | ai-fix-approved label + head SHA + proposal hash match
+    | ai-fix-approved label + trusted approval record
+    | + proposal ID + head SHA + proposal hash match
     v
 APPROVED_FOR_SANDBOX
     |
@@ -214,8 +226,9 @@ before applying a patch. This prevents a proposal generated for one file
 revision from being applied to another.
 
 The proposal content hash is computed over the canonical JSON proposal.
-Human approval must bind to the proposal ID and content hash. Editing a
-proposal comment invalidates approval unless the hash still matches.
+Human approval must bind to the proposal ID, content hash, and head SHA
+through a trusted approval record. Editing a proposal comment invalidates
+approval unless the recomputed hash still matches the approval record.
 
 Recommended tests are informational strings. They are not shell commands
 to execute automatically. A future sandbox must validate any command
@@ -243,6 +256,7 @@ The comment should display:
 - recommended tests,
 - proposal status,
 - human approval required,
+- approval binding status,
 - a clear note that no file modification, commit, or push has occurred.
 
 PR #15 does not implement comment posting. It only defines this marker
@@ -255,11 +269,11 @@ and display contract.
 | PR body or diff prompt injection | Treat review input and proposal input as untrusted. Trusted prompt and policy must come from default-branch control plane. |
 | AI tries to modify workflow or prompt files | Protected paths reject `.github/workflows/**`, `.github/actions/**`, and `.github/codex/prompts/**`. |
 | Stale proposal apply | Proposal and approval bind to full head SHA. Head SHA changes invalidate both. |
-| Label permission confusion | `ai-fix-proposal` allows proposal generation only. `ai-fix-approved` allows future sandbox consideration only. |
-| Proposal tampering | Approval binds to proposal ID and proposal content hash. |
+| Label permission confusion | `ai-fix-proposal` allows proposal generation only. `ai-fix-approved` is only an intent signal and must be paired with a trusted approval record. |
+| Proposal tampering | Approval binds to proposal ID, proposal content hash, head SHA, approver identity, and approver association through the trusted approval record. |
 | Patch path traversal | Absolute paths, `..`, and protected paths are rejected before any apply step exists. |
 | Patch and target blob mismatch | `original_blob_sha` is required and must match the target blob before sandbox apply. |
-| Duplicate or old approval reuse | Approval must name current proposal ID, hash, and head SHA. |
+| Duplicate or old approval reuse | Approval must name current proposal ID, hash, and head SHA in the trusted approval record. |
 | Oversized patch resource use | Fix policy limits total patch bytes, per-file patch bytes, and changed file count. |
 | AI includes unrequested changes | Proposal must address explicit Stage 1 findings and list every target path and rationale. |
 | Recommended tests executed as shell without validation | Test recommendations are data only. Stage 2 design does not execute shell commands. |
