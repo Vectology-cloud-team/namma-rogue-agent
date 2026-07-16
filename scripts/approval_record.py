@@ -127,10 +127,11 @@ def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
         "collector_workflow_run_id",
     }
     missing = sorted(required.difference(manifest))
-    if missing:
+    extra = sorted(set(manifest).difference(required))
+    if missing or extra:
         raise fatal(
             fix.FailureCode.INVALID_MANIFEST,
-            f"approval request manifest missing fields: {missing}",
+            f"approval request manifest field mismatch: missing={missing}, extra={extra}",
             "approval_request_validation",
         )
     if manifest["schema_version"] != APPROVAL_REQUEST_SCHEMA_VERSION:
@@ -465,6 +466,32 @@ def approval_actor_association(
     return "MEMBER"
 
 
+def proposal_hash_for_approval(
+    *,
+    proposal: dict[str, Any],
+    metadata: dict[str, Any],
+) -> str:
+    hash_source = {
+        "repository": proposal.get("repository"),
+        "pull_request_number": proposal.get("pull_request_number"),
+        "base_sha": proposal.get("base_sha"),
+        "head_sha": proposal.get("head_sha"),
+        "policy_hash": metadata.get("policy_hash"),
+        "proposal_input_hash": metadata.get("proposal_input_hash"),
+        "review_result_hash": metadata.get("source_review_hash"),
+        "source_review_run_id": proposal.get("source_review_run_id"),
+        "source_review_artifact_id": proposal.get("source_review_artifact_id"),
+        "reviewed_at": proposal.get("reviewed_at"),
+        "generator": proposal.get("generator"),
+        "canonical_changes": proposal.get("changes", []),
+        "findings_addressed": proposal.get("findings_addressed", []),
+        "summary": proposal.get("summary", ""),
+        "tests_recommended": proposal.get("tests_recommended", []),
+        "risks": proposal.get("risks", []),
+    }
+    return sha256_hex_json(hash_source)
+
+
 def validate_proposal_for_approval(
     *,
     manifest: dict[str, Any],
@@ -529,6 +556,16 @@ def validate_proposal_for_approval(
             "approval_proposal_validation",
         )
     proposal_hash = ensure_sha256(metadata.get("proposal_hash"), "proposal_hash")
+    recomputed_hash = proposal_hash_for_approval(
+        proposal=proposal,
+        metadata=metadata,
+    )
+    if recomputed_hash != proposal_hash:
+        raise fatal(
+            fix.FailureCode.INVALID_PROPOSAL,
+            "proposal hash does not match canonical proposal content",
+            "approval_proposal_validation",
+        )
     if str(proposal.get("proposal_id", "")) != proposal_hash[:32]:
         raise fatal(
             fix.FailureCode.INVALID_PROPOSAL,

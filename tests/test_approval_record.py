@@ -24,8 +24,6 @@ SPEC.loader.exec_module(approval_record)
 
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
-PROPOSAL_HASH = "c" * 64
-PROPOSAL_ID = PROPOSAL_HASH[:32]
 ORIGINAL_BLOB_SHA = "d" * 40
 
 
@@ -89,17 +87,18 @@ class ApprovalRecordTests(unittest.TestCase):
     def proposal(
         self,
         *,
-        proposal_hash=PROPOSAL_HASH,
+        proposal_hash=None,
         head_sha=HEAD_SHA,
         repository=None,
         pull_request_number=17,
         policy_hash=None,
+        summary="Fix the canary clamp bounds.",
     ):
         policy_hash = policy_hash or self.policy().policy_hash
         repository = repository or approval_record.EXPECTED_REPOSITORY
-        return {
+        proposal = {
             "schema_version": "1.0",
-            "proposal_id": proposal_hash[:32],
+            "proposal_id": "0" * 32,
             "repository": repository,
             "pull_request_number": pull_request_number,
             "base_sha": BASE_SHA,
@@ -112,7 +111,7 @@ class ApprovalRecordTests(unittest.TestCase):
                 "reasoning_effort": "medium",
                 "policy_version": policy_hash,
             },
-            "summary": "Fix the canary clamp bounds.",
+            "summary": summary,
             "findings_addressed": [
                 {
                     "finding_id": "finding-canary",
@@ -146,19 +145,50 @@ class ApprovalRecordTests(unittest.TestCase):
             ],
             "human_approval_required": True,
         }
+        if proposal_hash is None:
+            proposal_hash = self.proposal_hash_for_fixture(
+                proposal,
+                policy_hash=policy_hash,
+            )
+        proposal["proposal_id"] = proposal_hash[:32]
+        return proposal
+
+    def proposal_hash_for_fixture(self, proposal, *, policy_hash=None):
+        policy_hash = policy_hash or self.policy().policy_hash
+        metadata = {
+            "policy_hash": policy_hash,
+            "proposal_input_hash": "e" * 64,
+            "source_review_hash": "f" * 64,
+        }
+        return approval_record.proposal_hash_for_approval(
+            proposal=proposal,
+            metadata=metadata,
+        )
 
     def metadata(
         self,
         *,
         status="PROPOSAL_READY",
-        proposal_hash=PROPOSAL_HASH,
+        proposal_hash=None,
         head_sha=HEAD_SHA,
         repository=None,
         pull_request_number=17,
         policy_hash=None,
+        proposal=None,
     ):
         policy_hash = policy_hash or self.policy().policy_hash
         repository = repository or approval_record.EXPECTED_REPOSITORY
+        if proposal_hash is None:
+            proposal = proposal or self.proposal(
+                head_sha=head_sha,
+                repository=repository,
+                pull_request_number=pull_request_number,
+                policy_hash=policy_hash,
+            )
+            proposal_hash = self.proposal_hash_for_fixture(
+                proposal,
+                policy_hash=policy_hash,
+            )
         return {
             "schema_version": "fix-proposal-metadata-v1",
             "status": status,
@@ -240,6 +270,15 @@ class ApprovalRecordTests(unittest.TestCase):
                     max_bytes=1000,
                 )
 
+    def test_request_manifest_extra_fields_are_rejected(self):
+        manifest = self.manifest()
+        manifest["unexpected"] = "untrusted"
+        self.assert_failure_code(
+            approval_record.fix.FailureCode.INVALID_MANIFEST,
+            approval_record.validate_request_manifest_shape,
+            manifest,
+        )
+
     def test_approval_record_normal_generation(self):
         policy = self.policy()
         manifest = self.manifest()
@@ -267,8 +306,15 @@ class ApprovalRecordTests(unittest.TestCase):
             approved_at="2026-07-17T00:02:00Z",
         )
         self.assertEqual("APPROVED", record["status"])
-        self.assertEqual(PROPOSAL_ID, record["proposal_id"])
-        self.assertEqual(PROPOSAL_HASH, record["proposal_hash"])
+        self.assertEqual(metadata["proposal_id"], record["proposal_id"])
+        self.assertEqual(metadata["proposal_hash"], record["proposal_hash"])
+        self.assertEqual(
+            metadata["proposal_hash"],
+            approval_record.proposal_hash_for_approval(
+                proposal=proposal,
+                metadata=metadata,
+            ),
+        )
         self.assertEqual("MEMBER", record["approved_by_association"])
         approval_record.validate_approval_record_shape(record)
 
@@ -281,6 +327,19 @@ class ApprovalRecordTests(unittest.TestCase):
             manifest=self.manifest(),
             proposal=proposal,
             metadata=self.metadata(),
+            policy=self.policy(),
+        )
+
+    def test_proposal_content_hash_mismatch_is_rejected(self):
+        proposal = self.proposal()
+        metadata = self.metadata(proposal=proposal)
+        proposal["summary"] = "Tampered proposal summary."
+        self.assert_failure_code(
+            approval_record.fix.FailureCode.INVALID_PROPOSAL,
+            approval_record.validate_proposal_for_approval,
+            manifest=self.manifest(),
+            proposal=proposal,
+            metadata=metadata,
             policy=self.policy(),
         )
 
@@ -439,8 +498,14 @@ class ApprovalRecordTests(unittest.TestCase):
             download=download,
         )
         self.assertEqual(["fix-proposal-missing", "fix-proposal-valid"], calls)
-        self.assertEqual(PROPOSAL_ID, proposal["proposal_id"])
-        self.assertEqual(PROPOSAL_HASH, metadata["proposal_hash"])
+        self.assertEqual(metadata["proposal_id"], proposal["proposal_id"])
+        self.assertEqual(
+            metadata["proposal_hash"],
+            approval_record.proposal_hash_for_approval(
+                proposal=proposal,
+                metadata=metadata,
+            ),
+        )
         self.assertEqual(42, artifact_id)
 
     def test_latest_expired_proposal_artifact_skips_to_next_valid_candidate(self):
@@ -459,7 +524,7 @@ class ApprovalRecordTests(unittest.TestCase):
             self.write_candidate_artifact(kwargs["target_dir"])
             return 43
 
-        _, metadata, artifact_id = self.find_proposal_with_mocks(
+        proposal, metadata, artifact_id = self.find_proposal_with_mocks(
             runs=[
                 {"id": 30, "conclusion": "success", "created_at": "2026-07-17T00:03:00Z"},
                 {"id": 20, "conclusion": "success", "created_at": "2026-07-17T00:02:00Z"},
@@ -471,7 +536,13 @@ class ApprovalRecordTests(unittest.TestCase):
             download=download,
         )
         self.assertEqual(["fix-proposal-expired", "fix-proposal-valid"], calls)
-        self.assertEqual(PROPOSAL_HASH, metadata["proposal_hash"])
+        self.assertEqual(
+            metadata["proposal_hash"],
+            approval_record.proposal_hash_for_approval(
+                proposal=proposal,
+                metadata=metadata,
+            ),
+        )
         self.assertEqual(43, artifact_id)
 
     def test_all_missing_proposal_artifacts_report_not_found(self):
@@ -558,14 +629,15 @@ class ApprovalRecordTests(unittest.TestCase):
         self.assertEqual(["fix-proposal-stale-head"], calls)
 
     def test_latest_valid_matching_proposal_is_selected(self):
-        latest_hash = "1" * 64
+        latest_proposal = self.proposal(summary="Latest valid proposal.")
+        latest_metadata = self.metadata(proposal=latest_proposal)
 
         def download(**kwargs):
             if kwargs["artifact_name"] == "fix-proposal-latest":
                 self.write_candidate_artifact(
                     kwargs["target_dir"],
-                    proposal=self.proposal(proposal_hash=latest_hash),
-                    metadata=self.metadata(proposal_hash=latest_hash),
+                    proposal=latest_proposal,
+                    metadata=latest_metadata,
                 )
                 return 48
             self.write_candidate_artifact(kwargs["target_dir"])
@@ -582,17 +654,19 @@ class ApprovalRecordTests(unittest.TestCase):
             },
             download=download,
         )
-        self.assertEqual(latest_hash[:32], proposal["proposal_id"])
-        self.assertEqual(latest_hash, metadata["proposal_hash"])
+        self.assertEqual(latest_proposal["proposal_id"], proposal["proposal_id"])
+        self.assertEqual(latest_metadata["proposal_hash"], metadata["proposal_hash"])
         self.assertEqual(48, artifact_id)
 
     def test_policy_hash_mismatch_is_rejected(self):
+        bad_policy_hash = "0" * 64
+        proposal = self.proposal(policy_hash=bad_policy_hash)
         self.assert_failure_code(
             approval_record.fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
             approval_record.validate_proposal_for_approval,
             manifest=self.manifest(),
-            proposal=self.proposal(),
-            metadata=self.metadata(policy_hash="0" * 64),
+            proposal=proposal,
+            metadata=self.metadata(proposal=proposal, policy_hash=bad_policy_hash),
             policy=self.policy(),
         )
 
