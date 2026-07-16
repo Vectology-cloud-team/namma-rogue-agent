@@ -614,12 +614,46 @@ def write_approval_artifact(
     )
 
 
+def is_unavailable_proposal_artifact_candidate(error: BaseException) -> bool:
+    if isinstance(error, urllib.error.HTTPError) and error.code in {404, 410}:
+        return True
+    if not isinstance(error, fix.FixProposalFailure):
+        return False
+    if error.failure_class is not fix.FailureClass.RETRYABLE:
+        return False
+    if error.code is not fix.FailureCode.ARTIFACT_TRANSIENT_ERROR:
+        return False
+    message = error.message.lower()
+    return any(
+        fragment in message
+        for fragment in (
+            "not available yet",
+            "not found",
+            "expired",
+            "temporarily unavailable",
+            "404",
+        )
+    )
+
+
+def sorted_successful_workflow_runs(runs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    successful_runs = [run for run in runs if run.get("conclusion") == "success"]
+    return sorted(
+        successful_runs,
+        key=lambda run: (
+            str(run.get("created_at", "")),
+            int(run.get("id", 0) or 0),
+        ),
+        reverse=True,
+    )
+
+
 def find_latest_proposal_artifact(
     *,
     repo: str,
     token: str,
-    pr_number: int,
-    head_sha: str,
+    manifest: dict[str, Any],
+    policy: fix.FixProposalPolicy,
     output_dir: Path,
     max_bytes: int,
 ) -> tuple[dict[str, Any], dict[str, Any], int]:
@@ -629,15 +663,20 @@ def find_latest_proposal_artifact(
         token=token,
     )
     runs = runs_data.get("workflow_runs", []) if isinstance(runs_data, dict) else []
-    for run in runs:
-        if run.get("conclusion") != "success":
-            continue
+    skipped_candidates: list[str] = []
+    for run in sorted_successful_workflow_runs(runs):
         run_id = str(run.get("id", ""))
-        artifacts_data, _ = stage1.github_json(
-            "GET",
-            f"/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
-            token=token,
-        )
+        try:
+            artifacts_data, _ = stage1.github_json(
+                "GET",
+                f"/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
+                token=token,
+            )
+        except BaseException as error:
+            if is_unavailable_proposal_artifact_candidate(error):
+                skipped_candidates.append(f"run {run_id}: artifacts unavailable")
+                continue
+            raise
         artifacts = (
             artifacts_data.get("artifacts", [])
             if isinstance(artifacts_data, dict)
@@ -647,28 +686,42 @@ def find_latest_proposal_artifact(
             name = str(artifact.get("name", ""))
             if not name.startswith("fix-proposal-"):
                 continue
-            artifact_id = fix.download_artifact_by_name(
-                repo=repo,
-                token=token,
-                run_id=run_id,
-                artifact_name=name,
-                target_dir=output_dir,
-                expected_files={"fix-proposal.json", "proposal-metadata.json"},
-                max_bytes=max_bytes,
-            )
+            try:
+                artifact_id = fix.download_artifact_by_name(
+                    repo=repo,
+                    token=token,
+                    run_id=run_id,
+                    artifact_name=name,
+                    target_dir=output_dir,
+                    expected_files={"fix-proposal.json", "proposal-metadata.json"},
+                    max_bytes=max_bytes,
+                )
+            except BaseException as error:
+                if is_unavailable_proposal_artifact_candidate(error):
+                    skipped_candidates.append(f"run {run_id} artifact {name}: unavailable")
+                    continue
+                raise
             proposal = read_json_file(output_dir / "fix-proposal.json")
             metadata = read_json_file(output_dir / "proposal-metadata.json")
             if not isinstance(proposal, dict) or not isinstance(metadata, dict):
-                continue
-            if (
-                metadata.get("pull_request_number") == pr_number
-                and metadata.get("head_sha") == head_sha
-                and metadata.get("status") == fix.PROPOSAL_STATUS_READY
-            ):
-                return proposal, metadata, artifact_id
+                raise fatal(
+                    fix.FailureCode.INVALID_PROPOSAL,
+                    "proposal artifact files must contain JSON objects",
+                    "proposal_artifact_lookup",
+                )
+            validate_proposal_for_approval(
+                manifest=manifest,
+                proposal=proposal,
+                metadata=metadata,
+                policy=policy,
+            )
+            return proposal, metadata, artifact_id
+    detail = ""
+    if skipped_candidates:
+        detail = f" Skipped unavailable candidates: {', '.join(skipped_candidates)}."
     raise fatal(
-        fix.FailureCode.REVIEW_NOT_READY,
-        "no verified proposal artifact was found for this pull request head",
+        fix.FailureCode.PROPOSAL_ARTIFACT_NOT_FOUND,
+        f"NOT_FOUND: no verified proposal artifact was found for this pull request head.{detail}",
         "proposal_artifact_lookup",
     )
 
@@ -908,18 +961,12 @@ def command_record_approval(_: argparse.Namespace) -> int:
             lambda: find_latest_proposal_artifact(
                 repo=repo,
                 token=token,
-                pr_number=int(manifest["pull_request_number"]),
-                head_sha=str(manifest["head_sha"]),
+                manifest=manifest,
+                policy=policy,
                 output_dir=proposal_dir,
                 max_bytes=int(required_env("MAX_ARTIFACT_BYTES")),
             ),
         ).value
-        validate_proposal_for_approval(
-            manifest=manifest,
-            proposal=proposal,
-            metadata=metadata,
-            policy=policy,
-        )
         record = build_approval_record(
             manifest=manifest,
             proposal=proposal,
