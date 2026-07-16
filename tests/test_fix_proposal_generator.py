@@ -153,6 +153,21 @@ class FixProposalGeneratorTests(unittest.TestCase):
             policy_hash=self.policy.policy_hash,
         )
 
+    def target_contents(self, path="src/example.py", content="old\n"):
+        return {
+            "schema_version": "fix-target-contents-v1",
+            "files": [
+                {
+                    "path": path,
+                    "blob_sha": FULL_SHA_C,
+                    "content_sha256": fix_proposal_generator.sha256_hex_bytes(
+                        content.encode("utf-8")
+                    ),
+                    "content": content,
+                }
+            ],
+        }
+
     def assert_gate_code(self, request, pull, review, code):
         decision = fix_proposal_generator.evaluate_generation_gate(
             request_manifest=request,
@@ -171,6 +186,7 @@ class FixProposalGeneratorTests(unittest.TestCase):
             policy=self.policy,
             proposal_input_hash_value=self.input_hash(),
             original_blob_shas=original_blob_shas or {"src/example.py": FULL_SHA_C},
+            target_contents=self.target_contents(),
             generator_metadata={
                 "model": self.policy.model,
                 "reasoning_effort": self.policy.reasoning_effort,
@@ -268,6 +284,26 @@ class FixProposalGeneratorTests(unittest.TestCase):
             "NO_BLOCKING_FINDINGS",
         )
 
+    def test_approved_review_does_not_generate_even_with_blocking_finding(self):
+        review = self.review_result()
+        review["verdict"] = "APPROVED"
+        self.assert_gate_code(
+            self.request_manifest(),
+            self.pull(),
+            review,
+            "REVIEW_NOT_READY",
+        )
+
+    def test_human_decision_review_does_not_generate_even_with_blocking_finding(self):
+        review = self.review_result()
+        review["verdict"] = "NEEDS_HUMAN"
+        self.assert_gate_code(
+            self.request_manifest(),
+            self.pull(),
+            review,
+            "REVIEW_NOT_READY",
+        )
+
     def test_existing_same_input_proposal_skips_generation(self):
         input_hash = self.input_hash()
         decision = fix_proposal_generator.evaluate_generation_gate(
@@ -323,6 +359,39 @@ class FixProposalGeneratorTests(unittest.TestCase):
         with self.assertRaises(fix_proposal_generator.FixProposalFailure) as raised:
             self.validate(original_blob_shas={"src/example.py": "d" * 40})
         self.assertEqual("ORIGINAL_BLOB_MISMATCH", raised.exception.code.value)
+
+    def test_patch_that_does_not_apply_to_trusted_content_is_rejected(self):
+        proposal = self.proposal()
+        proposal["changes"][0]["patch"] = (
+            "diff --git a/src/example.py b/src/example.py\n"
+            "--- a/src/example.py\n"
+            "+++ b/src/example.py\n"
+            "@@ -1 +1 @@\n"
+            "-different\n"
+            "+new\n"
+        )
+        with self.assertRaises(fix_proposal_generator.FixProposalFailure) as raised:
+            self.validate(proposal)
+        self.assertEqual("PATCH_DOES_NOT_APPLY", raised.exception.code.value)
+
+    def test_missing_trusted_target_content_is_rejected(self):
+        proposal = self.proposal()
+        with self.assertRaises(fix_proposal_generator.FixProposalFailure) as raised:
+            fix_proposal_generator.validate_verified_proposal(
+                proposal,
+                request_manifest=self.request_manifest(),
+                review_result=self.review_result(),
+                policy=self.policy,
+                proposal_input_hash_value=self.input_hash(),
+                original_blob_shas={"src/example.py": FULL_SHA_C},
+                target_contents={"schema_version": "fix-target-contents-v1", "files": []},
+                generator_metadata={
+                    "model": self.policy.model,
+                    "reasoning_effort": self.policy.reasoning_effort,
+                    "policy_version": self.policy.policy_hash,
+                },
+            )
+        self.assertEqual("PATCH_DOES_NOT_APPLY", raised.exception.code.value)
 
     def test_fabricated_finding_id_is_rejected(self):
         proposal = self.proposal()

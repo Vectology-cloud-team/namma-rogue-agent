@@ -110,6 +110,7 @@ jobs:
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           FIX_REQUEST_MANIFEST: ${{ github.workspace }}/fix-request/manifest.json
           STAGE1_REVIEW_RESULT: ${{ github.workspace }}/stage1-review-result/architect-review-result.json
+          TRUSTED_TARGET_CONTENTS: ${{ github.workspace }}/fix-request/target-file-contents.json
           FIX_POLICY: ${{ github.workspace }}/generator-control/.github/codex/fix-policy.yml
           FIX_PROPOSAL_SCHEMA: ${{ github.workspace }}/generator-control/.github/codex/schemas/fix-proposal.schema.json
           ORIGINAL_BLOB_SHAS: ${{ github.workspace }}/fix-request/original-blob-shas.json
@@ -147,6 +148,7 @@ jobs:
           FIX_POLICY: ${{ github.workspace }}/generator-control/.github/codex/fix-policy.yml
           PROPOSAL_INPUT_HASH: ${{ steps.prepare.outputs.proposal_input_hash }}
           ORIGINAL_BLOB_SHAS: ${{ steps.prepare.outputs.original_blob_shas }}
+          TRUSTED_TARGET_CONTENTS_PATH: ${{ github.workspace }}/fix-request/target-file-contents.json
           CODEX_FINAL_MESSAGE: ${{ steps.codex_proposal.outputs.final-message }}
           PROPOSAL_OUTPUT_DIR: ${{ runner.temp }}/fix-proposal
         run: |

@@ -20,9 +20,18 @@ workflow safety boundary.
 ## Inputs
 
 The workflow provides validated Stage 1 findings, trusted policy, schema, PR
-metadata, and the minimal file snippets needed for proposal drafting. Use only
-those inputs to draft a proposal. If the inputs are insufficient, produce a
-proposal that requests human follow-up rather than inventing repository state.
+metadata, and trusted target file contents needed for proposal drafting. Read
+them from these files in the workspace:
+
+- `fix-request/manifest.json`
+- `fix-request/target-file-contents.json`
+- `stage1-review-result/architect-review-result.json`
+- `generator-control/.github/codex/fix-policy.yml`
+- `generator-control/.github/codex/schemas/fix-proposal.schema.json`
+
+Use only those inputs to draft a proposal. If the target content is absent,
+insufficient, or not related to a supplied Stage 1 finding, do not invent
+repository state.
 
 ## Output
 

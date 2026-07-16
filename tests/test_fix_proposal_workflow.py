@@ -87,6 +87,12 @@ class FixProposalWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("steps.prepare.outputs.should_generate != 'true'", text)
 
+    def test_generator_passes_trusted_target_contents_to_codex_and_finalize(self):
+        text = self.generator_text()
+        self.assertIn("TRUSTED_TARGET_CONTENTS:", text)
+        self.assertIn("target-file-contents.json", text)
+        self.assertIn("TRUSTED_TARGET_CONTENTS_PATH:", text)
+
     def test_all_actions_are_full_sha_pinned(self):
         combined = "\n".join(
             path.read_text(encoding="utf-8")

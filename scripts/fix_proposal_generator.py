@@ -11,6 +11,7 @@ pull requests.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import hashlib
 import json
@@ -93,6 +94,7 @@ class FailureCode(str, Enum):
     PROTECTED_PATH = "PROTECTED_PATH"
     ORIGINAL_BLOB_MISMATCH = "ORIGINAL_BLOB_MISMATCH"
     FINDING_MISMATCH = "FINDING_MISMATCH"
+    PATCH_DOES_NOT_APPLY = "PATCH_DOES_NOT_APPLY"
 
 
 @dataclass(frozen=True)
@@ -458,6 +460,8 @@ def evaluate_generation_gate(
         return GateDecision(False, PROPOSAL_STATUS_SKIPPED, FailureCode.SHA_MISMATCH.value, "Stage 1 base SHA does not match current base")
     if review_result.get("review_status") != "completed":
         return GateDecision(False, PROPOSAL_STATUS_SKIPPED, FailureCode.REVIEW_NOT_READY.value, "Stage 1 review did not complete normally")
+    if review_result.get("verdict") != "CHANGES_REQUESTED":
+        return GateDecision(False, PROPOSAL_STATUS_SKIPPED, FailureCode.REVIEW_NOT_READY.value, "Stage 1 review verdict does not request changes")
     if not blocking_findings(review_result):
         return GateDecision(False, PROPOSAL_STATUS_SKIPPED, FailureCode.NO_BLOCKING_FINDINGS.value, "Stage 1 review has no blocking findings")
     input_hash = proposal_input_hash(
@@ -555,6 +559,216 @@ def validate_original_blobs(
             )
 
 
+def blocking_finding_paths(review_result: dict[str, Any]) -> set[str]:
+    return {
+        str(finding.get("file", "")).strip()
+        for finding in blocking_findings(review_result)
+        if isinstance(finding, dict) and str(finding.get("file", "")).strip()
+    }
+
+
+def fetch_blob_text(
+    *,
+    repo: str,
+    token: str,
+    blob_sha: str,
+) -> str:
+    blob, _ = stage1.github_json(
+        "GET",
+        f"/repos/{repo}/git/blobs/{blob_sha}",
+        token=token,
+    )
+    if not isinstance(blob, dict) or blob.get("encoding") != "base64":
+        raise fatal(
+            FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "trusted target blob could not be fetched as base64",
+            "target_content",
+        )
+    try:
+        decoded = base64.b64decode(str(blob.get("content", "")), validate=False)
+        return decoded.decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise fatal(
+            FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "trusted target blob is not UTF-8 text",
+            "target_content",
+        ) from exc
+
+
+def trusted_target_contents(
+    *,
+    repo: str,
+    token: str,
+    files: list[dict[str, Any]],
+    review_result: dict[str, Any],
+    max_total_bytes: int,
+) -> dict[str, Any]:
+    file_by_path = {
+        str(item.get("filename", "")): item
+        for item in files
+        if isinstance(item, dict)
+    }
+    records: list[dict[str, Any]] = []
+    total_bytes = 0
+    for path in sorted(blocking_finding_paths(review_result)):
+        item = file_by_path.get(path)
+        if not item:
+            raise fatal(
+                FailureCode.TRUST_BOUNDARY_VIOLATION,
+                f"no trusted PR file metadata was found for {path}",
+                "target_content",
+            )
+        if str(item.get("status", "")) == "removed":
+            raise fatal(
+                FailureCode.TRUST_BOUNDARY_VIOLATION,
+                f"removed files cannot be fixed by Stage 2A proposals: {path}",
+                "target_content",
+            )
+        blob_sha = str(item.get("sha", ""))
+        if not SHA_RE.match(blob_sha):
+            raise fatal(
+                FailureCode.TRUST_BOUNDARY_VIOLATION,
+                f"trusted blob SHA is missing for {path}",
+                "target_content",
+            )
+        content = fetch_blob_text(repo=repo, token=token, blob_sha=blob_sha)
+        content_bytes = len(content.encode("utf-8"))
+        total_bytes += content_bytes
+        if total_bytes > max_total_bytes:
+            raise fatal(
+                FailureCode.TRUST_BOUNDARY_VIOLATION,
+                "trusted target content exceeds the prompt budget",
+                "target_content",
+            )
+        records.append(
+            {
+                "path": path,
+                "blob_sha": blob_sha,
+                "content_sha256": sha256_hex_bytes(content.encode("utf-8")),
+                "content": content,
+            }
+        )
+    return {
+        "schema_version": "fix-target-contents-v1",
+        "files": records,
+    }
+
+
+def target_content_map(target_contents: dict[str, Any]) -> dict[str, dict[str, str]]:
+    records: dict[str, dict[str, str]] = {}
+    for item in target_contents.get("files", []):
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path", ""))
+        content = str(item.get("content", ""))
+        content_hash = str(item.get("content_sha256", ""))
+        if sha256_hex_bytes(content.encode("utf-8")) != content_hash:
+            raise fatal(
+                FailureCode.TRUST_BOUNDARY_VIOLATION,
+                f"trusted target content hash mismatch for {path}",
+                "target_content",
+            )
+        records[path] = {
+            "blob_sha": str(item.get("blob_sha", "")),
+            "content": content,
+        }
+    return records
+
+
+HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def validate_unified_patch_applies(
+    *,
+    path: str,
+    patch: str,
+    content: str,
+) -> None:
+    lines = patch.splitlines()
+    if f"--- a/{path}" not in lines or f"+++ b/{path}" not in lines:
+        raise fatal(
+            FailureCode.PATCH_DOES_NOT_APPLY,
+            f"patch headers do not match {path}",
+            "proposal_validation",
+        )
+    original_lines = content.splitlines()
+    hunk_count = 0
+    index = 0
+    while index < len(lines):
+        header = HUNK_RE.match(lines[index])
+        if not header:
+            index += 1
+            continue
+        hunk_count += 1
+        original_index = int(header.group(1)) - 1
+        index += 1
+        while index < len(lines):
+            line = lines[index]
+            if HUNK_RE.match(line):
+                break
+            if line.startswith("\\ No newline at end of file"):
+                index += 1
+                continue
+            if not line:
+                raise fatal(
+                    FailureCode.PATCH_DOES_NOT_APPLY,
+                    f"malformed empty patch line for {path}",
+                    "proposal_validation",
+                )
+            marker = line[0]
+            text = line[1:]
+            if marker in {" ", "-"}:
+                if original_index >= len(original_lines) or original_lines[original_index] != text:
+                    raise fatal(
+                        FailureCode.PATCH_DOES_NOT_APPLY,
+                        f"patch hunk does not match trusted content for {path}",
+                        "proposal_validation",
+                    )
+                original_index += 1
+            elif marker == "+":
+                pass
+            else:
+                raise fatal(
+                    FailureCode.PATCH_DOES_NOT_APPLY,
+                    f"unsupported patch line for {path}",
+                    "proposal_validation",
+                )
+            index += 1
+    if hunk_count == 0:
+        raise fatal(
+            FailureCode.PATCH_DOES_NOT_APPLY,
+            f"patch has no hunks for {path}",
+            "proposal_validation",
+        )
+
+
+def validate_patches_apply_to_targets(
+    proposal: dict[str, Any],
+    target_contents: dict[str, Any],
+) -> None:
+    targets = target_content_map(target_contents)
+    for change in proposal.get("changes", []):
+        path = str(change.get("path", ""))
+        target = targets.get(path)
+        if target is None:
+            raise fatal(
+                FailureCode.PATCH_DOES_NOT_APPLY,
+                f"no trusted target content was supplied for {path}",
+                "proposal_validation",
+            )
+        if target["blob_sha"] != str(change.get("original_blob_sha", "")):
+            raise fatal(
+                FailureCode.ORIGINAL_BLOB_MISMATCH,
+                f"target content blob SHA mismatch for {path}",
+                "proposal_validation",
+            )
+        validate_unified_patch_applies(
+            path=path,
+            patch=str(change.get("patch", "")),
+            content=target["content"],
+        )
+
+
 def validate_finding_ids(proposal: dict[str, Any], review_result: dict[str, Any]) -> None:
     known_ids = finding_ids(review_result)
     for finding in proposal.get("findings_addressed", []):
@@ -574,6 +788,7 @@ def validate_verified_proposal(
     policy: FixProposalPolicy,
     proposal_input_hash_value: str,
     original_blob_shas: dict[str, str],
+    target_contents: dict[str, Any],
     generator_metadata: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     canonical, proposal_id, proposal_hash = canonicalize_proposal(
@@ -601,6 +816,7 @@ def validate_verified_proposal(
         raise fatal(FailureCode.SHA_MISMATCH, "proposal head SHA mismatch", "proposal_validation")
     validate_finding_ids(canonical, review_result)
     validate_original_blobs(canonical, original_blob_shas)
+    validate_patches_apply_to_targets(canonical, target_contents)
     metadata = {
         "schema_version": PROPOSAL_METADATA_SCHEMA_VERSION,
         "status": PROPOSAL_STATUS_READY,
@@ -997,6 +1213,22 @@ def command_prepare_generation(_: argparse.Namespace) -> int:
             json.dumps(blob_map, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        target_contents = {"schema_version": "fix-target-contents-v1", "files": []}
+        if gate.should_generate:
+            target_contents = run_with_retry(
+                "github_target_file_contents",
+                lambda: trusted_target_contents(
+                    repo=repo,
+                    token=token,
+                    files=files,
+                    review_result=review_result,
+                    max_total_bytes=policy.max_prompt_bytes,
+                ),
+            ).value
+        (request_dir / "target-file-contents.json").write_text(
+            json.dumps(target_contents, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         github_output(
             {
                 "should_generate": "true" if gate.should_generate else "false",
@@ -1009,6 +1241,7 @@ def command_prepare_generation(_: argparse.Namespace) -> int:
                 "review_artifact_id": str(review_artifact_id),
                 "proposal_input_hash": input_hash,
                 "original_blob_shas": json.dumps(blob_map, sort_keys=True),
+                "target_file_count": str(len(target_contents.get("files", []))),
                 "blocking_findings": str(len(blocking_findings(review_result))),
             }
         )
@@ -1230,6 +1463,8 @@ def command_finalize_proposal(_: argparse.Namespace) -> int:
         policy = load_fix_proposal_policy(Path(required_env("FIX_POLICY")))
         proposal_input_hash_value = required_env("PROPOSAL_INPUT_HASH")
         original_blob_shas = parse_blob_sha_map(os.environ.get("ORIGINAL_BLOB_SHAS", "{}"))
+        target_contents = read_json_file(Path(required_env("TRUSTED_TARGET_CONTENTS_PATH")))
+        assert isinstance(target_contents, dict)
         generator_metadata = {
             "model": policy.model,
             "reasoning_effort": policy.reasoning_effort,
@@ -1243,6 +1478,7 @@ def command_finalize_proposal(_: argparse.Namespace) -> int:
             policy=policy,
             proposal_input_hash_value=proposal_input_hash_value,
             original_blob_shas=original_blob_shas,
+            target_contents=target_contents,
             generator_metadata=generator_metadata,
         )
         output_dir = Path(required_env("PROPOSAL_OUTPUT_DIR"))
