@@ -13,6 +13,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 import uuid
 import zipfile
 from dataclasses import dataclass
@@ -340,9 +341,62 @@ def github_api_request(
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
     url = f"https://api.github.com{api_path}"
+    return http_request_with_safe_redirects(url, headers=headers, method=method, data=data)
+
+
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def headers_for_redirect(
+    original_url: str,
+    redirect_url: str,
+    headers: dict[str, str],
+) -> dict[str, str]:
+    original_host = urllib.parse.urlparse(original_url).netloc.lower()
+    redirect_host = urllib.parse.urlparse(redirect_url).netloc.lower()
+    next_headers = dict(headers)
+    if original_host != redirect_host:
+        next_headers.pop("Authorization", None)
+    return next_headers
+
+
+def http_request_with_safe_redirects(
+    url: str,
+    *,
+    headers: dict[str, str],
+    method: str,
+    data: bytes | None,
+    redirects_remaining: int = 3,
+) -> tuple[bytes, dict[str, str]]:
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-        return response.read(), dict(response.headers.items())
+    opener = urllib.request.build_opener(NoRedirectHandler)
+    try:
+        with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            return response.read(), dict(response.headers.items())
+    except urllib.error.HTTPError as error:
+        location = error.headers.get("Location")
+        if (
+            error.code in (301, 302, 303, 307, 308)
+            and location
+            and redirects_remaining > 0
+        ):
+            redirect_url = urllib.parse.urljoin(url, location)
+            redirect_headers = headers_for_redirect(url, redirect_url, headers)
+            redirect_method = method
+            redirect_data = data
+            if error.code in (301, 302, 303) and method != "GET":
+                redirect_method = "GET"
+                redirect_data = None
+            return http_request_with_safe_redirects(
+                redirect_url,
+                headers=redirect_headers,
+                method=redirect_method,
+                data=redirect_data,
+                redirects_remaining=redirects_remaining - 1,
+            )
+        raise
 
 
 def github_json(
@@ -520,6 +574,10 @@ def is_plain_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def is_non_negative_int(value: Any) -> bool:
+    return is_plain_int(value) and value >= 0
+
+
 def read_manifest(root: Path) -> tuple[dict[str, Any], Path, Path]:
     entries = sorted(path.name for path in root.iterdir())
     if entries != ["manifest.json", "review.diff"]:
@@ -586,10 +644,10 @@ def validate_manifest_shape(
             "manifest collector workflow name does not match",
             "review_input_validation",
         )
-    if not is_plain_int(manifest["collector_workflow_run_id"]):
+    if not is_non_negative_int(manifest["collector_workflow_run_id"]):
         raise fatal(
             FailureCode.INVALID_MANIFEST,
-            "manifest collector_workflow_run_id must be an integer",
+            "manifest collector_workflow_run_id must be a non-negative integer",
             "review_input_validation",
         )
     if manifest["collector_workflow_run_id"] != int(required_env("WORKFLOW_RUN_ID")):
@@ -598,10 +656,10 @@ def validate_manifest_shape(
             "manifest collector workflow run ID does not match",
             "review_input_validation",
         )
-    if not is_plain_int(manifest["pull_request_number"]):
+    if not is_non_negative_int(manifest["pull_request_number"]):
         raise fatal(
             FailureCode.PR_MISMATCH,
-            "manifest pull_request_number must be an integer",
+            "manifest pull_request_number must be a non-negative integer",
             "review_input_validation",
         )
     for key in ("base_sha", "head_sha", "merge_sha"):
@@ -617,10 +675,10 @@ def validate_manifest_shape(
             "manifest draft must be a boolean",
             "review_input_validation",
         )
-    if not is_plain_int(manifest["changed_file_count"]):
+    if not is_non_negative_int(manifest["changed_file_count"]):
         raise fatal(
             FailureCode.INVALID_MANIFEST,
-            "manifest changed_file_count must be an integer",
+            "manifest changed_file_count must be a non-negative integer",
             "review_input_validation",
         )
     if manifest["changed_file_count"] > int(required_env("MAX_CHANGED_FILES")):
@@ -631,10 +689,10 @@ def validate_manifest_shape(
         )
     diff_bytes = diff_path.stat().st_size
     manifest_bytes = manifest_path.stat().st_size
-    if not is_plain_int(manifest["diff_bytes"]):
+    if not is_non_negative_int(manifest["diff_bytes"]):
         raise fatal(
             FailureCode.INVALID_MANIFEST,
-            "manifest diff_bytes must be an integer",
+            "manifest diff_bytes must be a non-negative integer",
             "review_input_validation",
         )
     if manifest["diff_bytes"] != diff_bytes:
@@ -661,10 +719,10 @@ def validate_manifest_shape(
             "manifest binary_files_omitted must be an array",
             "review_input_validation",
         )
-    if not is_plain_int(manifest["binary_file_count"]):
+    if not is_non_negative_int(manifest["binary_file_count"]):
         raise fatal(
             FailureCode.INVALID_MANIFEST,
-            "manifest binary_file_count must be an integer",
+            "manifest binary_file_count must be a non-negative integer",
             "review_input_validation",
         )
     if manifest["binary_file_count"] != len(manifest["binary_files_omitted"]):
@@ -681,10 +739,10 @@ def validate_manifest_shape(
             "review_input_validation",
         )
     for key in ("max_diff_bytes", "max_changed_files", "max_artifact_bytes"):
-        if not is_plain_int(limits.get(key)):
+        if not is_non_negative_int(limits.get(key)):
             raise fatal(
                 FailureCode.INVALID_MANIFEST,
-                f"manifest limits.{key} must be an integer",
+                f"manifest limits.{key} must be a non-negative integer",
                 "review_input_validation",
             )
     expected_limits = {
@@ -832,12 +890,14 @@ def command_validate_review_input(_: argparse.Namespace) -> int:
                 max_diff_bytes=int(required_env("MAX_DIFF_BYTES")),
             ),
         )
+        pull_after_diff = run_with_retry("github_pr_revalidate", fetch_pr).value
+        validate_live_pull_request(manifest, pull_after_diff)
         github_output(
             {
                 "should_review": "true",
                 "pr_number": str(manifest["pull_request_number"]),
-                "head_sha": pull["head"]["sha"],
-                "base_sha": pull["base"]["sha"],
+                "head_sha": pull_after_diff["head"]["sha"],
+                "base_sha": pull_after_diff["base"]["sha"],
             }
         )
         return 0

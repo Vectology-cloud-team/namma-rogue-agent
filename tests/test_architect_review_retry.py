@@ -152,6 +152,32 @@ class ArchitectReviewRetryTests(unittest.TestCase):
         self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
         self.assertEqual(architect_review_retry.FailureCode.NETWORK_ERROR, failure.code)
 
+    def test_cross_origin_redirect_strips_authorization(self):
+        headers = {
+            "Authorization": "Bearer secret",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "test",
+        }
+        redirected = architect_review_retry.headers_for_redirect(
+            "https://api.github.com/repos/x/y/actions/artifacts/1/zip",
+            "https://pipelines.actions.githubusercontent.com/artifact.zip",
+            headers,
+        )
+        self.assertNotIn("Authorization", redirected)
+        self.assertEqual("application/vnd.github+json", redirected["Accept"])
+
+    def test_same_origin_redirect_keeps_authorization(self):
+        headers = {
+            "Authorization": "Bearer secret",
+            "Accept": "application/vnd.github+json",
+        }
+        redirected = architect_review_retry.headers_for_redirect(
+            "https://api.github.com/repos/x/y",
+            "https://api.github.com/repos/x/y?next=1",
+            headers,
+        )
+        self.assertEqual("Bearer secret", redirected["Authorization"])
+
     def test_codex_rate_limit_is_retryable(self):
         failure = architect_review_retry.classify_codex_failure_message(
             "OpenAI API HTTP 429 rate limit"
@@ -411,6 +437,20 @@ class ArchitectReviewRetryTests(unittest.TestCase):
             architect_review_retry.FailureCode.INVALID_MANIFEST,
         )
 
+    def test_manifest_changed_file_count_rejects_negative(self):
+        self.assert_manifest_field_rejected(
+            "changed_file_count",
+            -1,
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+        )
+
+    def test_manifest_diff_bytes_rejects_negative(self):
+        self.assert_manifest_field_rejected(
+            "diff_bytes",
+            -1,
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+        )
+
     def test_live_pull_request_base_sha_mismatch_is_stale(self):
         manifest = self.base_manifest(4)
         pull = self.live_pull()
@@ -457,6 +497,19 @@ class ArchitectReviewRetryTests(unittest.TestCase):
                 self.assertEqual(b"trusted live diff", diff_path.read_bytes())
         finally:
             architect_review_retry.github_api_request = original
+
+    def test_live_pull_request_revalidation_detects_head_change_after_diff(self):
+        manifest = self.base_manifest(4)
+        initial_pull = self.live_pull()
+        changed_pull = self.live_pull()
+        changed_pull["head"]["sha"] = "d" * 40
+        architect_review_retry.validate_live_pull_request(manifest, initial_pull)
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pull_request(manifest, changed_pull)
+        self.assertEqual(
+            architect_review_retry.FailureCode.STALE_ARTIFACT,
+            raised.exception.code,
+        )
 
     def test_success_approved_does_not_fail_workflow(self):
         self.assertEqual(

@@ -138,8 +138,9 @@ available.
 
 ### Comment Posting
 
-Comment posting is isolated in a second reviewer job. That job does not
-check out the repository and does not receive `OPENAI_API_KEY`.
+Comment posting is isolated in a second reviewer job. That job checks
+out only the trusted reviewer control plane, does not run PR-provided
+scripts, and does not receive `OPENAI_API_KEY`.
 
 The sticky comment contains:
 
