@@ -1,0 +1,32 @@
+schema_version: 1
+
+labels:
+  proposal: ai-fix-proposal
+  approval: ai-fix-approved
+
+limits:
+  max_changed_files: 5
+  max_patch_bytes: 50000
+  max_file_patch_bytes: 20000
+
+allowed_operations:
+  - modify
+
+protected_paths:
+  - .git/**
+  - .github/workflows/**
+  - .github/actions/**
+  - .github/codex/prompts/**
+  - .github/codex/review-policy.yml
+  - .github/codex/fix-policy.yml
+  - .github/codex/schemas/**
+  - "*.pem"
+  - "**/*.pem"
+  - "*.key"
+  - "**/*.key"
+  - "*secret*"
+  - "**/*secret*"
+  - "*credential*"
+  - "**/*credential*"
+  - "*token*"
+  - "**/*token*"
