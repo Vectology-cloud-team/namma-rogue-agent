@@ -88,7 +88,7 @@ class ArchitectReviewRetryTests(unittest.TestCase):
                 "SUMMARY",
                 "A problem exists.",
                 "BLOCKING FINDINGS",
-                "- `src/example.py:12` mixes trust boundaries.",
+                "- `src/example.py:12`: mixes trust boundaries.",
                 "NON-BLOCKING FINDINGS",
                 "None.",
             ]
@@ -114,6 +114,26 @@ class ArchitectReviewRetryTests(unittest.TestCase):
         self.assertEqual(12, finding["line"])
         self.assertTrue(finding["blocking"])
         self.assertTrue(finding["finding_id"].startswith("finding-"))
+
+    def test_structured_review_result_rejects_unparseable_blocking_lines(self):
+        message = "\n".join(
+            [
+                "VERDICT: CHANGES_REQUESTED",
+                "BLOCKING FINDINGS",
+                "- A fileless architecture concern.",
+                "- `Stage 2A`: backticked non-path token.",
+                "- `src/one.py:1`, `src/two.py:2`: multiple files.",
+                "- `src/wrapped.py:4`: parseable first line.",
+                "  continuation text must not become another finding.",
+                "NON-BLOCKING FINDINGS",
+                "None.",
+            ]
+        )
+        findings = architect_review_retry.parse_blocking_findings(message)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("src/wrapped.py", findings[0]["file"])
+        self.assertEqual(4, findings[0]["line"])
+        self.assertNotIn("continuation", findings[0]["message"])
 
     def test_review_policy_model_is_required(self):
         with self.assertRaises(architect_review_retry.ReviewFailure) as raised:

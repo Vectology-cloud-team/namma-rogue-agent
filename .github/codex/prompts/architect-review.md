@@ -72,6 +72,17 @@ Separate blocking issues from non-blocking observations. If the pull
 request requires a human product, legal, security, or architecture
 decision, say so explicitly instead of guessing.
 
+Blocking findings that may drive later fix-proposal generation must use one
+single-line item per actionable finding in this exact form:
+
+```text
+- `path/to/file.ext:123`: concise machine-actionable issue.
+```
+
+Do not put multiple files in one blocking finding. Do not use fileless
+blocking findings for architecture, product, security, legal, or policy
+judgment; place those under `HUMAN DECISIONS` instead.
+
 ## Output Format
 
 Your final response must begin with exactly one of these verdict lines:

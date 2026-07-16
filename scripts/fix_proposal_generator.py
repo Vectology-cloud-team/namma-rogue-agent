@@ -377,10 +377,14 @@ def blocking_findings(review_result: dict[str, Any]) -> list[dict[str, Any]]:
     for finding in findings:
         if not isinstance(finding, dict):
             continue
-        if finding.get("blocking") is True:
-            blocking.append(finding)
+        file_path = str(finding.get("file", "")).strip()
+        line_number = finding.get("line")
+        if not file_path or not isinstance(line_number, int) or line_number <= 0:
             continue
-        if str(finding.get("severity", "")).lower() in BLOCKING_SEVERITIES:
+        if (
+            finding.get("blocking") is True
+            or str(finding.get("severity", "")).lower() in BLOCKING_SEVERITIES
+        ):
             blocking.append(finding)
     return blocking
 

@@ -304,6 +304,26 @@ class FixProposalGeneratorTests(unittest.TestCase):
             "REVIEW_NOT_READY",
         )
 
+    def test_fileless_blocking_finding_does_not_generate(self):
+        review = self.review_result()
+        review["findings"][0]["file"] = ""
+        self.assert_gate_code(
+            self.request_manifest(),
+            self.pull(),
+            review,
+            "NO_BLOCKING_FINDINGS",
+        )
+
+    def test_blocking_finding_without_line_does_not_generate(self):
+        review = self.review_result()
+        review["findings"][0]["line"] = None
+        self.assert_gate_code(
+            self.request_manifest(),
+            self.pull(),
+            review,
+            "NO_BLOCKING_FINDINGS",
+        )
+
     def test_existing_same_input_proposal_skips_generation(self):
         input_hash = self.input_hash()
         decision = fix_proposal_generator.evaluate_generation_gate(

@@ -1676,30 +1676,26 @@ def stable_finding_id(finding: dict[str, Any]) -> str:
     return "finding-" + hashlib.sha256(encoded).hexdigest()[:16]
 
 
+STRICT_BLOCKING_FINDING_RE = re.compile(
+    r"^(?:[-*]\s+|\d+\.\s+)`(?P<file>[^`:\s][^`:\n]*):(?P<line>\d+)`:\s+(?P<message>.+)$"
+)
+
+
 def parse_blocking_findings(final_message: str) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for raw_line in section_lines(final_message, "BLOCKING FINDINGS"):
         line = raw_line.strip()
         if not line or line == "None.":
             continue
-        if line.startswith(("-", "*")):
-            line = line[1:].strip()
-        line = re.sub(r"^\d+\.\s*", "", line)
-        if not line:
+        match = STRICT_BLOCKING_FINDING_RE.match(line)
+        if not match:
             continue
-        file_path = ""
-        line_number: int | None = None
-        path_match = re.search(r"`([^`]+?)(?::(\d+))?`", line)
-        if path_match:
-            file_path = path_match.group(1)
-            if path_match.group(2):
-                line_number = int(path_match.group(2))
         finding = {
             "severity": "high",
             "category": "architect-review",
-            "file": file_path,
-            "line": line_number,
-            "message": line,
+            "file": match.group("file"),
+            "line": int(match.group("line")),
+            "message": match.group("message").strip(),
             "suggestion": "",
             "blocking": True,
         }
