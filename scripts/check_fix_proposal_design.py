@@ -259,8 +259,13 @@ def normalize_repo_path(path: str) -> str:
 
 
 def reject_path(path: str, policy: FixPolicy) -> str:
+    if "\\" in path:
+        raise ProposalValidationError(
+            "INVALID_PATH",
+            "backslash paths are forbidden",
+        )
     normalized = normalize_repo_path(path)
-    if not normalized or normalized != path.replace("\\", "/"):
+    if not normalized or normalized != path:
         raise ProposalValidationError("INVALID_PATH", "path must be relative")
     if normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
         raise ProposalValidationError("INVALID_PATH", "absolute paths are forbidden")

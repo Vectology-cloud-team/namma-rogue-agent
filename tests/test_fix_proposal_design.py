@@ -234,7 +234,12 @@ class FixProposalDesignTests(unittest.TestCase):
     def test_backslash_path_traversal_is_rejected(self):
         proposal = self.valid_proposal()
         proposal["changes"] = [self.valid_change(r"docs\..\secret.txt")]
-        self.assert_rejects(proposal, "PATH_TRAVERSAL")
+        self.assert_rejects(proposal, "INVALID_PATH")
+
+    def test_backslash_path_is_rejected_even_without_traversal(self):
+        proposal = self.valid_proposal()
+        proposal["changes"] = [self.valid_change(r"src\example.py")]
+        self.assert_rejects(proposal, "INVALID_PATH")
 
     def test_workflow_change_is_rejected(self):
         proposal = self.valid_proposal()
@@ -396,7 +401,7 @@ class FixProposalDesignTests(unittest.TestCase):
         second = self.valid_change(r"src\example.py")
         second["patch"] = self.valid_patch("src/example.py")
         proposal["changes"] = [first, second]
-        self.assert_rejects(proposal, "DUPLICATE_PATH")
+        self.assert_rejects(proposal, "INVALID_PATH")
 
     def test_original_blob_sha_is_required(self):
         proposal = self.valid_proposal()

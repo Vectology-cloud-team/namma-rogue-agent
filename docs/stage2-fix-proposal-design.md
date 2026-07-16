@@ -188,9 +188,10 @@ The initial policy protects:
 - `.github/codex/schemas/**`,
 - secret, credential, token, key, and certificate-like paths.
 
-Proposals must also reject absolute paths, `..` path traversal,
-duplicate paths, and mismatches between `changes.path` and the paths
-inside the unified diff.
+Proposal paths use repository-relative forward-slash paths only.
+Backslashes, absolute paths, `..` path traversal, duplicate paths, and
+mismatches between `changes.path` and the paths inside the unified diff
+must be rejected.
 
 ## Proposal Lifecycle
 
