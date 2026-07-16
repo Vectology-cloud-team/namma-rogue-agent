@@ -514,6 +514,14 @@ def canonicalize_proposal(
     canonical["pull_request_number"] = request_manifest["pull_request_number"]
     canonical["base_sha"] = request_manifest["base_sha"]
     canonical["head_sha"] = request_manifest["head_sha"]
+    canonical["source_review_run_id"] = int(review_result.get("workflow_run_id", 0))
+    canonical["source_review_artifact_id"] = str(review_result.get("review_artifact_id", ""))
+    canonical["reviewed_at"] = str(review_result.get("generated_at", ""))
+    canonical["generator"] = {
+        "model": str(generator_metadata.get("model", "")),
+        "reasoning_effort": str(generator_metadata.get("reasoning_effort", "")),
+        "policy_version": str(generator_metadata.get("policy_version", "")),
+    }
     hash_source = {
         "repository": request_manifest["repository"],
         "pull_request_number": request_manifest["pull_request_number"],
@@ -522,7 +530,10 @@ def canonicalize_proposal(
         "policy_hash": policy.policy_hash,
         "proposal_input_hash": proposal_input_hash_value,
         "review_result_hash": sha256_hex_json(review_result),
-        "generator_metadata": generator_metadata,
+        "source_review_run_id": canonical["source_review_run_id"],
+        "source_review_artifact_id": canonical["source_review_artifact_id"],
+        "reviewed_at": canonical["reviewed_at"],
+        "generator": canonical["generator"],
         "canonical_changes": canonical.get("changes", []),
         "findings_addressed": canonical.get("findings_addressed", []),
         "summary": canonical.get("summary", ""),

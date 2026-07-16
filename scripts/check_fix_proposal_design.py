@@ -77,7 +77,8 @@ PROPOSAL_KEYS = {
     "pull_request_number",
     "base_sha",
     "head_sha",
-    "review_comment_id",
+    "source_review_run_id",
+    "source_review_artifact_id",
     "reviewed_at",
     "generator",
     "summary",
@@ -435,7 +436,8 @@ def validate_fix_proposal(
             "HUMAN_APPROVAL_REQUIRED",
             "human_approval_required must be true",
         )
-    require_positive_int(proposal.get("review_comment_id"), "review_comment_id")
+    require_positive_int(proposal.get("source_review_run_id"), "source_review_run_id")
+    require_string(proposal.get("source_review_artifact_id"), "source_review_artifact_id")
     try:
         reviewed_at = require_string(proposal.get("reviewed_at"), "reviewed_at")
         if not DATE_TIME_RE.fullmatch(reviewed_at):
@@ -584,7 +586,8 @@ def validate_schema_file(path: Path = FIX_SCHEMA_PATH) -> dict[str, Any]:
         "pull_request_number",
         "base_sha",
         "head_sha",
-        "review_comment_id",
+        "source_review_run_id",
+        "source_review_artifact_id",
         "reviewed_at",
         "generator",
         "summary",

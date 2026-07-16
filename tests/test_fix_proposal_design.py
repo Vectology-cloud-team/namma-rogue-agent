@@ -59,7 +59,8 @@ class FixProposalDesignTests(unittest.TestCase):
             "pull_request_number": 15,
             "base_sha": FULL_SHA_A,
             "head_sha": FULL_SHA_B,
-            "review_comment_id": 123456,
+            "source_review_run_id": 123456,
+            "source_review_artifact_id": "architect-review-result-123456",
             "reviewed_at": "2026-07-16T00:00:00Z",
             "generator": {
                 "model": "gpt-5.5",
@@ -448,8 +449,9 @@ class FixProposalDesignTests(unittest.TestCase):
             ("proposal_id", "x" * 129),
             ("pull_request_number", 0),
             ("pull_request_number", True),
-            ("review_comment_id", 0),
-            ("review_comment_id", False),
+            ("source_review_run_id", 0),
+            ("source_review_run_id", False),
+            ("source_review_artifact_id", ""),
             ("reviewed_at", "2026-07-16"),
             ("reviewed_at", "2026-07-16T00:00:00"),
         ]

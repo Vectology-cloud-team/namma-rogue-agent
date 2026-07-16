@@ -118,7 +118,8 @@ class FixProposalGeneratorTests(unittest.TestCase):
             "pull_request_number": 16,
             "base_sha": FULL_SHA_A,
             "head_sha": FULL_SHA_B,
-            "review_comment_id": 456,
+            "source_review_run_id": 456,
+            "source_review_artifact_id": "architect-review-result-456",
             "reviewed_at": "2026-07-16T00:00:00Z",
             "generator": {
                 "model": "gpt-5.5",
@@ -489,6 +490,53 @@ class FixProposalGeneratorTests(unittest.TestCase):
         verified, metadata = self.validate(proposal)
         self.assertEqual(FULL_SHA_B, verified["head_sha"])
         self.assertEqual(FULL_SHA_B, metadata["head_sha"])
+
+    def test_untrusted_provenance_fields_are_overwritten(self):
+        proposal = self.proposal()
+        proposal["source_review_run_id"] = 999999
+        proposal["source_review_artifact_id"] = "made-up"
+        proposal["reviewed_at"] = "2099-01-01T00:00:00Z"
+        proposal["generator"] = {
+            "model": "untrusted-model",
+            "reasoning_effort": "maximal",
+            "policy_version": "untrusted-policy",
+        }
+        verified, _metadata = self.validate(proposal)
+        self.assertEqual(456, verified["source_review_run_id"])
+        self.assertEqual(
+            "architect-review-result-456",
+            verified["source_review_artifact_id"],
+        )
+        self.assertEqual("2026-07-16T00:00:00Z", verified["reviewed_at"])
+        self.assertEqual("gpt-5.5", verified["generator"]["model"])
+        self.assertEqual("medium", verified["generator"]["reasoning_effort"])
+        self.assertEqual(self.policy.policy_hash, verified["generator"]["policy_version"])
+
+    def test_trusted_review_provenance_changes_proposal_hash(self):
+        _first, first_metadata = self.validate()
+        review = self.review_result()
+        review["workflow_run_id"] = 789
+        review["review_artifact_id"] = "architect-review-result-789"
+        proposal_input_hash = fix_proposal_generator.proposal_input_hash(
+            request_manifest=self.request_manifest(),
+            review_result=review,
+            policy_hash=self.policy.policy_hash,
+        )
+        _second, second_metadata = fix_proposal_generator.validate_verified_proposal(
+            self.proposal(),
+            request_manifest=self.request_manifest(),
+            review_result=review,
+            policy=self.policy,
+            proposal_input_hash_value=proposal_input_hash,
+            original_blob_shas={"src/example.py": FULL_SHA_C},
+            target_contents=self.target_contents(),
+            generator_metadata={
+                "model": self.policy.model,
+                "reasoning_effort": self.policy.reasoning_effort,
+                "policy_version": self.policy.policy_hash,
+            },
+        )
+        self.assertNotEqual(first_metadata["proposal_hash"], second_metadata["proposal_hash"])
 
     def test_comment_is_sticky_and_does_not_include_full_patch(self):
         proposal, metadata = self.validate()

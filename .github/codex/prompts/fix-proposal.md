@@ -48,6 +48,9 @@ The proposal must:
   deletes.
 - Include unified diff patches only as inert proposal data.
 - Include recommended tests as text only; do not run them.
+- Bind review provenance to `source_review_run_id`,
+  `source_review_artifact_id`, `reviewed_at`, and `generator` values from
+  trusted workflow inputs. Do not invent provenance.
 - Set `human_approval_required` to `true`.
 - Keep patch size small and focused.
 
