@@ -377,6 +377,19 @@ class ArchitectReviewRetryTests(unittest.TestCase):
 
         self.with_manifest_validation_env(run_validation)
 
+    def live_pull(self):
+        return {
+            "number": 13,
+            "base": {
+                "sha": "a" * 40,
+                "repo": {"full_name": "Vectology-cloud-team/namma-rogue-agent"},
+            },
+            "head": {
+                "sha": "b" * 40,
+                "repo": {"full_name": "Vectology-cloud-team/namma-rogue-agent"},
+            },
+        }
+
     def test_manifest_pull_request_number_rejects_boolean(self):
         self.assert_manifest_field_rejected(
             "pull_request_number",
@@ -397,6 +410,53 @@ class ArchitectReviewRetryTests(unittest.TestCase):
             True,
             architect_review_retry.FailureCode.INVALID_MANIFEST,
         )
+
+    def test_live_pull_request_base_sha_mismatch_is_stale(self):
+        manifest = self.base_manifest(4)
+        pull = self.live_pull()
+        pull["base"]["sha"] = "d" * 40
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pull_request(manifest, pull)
+        self.assertEqual(
+            architect_review_retry.FailureCode.STALE_ARTIFACT,
+            raised.exception.code,
+        )
+
+    def test_live_pull_request_base_repo_mismatch_is_rejected(self):
+        manifest = self.base_manifest(4)
+        pull = self.live_pull()
+        pull["base"]["repo"]["full_name"] = "attacker/fork"
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pull_request(manifest, pull)
+        self.assertEqual(
+            architect_review_retry.FailureCode.REPOSITORY_MISMATCH,
+            raised.exception.code,
+        )
+
+    def test_refresh_review_diff_overwrites_artifact_diff_with_live_diff(self):
+        original = architect_review_retry.github_api_request
+
+        def fake_github_api_request(method, api_path, **kwargs):
+            self.assertEqual("GET", method)
+            self.assertEqual("/repos/Vectology-cloud-team/namma-rogue-agent/pulls/13", api_path)
+            self.assertEqual("application/vnd.github.v3.diff", kwargs["accept"])
+            return b"trusted live diff", {}
+
+        architect_review_retry.github_api_request = fake_github_api_request
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                diff_path = Path(temp_dir) / "review.diff"
+                diff_path.write_bytes(b"forged same-size")
+                architect_review_retry.refresh_review_diff_from_github(
+                    repo="Vectology-cloud-team/namma-rogue-agent",
+                    pull_request_number=13,
+                    token="token",
+                    diff_path=diff_path,
+                    max_diff_bytes=1000,
+                )
+                self.assertEqual(b"trusted live diff", diff_path.read_bytes())
+        finally:
+            architect_review_retry.github_api_request = original
 
     def test_success_approved_does_not_fail_workflow(self):
         self.assertEqual(

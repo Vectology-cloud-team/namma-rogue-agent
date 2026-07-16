@@ -700,6 +700,64 @@ def validate_manifest_shape(
         )
 
 
+def validate_live_pull_request(manifest: dict[str, Any], pull: dict[str, Any]) -> None:
+    if pull.get("number") != manifest["pull_request_number"]:
+        raise fatal(
+            FailureCode.PR_MISMATCH,
+            "live pull request number does not match manifest",
+            "review_input_validation",
+        )
+    live_base_repo = pull["base"]["repo"]["full_name"]
+    live_head_repo = pull["head"]["repo"]["full_name"]
+    if manifest["base_repository"] != live_base_repo:
+        raise fatal(
+            FailureCode.REPOSITORY_MISMATCH,
+            "manifest base repository does not match live pull request",
+            "review_input_validation",
+        )
+    if manifest["head_repository"] != live_head_repo:
+        raise fatal(
+            FailureCode.REPOSITORY_MISMATCH,
+            "manifest head repository does not match live pull request",
+            "review_input_validation",
+        )
+    if manifest["base_sha"] != pull["base"]["sha"]:
+        raise fatal(
+            FailureCode.STALE_ARTIFACT,
+            "pull request base SHA changed after artifact collection",
+            "review_input_validation",
+        )
+    if manifest["head_sha"] != pull["head"]["sha"]:
+        raise fatal(
+            FailureCode.STALE_ARTIFACT,
+            "pull request head SHA changed after artifact collection",
+            "review_input_validation",
+        )
+
+
+def refresh_review_diff_from_github(
+    *,
+    repo: str,
+    pull_request_number: int,
+    token: str,
+    diff_path: Path,
+    max_diff_bytes: int,
+) -> None:
+    data, _ = github_api_request(
+        "GET",
+        f"/repos/{repo}/pulls/{pull_request_number}",
+        token=token,
+        accept="application/vnd.github.v3.diff",
+    )
+    if len(data) > max_diff_bytes:
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            "live pull request diff exceeds configured maximum size",
+            "review_input_validation",
+        )
+    diff_path.write_bytes(data)
+
+
 def validate_workflow_run_identity() -> None:
     if required_env("WORKFLOW_RUN_NAME") != required_env("EXPECTED_COLLECTOR_WORKFLOW"):
         raise fatal(
@@ -747,12 +805,7 @@ def command_validate_review_input(_: argparse.Namespace) -> int:
             return data
 
         pull = run_with_retry("github_pr_lookup", fetch_pr).value
-        if pull["head"]["sha"] != manifest["head_sha"]:
-            raise fatal(
-                FailureCode.STALE_ARTIFACT,
-                "pull request head SHA changed after artifact collection",
-                "review_input_validation",
-            )
+        validate_live_pull_request(manifest, pull)
         if pull["draft"]:
             print("Skipping draft pull request.")
             github_output(outputs_for_skip(manifest))
@@ -769,12 +822,22 @@ def command_validate_review_input(_: argparse.Namespace) -> int:
             print("Skipping pull request from author without write-level association.")
             github_output(outputs_for_skip(manifest))
             return 0
+        run_with_retry(
+            "github_pr_diff",
+            lambda: refresh_review_diff_from_github(
+                repo=repo,
+                pull_request_number=manifest["pull_request_number"],
+                token=token,
+                diff_path=diff_path,
+                max_diff_bytes=int(required_env("MAX_DIFF_BYTES")),
+            ),
+        )
         github_output(
             {
                 "should_review": "true",
                 "pr_number": str(manifest["pull_request_number"]),
-                "head_sha": manifest["head_sha"],
-                "base_sha": manifest["base_sha"],
+                "head_sha": pull["head"]["sha"],
+                "base_sha": pull["base"]["sha"],
             }
         )
         return 0

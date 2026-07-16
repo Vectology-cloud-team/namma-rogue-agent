@@ -120,7 +120,9 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
             / "scripts"
             / "architect_review_retry.py"
         )
-        self.assertIn('pull["head"]["sha"] != manifest["head_sha"]', script)
+        self.assertIn('manifest["head_sha"] != pull["head"]["sha"]', script)
+        self.assertIn('manifest["base_sha"] != pull["base"]["sha"]', script)
+        self.assertIn("application/vnd.github.v3.diff", script)
         self.assertIn("STALE_ARTIFACT", script)
 
     def test_github_script_rejects_injected_identifier_redeclaration(self):

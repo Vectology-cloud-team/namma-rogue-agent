@@ -194,6 +194,13 @@ misleading AI review comment. A stale artifact is treated as a fatal
 validation result for that run so an old review cannot update the sticky
 comment for a newer head SHA.
 
+The privileged reviewer verifies the artifact metadata against the live
+pull request before checking out the trusted prompt. The base repository,
+head repository, base SHA, and head SHA must match the live PR. The
+review diff is then refreshed from the GitHub API and replaces the
+collector-provided `review.diff`, so untrusted artifact contents cannot
+select the prompt base or forge the reviewed diff.
+
 Infrastructure failure reporting is kept separate from the AI review
 sticky comment. The reviewer does not overwrite an existing AI review
 comment with an infrastructure failure. Human follow-up should use the
