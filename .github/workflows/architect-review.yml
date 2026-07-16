@@ -48,6 +48,7 @@ jobs:
           COLLECTOR_RUN_ID: ${{ github.event.workflow_run.id }}
           ARTIFACT_NAME: architect-review-input-${{ github.event.workflow_run.id }}
           REVIEW_INPUT_DIR: ${{ github.workspace }}/review-input
+          MAX_ARTIFACT_BYTES: "250000"
         run: |
           python3 reviewer-control/scripts/architect_review_retry.py download-artifact
 
@@ -111,13 +112,25 @@ jobs:
           permission-profile: ":read-only"
           safety-strategy: drop-sudo
 
-      - name: Wait before Codex retry 2
+      - name: Classify Codex attempt 1 failure
         if: steps.validate.outputs.should_review == 'true' && steps.codex_attempt_1.outcome == 'failure'
+        id: codex_classify_1
+        env:
+          PR_NUMBER: ${{ steps.validate.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.validate.outputs.head_sha }}
+          CODEX_ATTEMPT: "1"
+          CODEX_OUTCOME: ${{ steps.codex_attempt_1.outcome }}
+          CODEX_MESSAGE: ${{ steps.codex_attempt_1.outputs.final-message }}
+        run: |
+          python3 reviewer-control/scripts/architect_review_retry.py classify-codex-attempt
+
+      - name: Wait before Codex retry 2
+        if: steps.codex_classify_1.outputs.should_retry == 'true'
         run: |
           python3 reviewer-control/scripts/architect_review_retry.py sleep-before-retry --attempt 2
 
       - name: Run Codex attempt 2
-        if: steps.validate.outputs.should_review == 'true' && steps.codex_attempt_1.outcome == 'failure'
+        if: steps.codex_classify_1.outputs.should_retry == 'true'
         id: codex_attempt_2
         continue-on-error: true
         uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
@@ -135,19 +148,25 @@ jobs:
           permission-profile: ":read-only"
           safety-strategy: drop-sudo
 
+      - name: Classify Codex attempt 2 failure
+        if: steps.codex_classify_1.outputs.should_retry == 'true' && steps.codex_attempt_2.outcome == 'failure'
+        id: codex_classify_2
+        env:
+          PR_NUMBER: ${{ steps.validate.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.validate.outputs.head_sha }}
+          CODEX_ATTEMPT: "2"
+          CODEX_OUTCOME: ${{ steps.codex_attempt_2.outcome }}
+          CODEX_MESSAGE: ${{ steps.codex_attempt_2.outputs.final-message }}
+        run: |
+          python3 reviewer-control/scripts/architect_review_retry.py classify-codex-attempt
+
       - name: Wait before Codex retry 3
-        if: >-
-          steps.validate.outputs.should_review == 'true' &&
-          steps.codex_attempt_1.outcome == 'failure' &&
-          steps.codex_attempt_2.outcome == 'failure'
+        if: steps.codex_classify_2.outputs.should_retry == 'true'
         run: |
           python3 reviewer-control/scripts/architect_review_retry.py sleep-before-retry --attempt 3
 
       - name: Run Codex attempt 3
-        if: >-
-          steps.validate.outputs.should_review == 'true' &&
-          steps.codex_attempt_1.outcome == 'failure' &&
-          steps.codex_attempt_2.outcome == 'failure'
+        if: steps.codex_classify_2.outputs.should_retry == 'true'
         id: codex_attempt_3
         continue-on-error: true
         uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
@@ -164,6 +183,18 @@ jobs:
           working-directory: ${{ github.workspace }}
           permission-profile: ":read-only"
           safety-strategy: drop-sudo
+
+      - name: Classify Codex attempt 3 failure
+        if: steps.codex_classify_2.outputs.should_retry == 'true' && steps.codex_attempt_3.outcome == 'failure'
+        id: codex_classify_3
+        env:
+          PR_NUMBER: ${{ steps.validate.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.validate.outputs.head_sha }}
+          CODEX_ATTEMPT: "3"
+          CODEX_OUTCOME: ${{ steps.codex_attempt_3.outcome }}
+          CODEX_MESSAGE: ${{ steps.codex_attempt_3.outputs.final-message }}
+        run: |
+          python3 reviewer-control/scripts/architect_review_retry.py classify-codex-attempt
 
       - name: Finalize Codex review result
         if: steps.validate.outputs.should_review == 'true'

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 import urllib.error
+import warnings
+import zipfile
 from pathlib import Path
 
 
@@ -148,6 +151,30 @@ class ArchitectReviewRetryTests(unittest.TestCase):
         self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
         self.assertEqual(architect_review_retry.FailureCode.NETWORK_ERROR, failure.code)
 
+    def test_codex_rate_limit_is_retryable(self):
+        failure = architect_review_retry.classify_codex_failure_message(
+            "OpenAI API HTTP 429 rate limit"
+        )
+        self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.RATE_LIMIT, failure.code)
+
+    def test_codex_permission_error_is_fatal(self):
+        failure = architect_review_retry.classify_codex_failure_message(
+            "OpenAI API key unauthorized HTTP 401"
+        )
+        self.assertEqual(architect_review_retry.FailureClass.FATAL, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.PERMISSION_ERROR, failure.code)
+
+    def test_codex_unknown_failure_is_fatal(self):
+        failure = architect_review_retry.classify_codex_failure_message(
+            "action configuration failed"
+        )
+        self.assertEqual(architect_review_retry.FailureClass.FATAL, failure.failure_class)
+        self.assertEqual(
+            architect_review_retry.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            failure.code,
+        )
+
     def assert_fatal_without_retry(self, failure):
         sleeps = []
         attempts = []
@@ -199,6 +226,86 @@ class ArchitectReviewRetryTests(unittest.TestCase):
         self.assert_fatal_without_retry(
             self.fatal_error(architect_review_retry.FailureCode.PATH_TRAVERSAL)
         )
+
+    def zip_bytes(self, entries):
+        import io
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, content in entries:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    archive.writestr(name, content)
+        return buffer.getvalue()
+
+    def test_artifact_path_traversal_is_rejected_before_extraction(self):
+        data = self.zip_bytes(
+            [
+                ("manifest.json", "{}"),
+                ("../review.diff", "diff"),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "review-input"
+            with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                architect_review_retry.safe_extract_zip(data, target, max_bytes=1000)
+            self.assertEqual(
+                architect_review_retry.FailureCode.PATH_TRAVERSAL,
+                raised.exception.code,
+            )
+            self.assertFalse(target.exists())
+
+    def test_artifact_oversized_member_is_rejected(self):
+        data = self.zip_bytes(
+            [
+                ("manifest.json", "{}"),
+                ("review.diff", "x" * 200),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "review-input"
+            with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                architect_review_retry.safe_extract_zip(data, target, max_bytes=100)
+            self.assertEqual(
+                architect_review_retry.FailureCode.INVALID_MANIFEST,
+                raised.exception.code,
+            )
+            self.assertFalse(target.exists())
+
+    def test_artifact_extra_member_is_rejected(self):
+        data = self.zip_bytes(
+            [
+                ("manifest.json", "{}"),
+                ("review.diff", "diff"),
+                ("extra.txt", "extra"),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "review-input"
+            with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                architect_review_retry.safe_extract_zip(data, target, max_bytes=1000)
+            self.assertEqual(
+                architect_review_retry.FailureCode.INVALID_MANIFEST,
+                raised.exception.code,
+            )
+            self.assertFalse(target.exists())
+
+    def test_artifact_duplicate_member_is_rejected(self):
+        data = self.zip_bytes(
+            [
+                ("review.diff", "diff"),
+                ("review.diff", "again"),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "review-input"
+            with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                architect_review_retry.safe_extract_zip(data, target, max_bytes=1000)
+            self.assertEqual(
+                architect_review_retry.FailureCode.INVALID_MANIFEST,
+                raised.exception.code,
+            )
+            self.assertFalse(target.exists())
 
     def test_success_approved_does_not_fail_workflow(self):
         self.assertEqual(

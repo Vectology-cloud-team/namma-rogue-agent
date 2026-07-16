@@ -178,12 +178,13 @@ Reviewer failures are grouped into three classes:
   and `NEEDS_HUMAN` are review outcomes, not GitHub Actions failures.
 
 Only `RETRYABLE` failures are retried automatically. The reviewer makes
-at most three attempts for retryable operations and waits between
-attempts using the configured schedule of 30 seconds, 60 seconds, and
-120 seconds. If all attempts fail, the workflow stops and writes a job
-summary with the failure class, failure code, operation, attempt count,
-reviewed pull request number, reviewed head SHA, and a sanitized error
-summary.
+at most three attempts for retryable operations. The current workflow
+therefore waits 30 seconds before attempt 2 and 60 seconds before
+attempt 3. The shared delay table also records 120 seconds as the next
+backoff slot if a later policy increases the attempt count. If all
+attempts fail, the workflow stops and writes a job summary with the
+failure class, failure code, operation, attempt count, reviewed pull
+request number, reviewed head SHA, and a sanitized error summary.
 
 `FATAL` failures stop immediately without retry. They do not post a
 misleading AI review comment. A stale artifact is treated as a fatal

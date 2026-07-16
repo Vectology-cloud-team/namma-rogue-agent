@@ -223,6 +223,8 @@ def check_reviewer_text(text: str) -> list[CheckResult]:
     _add(results, "Codex attempt 2 exists", "id: codex_attempt_2" in review_job)
     _add(results, "Codex attempt 3 exists", "id: codex_attempt_3" in review_job)
     _add(results, "Codex failures continue for retry", "continue-on-error: true" in review_job)
+    _add(results, "Codex failures are classified before retry", "classify-codex-attempt" in review_job and "codex_classify_1" in review_job)
+    _add(results, "Codex retry conditions use classification", "steps.codex_classify_1.outputs.should_retry == 'true'" in review_job and "steps.codex_classify_2.outputs.should_retry == 'true'" in review_job)
     _add(results, "Codex retry waits are explicit", "sleep-before-retry --attempt 2" in review_job and "sleep-before-retry --attempt 3" in review_job)
     _add(results, "Codex result is finalized", "architect_review_retry.py finalize-codex" in review_job)
     _add(results, "uses official Codex action", "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1" in review_job)

@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 import time
 import urllib.error
@@ -24,6 +25,7 @@ MAX_ATTEMPTS = 3
 RETRY_DELAYS_SECONDS = (30, 60, 120)
 REQUEST_TIMEOUT_SECONDS = 30
 EXPECTED_REPOSITORY = "Vectology-cloud-team/namma-rogue-agent"
+EXPECTED_ARTIFACT_FILES = ("manifest.json", "review.diff")
 EXPECTED_MANIFEST_KEYS = (
     "actor",
     "author_association",
@@ -153,6 +155,68 @@ def classify_exception(error: BaseException, operation: str) -> ReviewFailure:
             return retryable(FailureCode.API_TIMEOUT, reason, operation)
         return retryable(FailureCode.NETWORK_ERROR, reason, operation)
     return fatal(FailureCode.WORKFLOW_CONFIGURATION_ERROR, sanitize_error(str(error)), operation)
+
+
+def classify_codex_failure_message(message: str) -> ReviewFailure:
+    safe_message = sanitize_error(message or "Codex Action failed without details")
+    lowered = safe_message.lower()
+    if any(term in lowered for term in ("rate limit", "too many requests", " 429", "http 429")):
+        return retryable(FailureCode.RATE_LIMIT, safe_message, "openai_codex_action")
+    if any(
+        term in lowered
+        for term in (
+            "timed out",
+            "timeout",
+            "etimedout",
+            "deadline exceeded",
+        )
+    ):
+        return retryable(FailureCode.API_TIMEOUT, safe_message, "openai_codex_action")
+    if any(
+        term in lowered
+        for term in (
+            " 500",
+            " 502",
+            " 503",
+            " 504",
+            "http 500",
+            "http 502",
+            "http 503",
+            "http 504",
+            "5xx",
+            "bad gateway",
+            "service unavailable",
+        )
+    ):
+        return retryable(FailureCode.OPENAI_5XX, safe_message, "openai_codex_action")
+    if any(
+        term in lowered
+        for term in (
+            "network",
+            "connection reset",
+            "econnreset",
+            "econnrefused",
+            "temporary failure",
+            "temporary name resolution",
+            "enotfound",
+        )
+    ):
+        return retryable(FailureCode.NETWORK_ERROR, safe_message, "openai_codex_action")
+    if any(
+        term in lowered
+        for term in (
+            "api key",
+            "unauthorized",
+            "forbidden",
+            "permission",
+            " 401",
+            " 403",
+            "http 401",
+            "http 403",
+        )
+    ):
+        return fatal(FailureCode.PERMISSION_ERROR, safe_message, "openai_codex_action")
+    return fatal(FailureCode.WORKFLOW_CONFIGURATION_ERROR, safe_message, "openai_codex_action")
 
 
 def run_with_retry(
@@ -288,23 +352,114 @@ def github_json(
     return json.loads(data.decode("utf-8")), headers
 
 
-def safe_extract_zip(zip_bytes: bytes, target_dir: Path) -> None:
+def validate_artifact_member(
+    member: zipfile.ZipInfo,
+    *,
+    root: Path,
+    target_dir: Path,
+    max_bytes: int,
+    seen_destinations: set[Path],
+) -> tuple[Path, int]:
+    if member.is_dir():
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            f"artifact directory entries are not allowed: {member.filename}",
+            "artifact_download",
+        )
+    file_type = (member.external_attr >> 16) & 0o170000
+    if file_type == 0o120000:
+        raise fatal(
+            FailureCode.PATH_TRAVERSAL,
+            f"artifact symlink entries are not allowed: {member.filename}",
+            "artifact_download",
+        )
+    destination = (target_dir / member.filename).resolve()
+    if root != destination and root not in destination.parents:
+        raise fatal(
+            FailureCode.PATH_TRAVERSAL,
+            f"artifact path traversal detected: {member.filename}",
+            "artifact_download",
+        )
+    if member.filename not in EXPECTED_ARTIFACT_FILES:
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            f"unexpected artifact member: {member.filename}",
+            "artifact_download",
+        )
+    if member.file_size > max_bytes:
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            f"artifact member exceeds maximum size: {member.filename}",
+            "artifact_download",
+        )
+    if destination in seen_destinations:
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            f"duplicate artifact member destination: {member.filename}",
+            "artifact_download",
+        )
+    seen_destinations.add(destination)
+    return destination, member.file_size
+
+
+def safe_extract_zip(zip_bytes: bytes, target_dir: Path, *, max_bytes: int) -> None:
+    if len(zip_bytes) > max_bytes:
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            "downloaded artifact zip exceeds configured maximum size",
+            "artifact_download",
+        )
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     root = target_dir.resolve()
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
-        for member in archive.infolist():
-            if member.is_dir():
-                continue
-            destination = (target_dir / member.filename).resolve()
-            if root != destination and root not in destination.parents:
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+            members = [member for member in archive.infolist() if not member.is_dir()]
+            if len(members) != len(EXPECTED_ARTIFACT_FILES):
                 raise fatal(
-                    FailureCode.PATH_TRAVERSAL,
-                    f"artifact path traversal detected: {member.filename}",
+                    FailureCode.INVALID_MANIFEST,
+                    "artifact must contain exactly manifest.json and review.diff",
                     "artifact_download",
                 )
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(member) as source:
-                destination.write_bytes(source.read())
+            seen_destinations: set[Path] = set()
+            total_declared_size = 0
+            planned: list[tuple[zipfile.ZipInfo, Path]] = []
+            for member in members:
+                destination, declared_size = validate_artifact_member(
+                    member,
+                    root=root,
+                    target_dir=target_dir,
+                    max_bytes=max_bytes,
+                    seen_destinations=seen_destinations,
+                )
+                total_declared_size += declared_size
+                if total_declared_size > max_bytes:
+                    raise fatal(
+                        FailureCode.INVALID_MANIFEST,
+                        "artifact extracted size exceeds configured maximum",
+                        "artifact_download",
+                    )
+                planned.append((member, destination))
+            for member, destination in planned:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                extracted_size = 0
+                with archive.open(member) as source, destination.open("wb") as output:
+                    while True:
+                        chunk = source.read(65536)
+                        if not chunk:
+                            break
+                        extracted_size += len(chunk)
+                        if extracted_size > member.file_size or extracted_size > max_bytes:
+                            raise fatal(
+                                FailureCode.INVALID_MANIFEST,
+                                f"artifact member expanded beyond declared size: {member.filename}",
+                                "artifact_download",
+                            )
+                        output.write(chunk)
+    except BaseException:
+        shutil.rmtree(target_dir, ignore_errors=True)
+        raise
 
 
 def command_download_artifact(_: argparse.Namespace) -> int:
@@ -313,6 +468,7 @@ def command_download_artifact(_: argparse.Namespace) -> int:
     run_id = required_env("COLLECTOR_RUN_ID")
     artifact_name = required_env("ARTIFACT_NAME")
     target_dir = Path(required_env("REVIEW_INPUT_DIR"))
+    max_artifact_bytes = int(required_env("MAX_ARTIFACT_BYTES"))
 
     def operation() -> None:
         listing, _ = github_json(
@@ -334,15 +490,7 @@ def command_download_artifact(_: argparse.Namespace) -> int:
             f"/repos/{repo}/actions/artifacts/{artifact_id}/zip",
             token=token,
         )
-        if target_dir.exists():
-            for child in target_dir.iterdir():
-                if child.is_file():
-                    child.unlink()
-                elif child.is_dir():
-                    import shutil
-
-                    shutil.rmtree(child)
-        safe_extract_zip(data, target_dir)
+        safe_extract_zip(data, target_dir, max_bytes=max_artifact_bytes)
 
     try:
         run_with_retry("artifact_download", operation)
@@ -642,6 +790,46 @@ def command_sleep_before_retry(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_classify_codex_attempt(_: argparse.Namespace) -> int:
+    attempt = int(required_env("CODEX_ATTEMPT"))
+    outcome = required_env("CODEX_OUTCOME")
+    message = os.environ.get("CODEX_MESSAGE", "")
+    if outcome == "success":
+        github_output({"should_retry": "false", "success_code": "UNKNOWN"})
+        return 0
+    if outcome != "failure":
+        github_output({"should_retry": "false", "failure_code": "NOT_FAILED"})
+        return 0
+    failure = classify_codex_failure_message(message)
+    github_output(
+        {
+            "should_retry": str(
+                failure.failure_class is FailureClass.RETRYABLE
+                and attempt < MAX_ATTEMPTS
+            ).lower(),
+            "failure_class": failure.failure_class.value,
+            "failure_code": failure.code.value,
+        }
+    )
+    if failure.failure_class is FailureClass.FATAL:
+        return fail_command(
+            failure,
+            pr_number=os.environ.get("PR_NUMBER", ""),
+            head_sha=os.environ.get("HEAD_SHA", ""),
+        )
+    if attempt >= MAX_ATTEMPTS:
+        return fail_command(
+            RetryExhausted(failure, attempt),
+            pr_number=os.environ.get("PR_NUMBER", ""),
+            head_sha=os.environ.get("HEAD_SHA", ""),
+        )
+    print(
+        f"Codex attempt {attempt} classified as "
+        f"{failure.failure_class.value}/{failure.code.value}; retrying."
+    )
+    return 0
+
+
 def normalize_success_code(final_message: str) -> SuccessCode:
     match = re.search(r"^VERDICT:\s*(.+)$", final_message, flags=re.MULTILINE)
     verdict = match.group(1).strip() if match else "HUMAN_DECISION_REQUIRED"
@@ -797,6 +985,9 @@ def build_parser() -> argparse.ArgumentParser:
     sleep_parser = subparsers.add_parser("sleep-before-retry")
     sleep_parser.add_argument("--attempt", required=True, type=int)
     sleep_parser.set_defaults(func=command_sleep_before_retry)
+    subparsers.add_parser("classify-codex-attempt").set_defaults(
+        func=command_classify_codex_attempt
+    )
     subparsers.add_parser("finalize-codex").set_defaults(func=command_finalize_codex)
     subparsers.add_parser("post-comment").set_defaults(func=command_post_comment)
     return parser
