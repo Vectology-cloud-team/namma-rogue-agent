@@ -106,32 +106,36 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
         self.assertIn("reviewer checks expected repository", labels)
 
     def test_reviewer_validates_manifest_schema(self):
-        reviewer = self.reviewer_text().replace("expectedKeys", "removedExpectedKeys")
-        reviewer = reviewer.replace("manifest.schema_version", "manifest.removed")
-        labels = self.failed_labels(
-            check_architect_review_workflow.check_reviewer_text(reviewer)
+        script = check_architect_review_workflow.load_text(
+            check_architect_review_workflow.REPO_ROOT
+            / "scripts"
+            / "architect_review_retry.py"
         )
-        self.assertIn("reviewer validates manifest schema", labels)
+        self.assertIn("EXPECTED_MANIFEST_KEYS", script)
+        self.assertIn("schema_version", script)
 
     def test_reviewer_checks_current_pr_head_sha(self):
-        reviewer = self.reviewer_text().replace(
-            "pr.head.sha !== manifest.head_sha",
-            "false",
+        script = check_architect_review_workflow.load_text(
+            check_architect_review_workflow.REPO_ROOT
+            / "scripts"
+            / "architect_review_retry.py"
         )
-        labels = self.failed_labels(
-            check_architect_review_workflow.check_reviewer_text(reviewer)
-        )
-        self.assertIn("reviewer checks current head SHA", labels)
+        self.assertIn('manifest["head_sha"] != pull["head"]["sha"]', script)
+        self.assertIn('manifest["base_sha"] != pull["base"]["sha"]', script)
+        self.assertIn("validate_live_pr_files", script)
+        self.assertIn("application/vnd.github.v3.diff", script)
+        self.assertIn("STALE_ARTIFACT", script)
 
     def test_github_script_rejects_injected_identifier_redeclaration(self):
         for identifier in ("core", "github", "context"):
             for declaration in ("const", "let", "var"):
                 with self.subTest(identifier=identifier, declaration=declaration):
                     reviewer = self.reviewer_text().replace(
-                        "const expectedRepository = process.env.EXPECTED_REPOSITORY;",
+                        "python3 reviewer-control/scripts/architect_review_retry.py "
+                        "validate-review-input",
                         f"{declaration} {identifier} = null;\n"
-                        "            const expectedRepository = "
-                        "process.env.EXPECTED_REPOSITORY;",
+                        "          python3 reviewer-control/scripts/"
+                        "architect_review_retry.py validate-review-input",
                     )
                     labels = self.failed_labels(
                         check_architect_review_workflow.check_reviewer_text(reviewer)
@@ -147,7 +151,8 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
             check_architect_review_workflow.check_reviewer_text(reviewer)
         )
         self.assertNotIn("reviewer skips stale artifact without comment", labels)
-        self.assertIn("needs.review.outputs.should_review == 'true'", reviewer)
+        self.assertIn("needs.review.outputs.should_comment == 'true'", reviewer)
+        self.assertIn("needs.review.result == 'success'", reviewer)
 
     def test_artifact_size_limit_exists(self):
         collector_labels = self.failed_labels(
@@ -168,8 +173,8 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
 
     def test_trusted_prompt_missing_fails_closed(self):
         reviewer = self.reviewer_text().replace(
-            "Trusted architect-review prompt is missing from the base SHA.",
-            "Using pull request prompt fallback.",
+            "architect_review_retry.py verify-prompt",
+            "echo Using pull request prompt fallback.",
         )
         labels = self.failed_labels(
             check_architect_review_workflow.check_reviewer_text(reviewer)
@@ -177,21 +182,29 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
         self.assertIn("trusted prompt is verified", labels)
 
     def test_sticky_comment_is_one_per_pr(self):
-        post_job = check_architect_review_workflow._job_section(
-            self.reviewer_text(),
-            "post_feedback",
+        script = check_architect_review_workflow.load_text(
+            check_architect_review_workflow.REPO_ROOT
+            / "scripts"
+            / "architect_review_retry.py"
         )
-        existing_block = check_architect_review_workflow.existing_comment_block(
-            post_job
-        )
-        self.assertIn("comment.body.includes(marker)", existing_block)
-        self.assertNotIn("reviewedSha", existing_block)
+        self.assertIn("COMMENT_MARKER in comment", script)
+        self.assertNotIn("reviewedSha", script)
 
     def test_existing_marker_comment_is_updated(self):
-        self.assertIn("github.rest.issues.updateComment", self.reviewer_text())
+        script = check_architect_review_workflow.load_text(
+            check_architect_review_workflow.REPO_ROOT
+            / "scripts"
+            / "architect_review_retry.py"
+        )
+        self.assertIn("/issues/comments/{existing['id']}", script)
 
     def test_missing_marker_comment_is_created(self):
-        self.assertIn("github.rest.issues.createComment", self.reviewer_text())
+        script = check_architect_review_workflow.load_text(
+            check_architect_review_workflow.REPO_ROOT
+            / "scripts"
+            / "architect_review_retry.py"
+        )
+        self.assertIn("/issues/{issue_number}/comments", script)
 
     def test_all_actions_are_full_sha_pinned(self):
         combined = check_architect_review_workflow.all_workflow_text(
@@ -223,14 +236,14 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
             self.collector_text(),
             self.reviewer_text(),
         ).replace(
-            "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5",
+            "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4",
             "unknown/example@1111111111111111111111111111111111111111 # v1",
         )
         labels = self.failed_labels(
             check_architect_review_workflow.check_action_pinning(combined)
         )
         self.assertIn("only allowed actions are used", labels)
-        self.assertIn("actions/download-artifact action is used", labels)
+        self.assertIn("actions/upload-artifact action is used", labels)
 
     def test_prompt_requires_untrusted_diff_boundary(self):
         prompt = check_architect_review_workflow.PROMPT_PATH.read_text(
@@ -241,6 +254,66 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("prompt treats review input as untrusted", labels)
         self.assertNotIn("prompt forbids executing PR content", labels)
+
+    def test_policy_file_is_required_by_static_checks(self):
+        self.assertTrue(check_architect_review_workflow.POLICY_PATH.exists())
+        policy = check_architect_review_workflow.POLICY_PATH.read_text(
+            encoding="utf-8"
+        )
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_policy_text(policy)
+        )
+        self.assertEqual(set(), labels)
+
+    def test_policy_missing_model_is_rejected(self):
+        policy = check_architect_review_workflow.POLICY_PATH.read_text(
+            encoding="utf-8"
+        ).replace("model: gpt-5.5\n", "")
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_policy_text(policy)
+        )
+        self.assertIn("policy sets model", labels)
+
+    def test_policy_missing_effort_is_rejected(self):
+        policy = check_architect_review_workflow.POLICY_PATH.read_text(
+            encoding="utf-8"
+        ).replace("  effort: medium\n", "")
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_policy_text(policy)
+        )
+        self.assertIn("policy sets reasoning effort", labels)
+
+    def test_reviewer_sets_model_and_effort_from_policy(self):
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(self.reviewer_text())
+        )
+        self.assertNotIn("sets Codex model from policy", labels)
+        self.assertNotIn("sets Codex effort from policy", labels)
+
+    def test_reviewer_comment_contains_policy_metadata(self):
+        script = check_architect_review_workflow.load_text(
+            check_architect_review_workflow.REPO_ROOT
+            / "scripts"
+            / "architect_review_retry.py"
+        )
+        self.assertIn("### Review Policy", script)
+        self.assertIn("Model:", script)
+
+    def test_reviewer_uses_explicit_should_comment_boolean_checks(self):
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(self.reviewer_text())
+        )
+        self.assertNotIn("review output checks should_comment explicitly", labels)
+        self.assertIn(
+            "steps.finalize_codex.outputs.should_comment == 'true'",
+            self.reviewer_text(),
+        )
+
+    def test_post_feedback_validates_live_head_before_comment(self):
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(self.reviewer_text())
+        )
+        self.assertNotIn("post_feedback validates live head before comment", labels)
 
 
 if __name__ == "__main__":

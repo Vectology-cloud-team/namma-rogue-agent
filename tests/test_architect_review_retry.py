@@ -1,0 +1,993 @@
+from __future__ import annotations
+
+import importlib.util
+import os
+import sys
+import tempfile
+import unittest
+import urllib.error
+import warnings
+import zipfile
+from pathlib import Path
+
+
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "architect_review_retry.py"
+)
+SPEC = importlib.util.spec_from_file_location("architect_review_retry", SCRIPT_PATH)
+architect_review_retry = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+sys.modules[SPEC.name] = architect_review_retry
+SPEC.loader.exec_module(architect_review_retry)
+
+
+class ArchitectReviewRetryTests(unittest.TestCase):
+    def retryable_error(self):
+        return architect_review_retry.retryable(
+            architect_review_retry.FailureCode.NETWORK_ERROR,
+            "temporary network failure",
+            "test_operation",
+        )
+
+    def fatal_error(self, code):
+        return architect_review_retry.fatal(
+            code,
+            "fatal failure",
+            "test_operation",
+        )
+
+    def review_policy(self, **overrides):
+        values = {
+            "model": "gpt-5.5",
+            "effort": "medium",
+            "max_changed_files": 50,
+            "max_diff_bytes": 200000,
+            "max_prompt_bytes": 200000,
+            "max_artifact_bytes": 250000,
+            "exclude": ("*.png", "vendor/**"),
+        }
+        values.update(overrides)
+        return architect_review_retry.ReviewPolicy(**values)
+
+    def policy_text(self):
+        return "\n".join(
+            [
+                "model: gpt-5.5",
+                "",
+                "reasoning:",
+                "  effort: medium",
+                "",
+                "limits:",
+                "  max_changed_files: 50",
+                "  max_diff_bytes: 200000",
+                "  max_prompt_bytes: 200000",
+                "  max_artifact_bytes: 250000",
+                "",
+                "exclude:",
+                "  - \"*.png\"",
+                "  - \"vendor/**\"",
+                "",
+            ]
+        )
+
+    def test_review_policy_file_parses_required_settings(self):
+        policy = architect_review_retry.parse_review_policy_text(self.policy_text())
+        self.assertEqual("gpt-5.5", policy.model)
+        self.assertEqual("medium", policy.effort)
+        self.assertEqual(50, policy.max_changed_files)
+        self.assertEqual(200000, policy.max_diff_bytes)
+        self.assertEqual(200000, policy.max_prompt_bytes)
+        self.assertIn("vendor/**", policy.exclude)
+
+    def test_review_policy_model_is_required(self):
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.parse_review_policy_text(
+                self.policy_text().replace("model: gpt-5.5\n", "")
+            )
+        self.assertEqual(
+            architect_review_retry.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            raised.exception.code,
+        )
+
+    def test_review_policy_effort_is_required(self):
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.parse_review_policy_text(
+                self.policy_text().replace("  effort: medium\n", "")
+            )
+        self.assertEqual(
+            architect_review_retry.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            raised.exception.code,
+        )
+
+    def test_review_policy_exclude_matches_paths(self):
+        policy = self.review_policy()
+        self.assertTrue(architect_review_retry.path_matches_exclude("logo.png", policy.exclude))
+        self.assertTrue(
+            architect_review_retry.path_matches_exclude(
+                "vendor/library/file.c",
+                policy.exclude,
+            )
+        )
+        self.assertFalse(architect_review_retry.path_matches_exclude("src/main.py", policy.exclude))
+
+    def test_filter_unified_diff_removes_excluded_sections(self):
+        diff = (
+            "diff --git a/src/main.py b/src/main.py\n"
+            "--- a/src/main.py\n"
+            "+++ b/src/main.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+            "diff --git a/vendor/lib.c b/vendor/lib.c\n"
+            "--- a/vendor/lib.c\n"
+            "+++ b/vendor/lib.c\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        ).encode("utf-8")
+        filtered = architect_review_retry.filter_unified_diff(diff, self.review_policy())
+        self.assertIn(b"src/main.py", filtered)
+        self.assertNotIn(b"vendor/lib.c", filtered)
+
+    def test_diff_section_paths_decodes_git_quoted_paths(self):
+        cases = [
+            (
+                '"a/assets/logo final.png"',
+                '"b/assets/logo final.png"',
+                "assets/logo final.png",
+            ),
+            (
+                '"a/assets/tab\\tname.png"',
+                '"b/assets/tab\\tname.png"',
+                "assets/tab\tname.png",
+            ),
+            (
+                '"a/assets/quote\\"name.png"',
+                '"b/assets/quote\\"name.png"',
+                'assets/quote"name.png',
+            ),
+            (
+                '"a/assets/back\\\\slash.png"',
+                '"b/assets/back\\\\slash.png"',
+                "assets/back/slash.png",
+            ),
+            (
+                '"a/assets/caf\\303\\251.png"',
+                '"b/assets/caf\\303\\251.png"',
+                "assets/café.png",
+            ),
+        ]
+        for old_path, new_path, expected in cases:
+            with self.subTest(expected=expected):
+                paths = architect_review_retry.diff_section_paths(
+                    [
+                        f"diff --git {old_path} {new_path}\n",
+                        f"--- {old_path}\n",
+                        f"+++ {new_path}\n",
+                    ]
+                )
+                self.assertEqual({expected}, paths)
+
+    def test_filter_unified_diff_removes_git_quoted_excluded_sections(self):
+        diff = (
+            'diff --git "a/assets/logo final.png" "b/assets/logo final.png"\n'
+            '--- "a/assets/logo final.png"\n'
+            '+++ "b/assets/logo final.png"\n'
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+excluded image text\n"
+            'diff --git "a/assets/tab\\tname.png" "b/assets/tab\\tname.png"\n'
+            '--- "a/assets/tab\\tname.png"\n'
+            '+++ "b/assets/tab\\tname.png"\n'
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+excluded tab text\n"
+            'diff --git "a/assets/quote\\"name.png" "b/assets/quote\\"name.png"\n'
+            '--- "a/assets/quote\\"name.png"\n'
+            '+++ "b/assets/quote\\"name.png"\n'
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+excluded quote text\n"
+            'diff --git "a/assets/back\\\\slash.png" "b/assets/back\\\\slash.png"\n'
+            '--- "a/assets/back\\\\slash.png"\n'
+            '+++ "b/assets/back\\\\slash.png"\n'
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+excluded backslash text\n"
+            'diff --git "a/assets/caf\\303\\251.png" "b/assets/caf\\303\\251.png"\n'
+            '--- "a/assets/caf\\303\\251.png"\n'
+            '+++ "b/assets/caf\\303\\251.png"\n'
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+excluded unicode text\n"
+            "diff --git a/src/main.py b/src/main.py\n"
+            "--- a/src/main.py\n"
+            "+++ b/src/main.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+included source text\n"
+        ).encode("utf-8")
+        filtered = architect_review_retry.filter_unified_diff(diff, self.review_policy())
+        self.assertIn(b"included source text", filtered)
+        self.assertNotIn(b"excluded image text", filtered)
+        self.assertNotIn(b"excluded tab text", filtered)
+        self.assertNotIn(b"excluded quote text", filtered)
+        self.assertNotIn(b"excluded backslash text", filtered)
+        self.assertNotIn(b"excluded unicode text", filtered)
+
+    def test_review_input_budget_counts_excluded_files(self):
+        files = [
+            {"filename": "src/main.py", "patch": "patch"},
+            {"filename": "vendor/lib.c", "patch": "patch"},
+        ]
+        budget = architect_review_retry.review_input_budget(
+            files,
+            b"diff",
+            self.review_policy(),
+        )
+        self.assertEqual(2, budget.total_files)
+        self.assertEqual(1, budget.reviewed_files)
+        self.assertEqual(1, budget.excluded_files)
+        self.assertEqual(4, budget.diff_bytes)
+
+    def test_policy_summary_includes_model_effort_and_budgets(self):
+        summary = architect_review_retry.policy_summary(self.review_policy())
+        self.assertIn("gpt-5.5", summary)
+        self.assertIn("medium", summary)
+        self.assertIn("Max changed files", summary)
+
+    def test_skipped_review_message_reports_budget_reason(self):
+        message = architect_review_retry.skipped_review_message(
+            "Diff budget exceeded",
+            "100 files exceeds 50",
+        )
+        self.assertIn("VERDICT: HUMAN_DECISION_REQUIRED", message)
+        self.assertIn("Review skipped", message)
+        self.assertIn("Diff budget exceeded", message)
+
+    def test_verify_prompt_outputs_skip_when_prompt_budget_exceeded(self):
+        saved = os.environ.copy()
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                prompt = root / "prompt.md"
+                output = root / "github-output.txt"
+                prompt.write_text("x" * 20, encoding="utf-8")
+                os.environ.update(
+                    {
+                        "TRUSTED_PROMPT": str(prompt),
+                        "MAX_PROMPT_BYTES": "10",
+                        "GITHUB_OUTPUT": str(output),
+                    }
+                )
+                self.assertEqual(0, architect_review_retry.command_verify_prompt(None))
+                output_text = output.read_text(encoding="utf-8")
+                self.assertIn("prompt_ok=false", output_text)
+                self.assertIn("Prompt budget exceeded", output_text)
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+    def test_verify_prompt_outputs_ok_when_within_budget(self):
+        saved = os.environ.copy()
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                prompt = root / "prompt.md"
+                output = root / "github-output.txt"
+                prompt.write_text("short", encoding="utf-8")
+                os.environ.update(
+                    {
+                        "TRUSTED_PROMPT": str(prompt),
+                        "MAX_PROMPT_BYTES": "10",
+                        "GITHUB_OUTPUT": str(output),
+                    }
+                )
+                self.assertEqual(0, architect_review_retry.command_verify_prompt(None))
+                output_text = output.read_text(encoding="utf-8")
+                self.assertIn("prompt_ok=true", output_text)
+                self.assertIn("prompt_bytes=5", output_text)
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+    def test_retryable_first_failure_second_success(self):
+        attempts = []
+        sleeps = []
+
+        def operation():
+            attempts.append(len(attempts) + 1)
+            if len(attempts) == 1:
+                raise self.retryable_error()
+            return "ok"
+
+        result = architect_review_retry.run_with_retry(
+            "test_operation",
+            operation,
+            sleep_func=sleeps.append,
+        )
+
+        self.assertEqual("ok", result.value)
+        self.assertEqual(2, result.attempts)
+        self.assertEqual([30], sleeps)
+
+    def test_retryable_two_failures_third_success(self):
+        attempts = []
+        sleeps = []
+
+        def operation():
+            attempts.append(len(attempts) + 1)
+            if len(attempts) < 3:
+                raise self.retryable_error()
+            return "ok"
+
+        result = architect_review_retry.run_with_retry(
+            "test_operation",
+            operation,
+            sleep_func=sleeps.append,
+        )
+
+        self.assertEqual("ok", result.value)
+        self.assertEqual(3, result.attempts)
+        self.assertEqual([30, 60], sleeps)
+
+    def test_retryable_three_failures_stop(self):
+        attempts = []
+        sleeps = []
+
+        def operation():
+            attempts.append(len(attempts) + 1)
+            raise self.retryable_error()
+
+        with self.assertRaises(architect_review_retry.RetryExhausted) as raised:
+            architect_review_retry.run_with_retry(
+                "test_operation",
+                operation,
+                sleep_func=sleeps.append,
+            )
+
+        self.assertEqual(3, raised.exception.attempts)
+        self.assertEqual([30, 60], sleeps)
+        self.assertEqual(3, len(attempts))
+
+    def test_retry_delay_schedule_is_documented(self):
+        self.assertEqual((30, 60, 120), architect_review_retry.RETRY_DELAYS_SECONDS)
+
+    def test_rate_limit_is_retryable(self):
+        failure = architect_review_retry.classify_http_status(
+            429,
+            "rate limit",
+            "openai_codex_action",
+        )
+        self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.RATE_LIMIT, failure.code)
+
+    def test_timeout_is_retryable(self):
+        failure = architect_review_retry.classify_exception(
+            TimeoutError("timed out"),
+            "openai_codex_action",
+        )
+        self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.API_TIMEOUT, failure.code)
+
+    def test_github_5xx_is_retryable(self):
+        failure = architect_review_retry.classify_http_status(
+            503,
+            "service unavailable",
+            "github_comment",
+        )
+        self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.GITHUB_5XX, failure.code)
+
+    def test_openai_5xx_is_retryable(self):
+        failure = architect_review_retry.classify_http_status(
+            500,
+            "server error",
+            "openai_codex_action",
+        )
+        self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.OPENAI_5XX, failure.code)
+
+    def test_github_429_is_retryable(self):
+        failure = architect_review_retry.classify_http_status(
+            429,
+            "too many requests",
+            "github_comment",
+        )
+        self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.GITHUB_429, failure.code)
+
+    def test_network_error_is_retryable(self):
+        failure = architect_review_retry.classify_exception(
+            urllib.error.URLError("temporary name resolution failure"),
+            "github_comment",
+        )
+        self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.NETWORK_ERROR, failure.code)
+
+    def test_cross_origin_redirect_strips_authorization(self):
+        headers = {
+            "Authorization": "Bearer secret",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "test",
+        }
+        redirected = architect_review_retry.headers_for_redirect(
+            "https://api.github.com/repos/x/y/actions/artifacts/1/zip",
+            "https://pipelines.actions.githubusercontent.com/artifact.zip",
+            headers,
+        )
+        self.assertNotIn("Authorization", redirected)
+        self.assertEqual("application/vnd.github+json", redirected["Accept"])
+
+    def test_same_origin_redirect_keeps_authorization(self):
+        headers = {
+            "Authorization": "Bearer secret",
+            "Accept": "application/vnd.github+json",
+        }
+        redirected = architect_review_retry.headers_for_redirect(
+            "https://api.github.com/repos/x/y",
+            "https://api.github.com/repos/x/y?next=1",
+            headers,
+        )
+        self.assertEqual("Bearer secret", redirected["Authorization"])
+
+    def test_limited_response_rejects_oversized_body_without_full_read(self):
+        class LargeResponse:
+            def __init__(self):
+                self.remaining = 1000
+                self.read_sizes = []
+
+            def read(self, size=-1):
+                self.read_sizes.append(size)
+                if self.remaining <= 0:
+                    return b""
+                if size < 0:
+                    size = self.remaining
+                count = min(size, self.remaining)
+                self.remaining -= count
+                return b"x" * count
+
+        response = LargeResponse()
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.read_limited_response(
+                response,
+                max_response_bytes=10,
+                operation="artifact_download",
+            )
+        self.assertEqual(
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+            raised.exception.code,
+        )
+        self.assertEqual([11], response.read_sizes)
+        self.assertEqual(989, response.remaining)
+
+    def test_codex_rate_limit_is_retryable(self):
+        failure = architect_review_retry.classify_codex_failure_message(
+            "OpenAI API HTTP 429 rate limit"
+        )
+        self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.RATE_LIMIT, failure.code)
+
+    def test_codex_permission_error_is_fatal(self):
+        failure = architect_review_retry.classify_codex_failure_message(
+            "OpenAI API key unauthorized HTTP 401"
+        )
+        self.assertEqual(architect_review_retry.FailureClass.FATAL, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.PERMISSION_ERROR, failure.code)
+
+    def test_codex_unknown_failure_is_fatal(self):
+        failure = architect_review_retry.classify_codex_failure_message(
+            "action configuration failed"
+        )
+        self.assertEqual(architect_review_retry.FailureClass.FATAL, failure.failure_class)
+        self.assertEqual(
+            architect_review_retry.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            failure.code,
+        )
+
+    def test_codex_empty_failure_details_are_retryable_after_preflight(self):
+        failure = architect_review_retry.classify_codex_failure_message("")
+        self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.NETWORK_ERROR, failure.code)
+
+    def assert_fatal_without_retry(self, failure):
+        sleeps = []
+        attempts = []
+
+        def operation():
+            attempts.append(1)
+            raise failure
+
+        with self.assertRaises(architect_review_retry.ReviewFailure):
+            architect_review_retry.run_with_retry(
+                "test_operation",
+                operation,
+                sleep_func=sleeps.append,
+            )
+        self.assertEqual(1, len(attempts))
+        self.assertEqual([], sleeps)
+
+    def test_trusted_prompt_missing_is_fatal_without_retry(self):
+        self.assert_fatal_without_retry(
+            self.fatal_error(architect_review_retry.FailureCode.TRUSTED_PROMPT_MISSING)
+        )
+
+    def test_invalid_manifest_is_fatal_without_retry(self):
+        self.assert_fatal_without_retry(
+            self.fatal_error(architect_review_retry.FailureCode.INVALID_MANIFEST)
+        )
+
+    def test_sha_mismatch_is_fatal_without_retry(self):
+        self.assert_fatal_without_retry(
+            self.fatal_error(architect_review_retry.FailureCode.SHA_MISMATCH)
+        )
+
+    def test_stale_artifact_is_fatal_without_retry(self):
+        self.assert_fatal_without_retry(
+            self.fatal_error(architect_review_retry.FailureCode.STALE_ARTIFACT)
+        )
+
+    def test_permission_error_is_fatal_without_retry(self):
+        failure = architect_review_retry.classify_http_status(
+            403,
+            "forbidden",
+            "github_comment",
+        )
+        self.assertEqual(architect_review_retry.FailureClass.FATAL, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.PERMISSION_ERROR, failure.code)
+        self.assert_fatal_without_retry(failure)
+
+    def test_path_traversal_is_fatal_without_retry(self):
+        self.assert_fatal_without_retry(
+            self.fatal_error(architect_review_retry.FailureCode.PATH_TRAVERSAL)
+        )
+
+    def zip_bytes(self, entries):
+        import io
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, content in entries:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    archive.writestr(name, content)
+        return buffer.getvalue()
+
+    def test_artifact_path_traversal_is_rejected_before_extraction(self):
+        data = self.zip_bytes(
+            [
+                ("manifest.json", "{}"),
+                ("../review.diff", "diff"),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "review-input"
+            with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                architect_review_retry.safe_extract_zip(data, target, max_bytes=1000)
+            self.assertEqual(
+                architect_review_retry.FailureCode.PATH_TRAVERSAL,
+                raised.exception.code,
+            )
+            self.assertFalse(target.exists())
+
+    def test_artifact_oversized_member_is_rejected(self):
+        data = self.zip_bytes(
+            [
+                ("manifest.json", "{}"),
+                ("review.diff", "x" * 200),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "review-input"
+            with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                architect_review_retry.safe_extract_zip(data, target, max_bytes=100)
+            self.assertEqual(
+                architect_review_retry.FailureCode.INVALID_MANIFEST,
+                raised.exception.code,
+            )
+            self.assertFalse(target.exists())
+
+    def test_artifact_extra_member_is_rejected(self):
+        data = self.zip_bytes(
+            [
+                ("manifest.json", "{}"),
+                ("review.diff", "diff"),
+                ("extra.txt", "extra"),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "review-input"
+            with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                architect_review_retry.safe_extract_zip(data, target, max_bytes=1000)
+            self.assertEqual(
+                architect_review_retry.FailureCode.INVALID_MANIFEST,
+                raised.exception.code,
+            )
+            self.assertFalse(target.exists())
+
+    def test_artifact_duplicate_member_is_rejected(self):
+        data = self.zip_bytes(
+            [
+                ("review.diff", "diff"),
+                ("review.diff", "again"),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "review-input"
+            with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                architect_review_retry.safe_extract_zip(data, target, max_bytes=1000)
+            self.assertEqual(
+                architect_review_retry.FailureCode.INVALID_MANIFEST,
+                raised.exception.code,
+            )
+            self.assertFalse(target.exists())
+
+    def base_manifest(self, diff_bytes):
+        return {
+            "actor": "uchuu",
+            "author_association": "OWNER",
+            "base_repository": "Vectology-cloud-team/namma-rogue-agent",
+            "base_sha": "a" * 40,
+            "binary_file_count": 0,
+            "binary_files_omitted": [],
+            "changed_file_count": 1,
+            "collector_workflow_name": "Architect Review Collect",
+            "collector_workflow_run_id": 123,
+            "diff_bytes": diff_bytes,
+            "draft": False,
+            "head_repository": "Vectology-cloud-team/namma-rogue-agent",
+            "head_sha": "b" * 40,
+            "limits": {
+                "max_diff_bytes": 200000,
+                "max_changed_files": 200,
+                "max_artifact_bytes": 250000,
+            },
+            "merge_sha": "c" * 40,
+            "pull_request_number": 13,
+            "repository": "Vectology-cloud-team/namma-rogue-agent",
+            "schema_version": "architect-review-input-v1",
+        }
+
+    def with_manifest_validation_env(self, func):
+        saved = os.environ.copy()
+        os.environ.update(
+            {
+                "EXPECTED_REPOSITORY": "Vectology-cloud-team/namma-rogue-agent",
+                "EXPECTED_COLLECTOR_WORKFLOW": "Architect Review Collect",
+                "WORKFLOW_RUN_ID": "123",
+                "MAX_DIFF_BYTES": "200000",
+                "MAX_CHANGED_FILES": "200",
+                "MAX_ARTIFACT_BYTES": "250000",
+            }
+        )
+        try:
+            return func()
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+    def assert_manifest_field_rejected(self, field, value, expected_code):
+        def run_validation():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                diff_path = root / "review.diff"
+                manifest_path = root / "manifest.json"
+                diff_path.write_text("diff", encoding="utf-8")
+                manifest_path.write_text("{}", encoding="utf-8")
+                manifest = self.base_manifest(diff_path.stat().st_size)
+                manifest[field] = value
+                with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                    architect_review_retry.validate_manifest_shape(
+                        manifest,
+                        diff_path=diff_path,
+                        manifest_path=manifest_path,
+                    )
+                self.assertEqual(expected_code, raised.exception.code)
+
+        self.with_manifest_validation_env(run_validation)
+
+    def live_pull(self):
+        return {
+            "number": 13,
+            "base": {
+                "sha": "a" * 40,
+                "repo": {"full_name": "Vectology-cloud-team/namma-rogue-agent"},
+            },
+            "head": {
+                "sha": "b" * 40,
+                "repo": {"full_name": "Vectology-cloud-team/namma-rogue-agent"},
+            },
+        }
+
+    def test_manifest_pull_request_number_rejects_boolean(self):
+        self.assert_manifest_field_rejected(
+            "pull_request_number",
+            True,
+            architect_review_retry.FailureCode.PR_MISMATCH,
+        )
+
+    def test_manifest_changed_file_count_rejects_boolean(self):
+        self.assert_manifest_field_rejected(
+            "changed_file_count",
+            False,
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+        )
+
+    def test_manifest_diff_bytes_rejects_boolean(self):
+        self.assert_manifest_field_rejected(
+            "diff_bytes",
+            True,
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+        )
+
+    def test_manifest_changed_file_count_rejects_negative(self):
+        self.assert_manifest_field_rejected(
+            "changed_file_count",
+            -1,
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+        )
+
+    def test_manifest_diff_bytes_rejects_negative(self):
+        self.assert_manifest_field_rejected(
+            "diff_bytes",
+            -1,
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+        )
+
+    def test_live_pull_request_base_sha_mismatch_is_stale(self):
+        manifest = self.base_manifest(4)
+        pull = self.live_pull()
+        pull["base"]["sha"] = "d" * 40
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pull_request(manifest, pull)
+        self.assertEqual(
+            architect_review_retry.FailureCode.STALE_ARTIFACT,
+            raised.exception.code,
+        )
+
+    def test_live_pull_request_base_repo_mismatch_is_rejected(self):
+        manifest = self.base_manifest(4)
+        pull = self.live_pull()
+        pull["base"]["repo"]["full_name"] = "attacker/fork"
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pull_request(manifest, pull)
+        self.assertEqual(
+            architect_review_retry.FailureCode.REPOSITORY_MISMATCH,
+            raised.exception.code,
+        )
+
+    def test_refresh_review_diff_overwrites_artifact_diff_with_live_diff(self):
+        original = architect_review_retry.github_api_request
+
+        def fake_github_api_request(method, api_path, **kwargs):
+            self.assertEqual("GET", method)
+            self.assertEqual("/repos/Vectology-cloud-team/namma-rogue-agent/pulls/13", api_path)
+            self.assertEqual("application/vnd.github.v3.diff", kwargs["accept"])
+            return b"trusted live diff", {}
+
+        architect_review_retry.github_api_request = fake_github_api_request
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                diff_path = Path(temp_dir) / "review.diff"
+                diff_path.write_bytes(b"forged same-size")
+                architect_review_retry.refresh_review_diff_from_github(
+                    repo="Vectology-cloud-team/namma-rogue-agent",
+                    pull_request_number=13,
+                    token="token",
+                    diff_path=diff_path,
+                    max_response_bytes=1000,
+                )
+                self.assertEqual(b"trusted live diff", diff_path.read_bytes())
+        finally:
+            architect_review_retry.github_api_request = original
+
+    def test_live_pull_request_revalidation_detects_head_change_after_diff(self):
+        manifest = self.base_manifest(4)
+        initial_pull = self.live_pull()
+        changed_pull = self.live_pull()
+        changed_pull["head"]["sha"] = "d" * 40
+        architect_review_retry.validate_live_pull_request(manifest, initial_pull)
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pull_request(manifest, changed_pull)
+        self.assertEqual(
+            architect_review_retry.FailureCode.STALE_ARTIFACT,
+            raised.exception.code,
+        )
+
+    def test_live_pr_files_changed_count_mismatch_is_stale(self):
+        manifest = self.base_manifest(4)
+        files = [
+            {"filename": "one.txt", "patch": "@@ -1 +1 @@\n-old\n+new"},
+            {"filename": "two.txt", "patch": "@@ -1 +1 @@\n-old\n+new"},
+        ]
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pr_files(manifest, files, self.review_policy())
+        self.assertEqual(
+            architect_review_retry.FailureCode.STALE_ARTIFACT,
+            raised.exception.code,
+        )
+
+    def test_live_pr_files_excluded_binary_is_allowed(self):
+        manifest = self.base_manifest(4)
+        manifest["binary_file_count"] = 1
+        manifest["binary_files_omitted"] = ["image.png"]
+        files = [{"filename": "image.png"}]
+        architect_review_retry.validate_live_pr_files(manifest, files, self.review_policy())
+
+    def test_live_pr_files_unexcluded_binary_fails_closed(self):
+        manifest = self.base_manifest(4)
+        manifest["binary_file_count"] = 1
+        manifest["binary_files_omitted"] = ["secret.bin"]
+        files = [{"filename": "secret.bin"}]
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pr_files(
+                manifest,
+                files,
+                self.review_policy(),
+            )
+        self.assertEqual(
+            architect_review_retry.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            raised.exception.code,
+        )
+
+    def test_live_pr_files_binary_metadata_mismatch_is_rejected(self):
+        manifest = self.base_manifest(4)
+        manifest["binary_file_count"] = 1
+        manifest["binary_files_omitted"] = ["wrong.png"]
+        files = [{"filename": "image.png"}]
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pr_files(manifest, files, self.review_policy())
+        self.assertEqual(
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+            raised.exception.code,
+        )
+
+    def test_iter_live_pr_files_follows_pagination(self):
+        original = architect_review_retry.github_json
+        calls = []
+
+        def fake_github_json(method, api_path, **kwargs):
+            calls.append(api_path)
+            self.assertEqual("GET", method)
+            self.assertEqual("token", kwargs["token"])
+            if "page=2" in api_path:
+                return ([{"filename": "two.txt", "patch": "patch"}], {})
+            return (
+                [{"filename": "one.txt", "patch": "patch"}],
+                {
+                    "Link": (
+                        '<https://api.github.com/repos/x/y/pulls/13/files?'
+                        'per_page=100&page=2>; rel="next"'
+                    )
+                },
+            )
+
+        architect_review_retry.github_json = fake_github_json
+        try:
+            files = list(
+                architect_review_retry.iter_live_pr_files(
+                    "x/y",
+                    13,
+                    "token",
+                )
+            )
+        finally:
+            architect_review_retry.github_json = original
+        self.assertEqual(["one.txt", "two.txt"], [item["filename"] for item in files])
+        self.assertEqual(2, len(calls))
+
+    def test_success_approved_does_not_fail_workflow(self):
+        self.assertEqual(
+            architect_review_retry.SuccessCode.APPROVED,
+            architect_review_retry.normalize_success_code("VERDICT: APPROVE\n"),
+        )
+
+    def test_success_changes_requested_does_not_fail_workflow(self):
+        self.assertEqual(
+            architect_review_retry.SuccessCode.CHANGES_REQUESTED,
+            architect_review_retry.normalize_success_code("VERDICT: CHANGES_REQUESTED\n"),
+        )
+
+    def test_success_needs_human_does_not_fail_workflow(self):
+        self.assertEqual(
+            architect_review_retry.SuccessCode.NEEDS_HUMAN,
+            architect_review_retry.normalize_success_code(
+                "VERDICT: HUMAN_DECISION_REQUIRED\n"
+            ),
+        )
+
+    def test_secret_values_are_redacted_from_logs(self):
+        message = "Bearer ghp_secret123 and sk-secret-value should not appear"
+        sanitized = architect_review_retry.sanitize_error(message)
+        self.assertNotIn("ghp_secret123", sanitized)
+        self.assertNotIn("sk-secret-value", sanitized)
+
+    def test_failure_summary_includes_class_code_and_attempts(self):
+        failure = self.retryable_error()
+        summary = architect_review_retry.failure_summary(
+            failure,
+            attempts=3,
+            pr_number="12",
+            head_sha="a" * 40,
+        )
+        self.assertIn("`RETRYABLE`", summary)
+        self.assertIn("`NETWORK_ERROR`", summary)
+        self.assertIn("`3`", summary)
+        self.assertIn("human should inspect", summary)
+
+    def test_failure_summary_does_not_use_sticky_review_marker(self):
+        failure = self.retryable_error()
+        summary = architect_review_retry.failure_summary(
+            failure,
+            attempts=3,
+            pr_number="12",
+            head_sha="a" * 40,
+        )
+        self.assertNotIn("<!-- namma-ai-architect-review -->", summary)
+
+    def test_validate_comment_target_accepts_current_head(self):
+        original = architect_review_retry.github_json
+
+        def fake_github_json(method, api_path, **kwargs):
+            self.assertEqual("GET", method)
+            self.assertEqual("/repos/x/y/pulls/14", api_path)
+            self.assertEqual("token", kwargs["token"])
+            return ({"head": {"sha": "b" * 40}}, {})
+
+        architect_review_retry.github_json = fake_github_json
+        try:
+            architect_review_retry.validate_comment_target("x/y", "14", "b" * 40, "token")
+        finally:
+            architect_review_retry.github_json = original
+
+    def test_validate_comment_target_rejects_stale_head_before_write(self):
+        original = architect_review_retry.github_json
+
+        def fake_github_json(method, api_path, **kwargs):
+            return ({"head": {"sha": "c" * 40}}, {})
+
+        architect_review_retry.github_json = fake_github_json
+        try:
+            with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                architect_review_retry.validate_comment_target(
+                    "x/y",
+                    "14",
+                    "b" * 40,
+                    "token",
+                )
+            self.assertEqual(
+                architect_review_retry.FailureCode.STALE_ARTIFACT,
+                raised.exception.code,
+            )
+        finally:
+            architect_review_retry.github_json = original
+
+    def test_comment_body_preserves_sticky_marker(self):
+        body = architect_review_retry.build_comment_body(
+            final_message="VERDICT: CHANGES_REQUESTED\n\nSUMMARY\nNeeds work.",
+            reviewed_sha="b" * 40,
+            prompt_version="architect-review-v1",
+            policy_version="architect-review-policy-v1",
+            model="gpt-5.5",
+            effort="medium",
+            review_status="completed",
+            total_files="18",
+            reviewed_files="17",
+            excluded_files="1",
+            diff_bytes="4096",
+            prompt_bytes="2048",
+            workflow_run_id="123",
+            repo="Vectology-cloud-team/namma-rogue-agent",
+        )
+        self.assertIn("<!-- namma-ai-architect-review -->", body)
+        self.assertIn("Reviewed commit", body)
+        self.assertIn("VERDICT: CHANGES_REQUESTED", body)
+        self.assertIn("Review Policy", body)
+        self.assertIn("gpt-5.5", body)
+        self.assertIn("17` reviewed / `18", body)
+
+
+if __name__ == "__main__":
+    unittest.main()

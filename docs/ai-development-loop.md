@@ -53,6 +53,12 @@ configuration, but those copies are not used as trusted reviewer policy.
 If the trusted base prompt is missing, the reviewer fails closed instead
 of falling back to the pull request copy.
 
+The review policy is trusted only when it comes from
+`.github/codex/review-policy.yml` in the reviewer control plane. Pull
+requests may change their own copy of the policy file, but that copy is
+reviewed as ordinary PR content and is not used to configure the
+privileged reviewer for the same run.
+
 ### Trigger
 
 The collector workflow is triggered by `pull_request` events:
@@ -128,8 +134,9 @@ permission-profile: ":read-only"
 safety-strategy: drop-sudo
 ```
 
-The workflow does not set an explicit Codex model or effort in Stage 1.
-It uses the defaults provided by `openai/codex-action@v1`.
+The Codex model, reasoning effort, prompt budget, diff budget, and
+exclude rules are loaded from the trusted review policy. The workflow
+does not hard-code model or effort values in the Codex Action steps.
 
 All third-party Actions are pinned to full commit SHAs with a human
 version comment. Repository settings should enable the equivalent of
@@ -138,8 +145,9 @@ available.
 
 ### Comment Posting
 
-Comment posting is isolated in a second reviewer job. That job does not
-check out the repository and does not receive `OPENAI_API_KEY`.
+Comment posting is isolated in a second reviewer job. That job checks
+out only the trusted reviewer control plane, does not run PR-provided
+scripts, and does not receive `OPENAI_API_KEY`.
 
 The sticky comment contains:
 
@@ -148,6 +156,10 @@ The sticky comment contains:
 - reviewed head SHA
 - workflow run ID
 - prompt version
+- review policy version
+- model and reasoning effort
+- reviewed file count, excluded file count, diff bytes, and prompt bytes
+- review status
 - verdict
 - Codex final message
 - an explicit note that the review is AI-generated and does not replace
@@ -156,6 +168,121 @@ The sticky comment contains:
 The workflow deduplicates comments by marker only. A later run for a new
 head SHA updates the same marker-owned comment instead of creating
 another one.
+
+## Stage 1.1: Failure Classification And Retry Control
+
+Stage 1.1 keeps the Stage 1 trust boundary intact and adds failure
+classification for the privileged reviewer. The collector remains
+unprivileged and unchanged.
+
+Reviewer failures are grouped into three classes:
+
+- `RETRYABLE`: temporary external failures that may recover on retry,
+  such as OpenAI timeouts, OpenAI rate limits, OpenAI 5xx responses,
+  GitHub API 429 or 5xx responses, transient network errors, transient
+  artifact download failures, and temporary service unavailability.
+- `FATAL`: configuration, validation, permission, or trust-boundary
+  failures that should not be retried, such as a missing trusted prompt,
+  invalid manifest data, repository or SHA mismatches, stale artifacts,
+  path traversal, permission errors, workflow configuration errors,
+  unapproved Actions, or Action SHA pinning violations.
+- `SUCCESS`: a completed AI review. `APPROVED`, `CHANGES_REQUESTED`,
+  and `NEEDS_HUMAN` are review outcomes, not GitHub Actions failures.
+
+Only `RETRYABLE` failures are retried automatically. The reviewer makes
+at most three attempts for retryable operations. The current workflow
+therefore waits 30 seconds before attempt 2 and 60 seconds before
+attempt 3. The shared delay table also records 120 seconds as the next
+backoff slot if a later policy increases the attempt count. If all
+attempts fail, the workflow stops and writes a job summary with the
+failure class, failure code, operation, attempt count, reviewed pull
+request number, reviewed head SHA, and a sanitized error summary.
+If the Codex Action fails after preflight validation but returns no
+failure details, the reviewer treats that as a retryable provider/action
+failure rather than as a validated AI review result.
+
+`FATAL` failures stop immediately without retry. They do not post a
+misleading AI review comment. A stale artifact is treated as a fatal
+validation result for that run so an old review cannot update the sticky
+comment for a newer head SHA. The comment-posting job also fetches the
+live pull request immediately before creating or updating the sticky
+comment and fails closed if the head SHA no longer matches the reviewed
+SHA.
+
+The privileged reviewer verifies the artifact metadata against the live
+pull request before checking out the trusted prompt. The base repository,
+head repository, base SHA, and head SHA must match the live PR. The
+live changed-file list must also match the manifest, and files without
+reviewable text patches cause a fail-closed result. The review diff is
+then refreshed from the GitHub API and replaces the collector-provided
+`review.diff`, so untrusted artifact contents cannot select the prompt
+base or forge the reviewed diff.
+
+Infrastructure failure reporting is kept separate from the AI review
+sticky comment. The reviewer does not overwrite an existing AI review
+comment with an infrastructure failure. Human follow-up should use the
+job summary and workflow logs.
+
+Retry is not an automatic repair loop. It does not edit files, commit,
+push, merge, approve, label, or make false-positive decisions. Model,
+reasoning effort, and budget controls are handled separately by
+Stage 1.1-B.
+
+## Stage 1.1-B: Reviewer Policy And Budget Control
+
+Stage 1.1-B introduces a trusted review policy layer for the privileged
+reviewer. The policy file is:
+
+```text
+.github/codex/review-policy.yml
+```
+
+The policy controls:
+
+- Codex model,
+- reasoning effort,
+- maximum reviewed file count,
+- maximum review diff bytes,
+- maximum trusted prompt bytes,
+- maximum artifact bytes,
+- file exclude patterns.
+
+The reviewer loads this policy before downloading the collector
+artifact. Missing or malformed policy fields fail fast. The required
+policy fields include `model`, `reasoning.effort`,
+`limits.max_changed_files`, `limits.max_diff_bytes`, and
+`limits.max_prompt_bytes`.
+
+The collector remains unprivileged. It still does not run Codex, does
+not use `OPENAI_API_KEY`, and does not execute PR-provided scripts. Its
+artifact-size checks are transport safety caps. The privileged reviewer
+uses the trusted policy as the review budget and refreshes the live diff
+from GitHub before applying policy limits.
+
+If the reviewable file count or filtered diff size exceeds policy
+budget, the reviewer skips the AI review. The workflow succeeds, and
+the sticky comment records that the review was skipped with the reason
+`Diff budget exceeded`. If all changed files are excluded by policy, the
+review is also skipped and reported in the sticky comment.
+
+The collector still has transport safety caps for artifact creation. If
+an input is too large for the collector to safely package, the collector
+may fail before the privileged reviewer can post a policy-skip comment.
+The policy skip behavior applies after the reviewer has successfully
+downloaded and validated the collector artifact.
+
+If the trusted prompt exceeds `limits.max_prompt_bytes`, the reviewer
+does not truncate trust-boundary instructions and does not fall back to
+the PR copy. It skips the AI review and reports `Prompt budget exceeded`
+in the sticky comment and job summary.
+
+The job summary reports the review policy and input metrics without
+printing the full prompt or diff. The sticky comment records the policy
+version, model, reasoning effort, file counts, diff bytes, prompt bytes,
+and review status so later readers can see which settings were used.
+
+Policy retry and budget control are not Stage 2 automation. They do not
+edit files, commit, push, merge, label, approve, or block merges.
 
 ## Stage 2 Plan
 
@@ -179,7 +306,7 @@ The following decisions remain human-owned:
 - whether to accept or ignore an automated review finding,
 - whether to request legal, security, or architecture review,
 - whether to enable any future auto-fix workflow,
-- whether to change the Codex model, effort, or cost controls,
+- whether to change the trusted review policy,
 - whether to grant broader repository permissions.
 
 High-risk changes such as native ABI changes, GitHub Actions permission
@@ -205,9 +332,9 @@ requests.
 ## API Billing
 
 The workflow uses `OPENAI_API_KEY`, so successful review runs may incur
-OpenAI API usage. Billing depends on the defaults selected by
-`openai/codex-action@v1` and the size of the pull request under review.
+OpenAI API usage. Billing depends on the trusted review policy and the
+size of the pull request under review.
 
-Stage 1 does not set an explicit model or effort. If cost, latency, or
-review depth need tighter control, that should be a Stage 2 design
-decision after observing real Stage 1 runs.
+The job summary and sticky comment report the selected model, reasoning
+effort, reviewed file count, diff bytes, and prompt bytes. Oversized
+reviews are skipped instead of being sent to Codex.
