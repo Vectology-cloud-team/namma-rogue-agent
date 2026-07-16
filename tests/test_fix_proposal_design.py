@@ -96,6 +96,41 @@ class FixProposalDesignTests(unittest.TestCase):
         self.assertEqual(("modify",), self.policy.allowed_operations)
         self.assertIn(".github/workflows/**", self.policy.protected_paths)
         self.assertIn(".github/codex/prompts/**", self.policy.protected_paths)
+        self.assertIn(".github/codex/fix-policy.yml", self.policy.protected_paths)
+        self.assertIn(".github/codex/schemas/**", self.policy.protected_paths)
+        self.assertIn("*.pem", self.policy.protected_paths)
+        self.assertIn("**/*.pem", self.policy.protected_paths)
+        self.assertIn("*.key", self.policy.protected_paths)
+        self.assertIn("**/*.key", self.policy.protected_paths)
+        self.assertIn("*credential*", self.policy.protected_paths)
+        self.assertIn("**/*credential*", self.policy.protected_paths)
+
+    def test_policy_validation_requires_self_schema_and_credential_paths(self):
+        required_paths = [
+            ".github/codex/fix-policy.yml",
+            ".github/codex/schemas/**",
+            "*.pem",
+            "**/*.pem",
+            "*.key",
+            "**/*.key",
+            "*credential*",
+            "**/*credential*",
+        ]
+        for protected_path in required_paths:
+            with self.subTest(protected_path=protected_path):
+                policy = replace(
+                    self.policy,
+                    protected_paths=tuple(
+                        path
+                        for path in self.policy.protected_paths
+                        if path != protected_path
+                    ),
+                )
+                with self.assertRaises(
+                    check_fix_proposal_design.ProposalValidationError
+                ) as raised:
+                    check_fix_proposal_design.validate_fix_policy(policy)
+                self.assertEqual("INVALID_POLICY", raised.exception.code)
 
     def test_schema_file_has_required_contract(self):
         schema = check_fix_proposal_design.validate_schema_file()
@@ -138,6 +173,42 @@ class FixProposalDesignTests(unittest.TestCase):
         proposal = self.valid_proposal()
         proposal["changes"] = [self.valid_change(".github/codex/review-policy.yml")]
         self.assert_rejects(proposal, "PROTECTED_PATH")
+
+    def test_fix_policy_and_schema_paths_are_rejected(self):
+        for path in (
+            ".github/codex/fix-policy.yml",
+            ".github/codex/schemas/fix-proposal.schema.json",
+        ):
+            with self.subTest(path=path):
+                proposal = self.valid_proposal()
+                proposal["changes"] = [self.valid_change(path)]
+                self.assert_rejects(proposal, "PROTECTED_PATH")
+
+    def test_root_and_nested_key_certificate_paths_are_rejected(self):
+        for path in (
+            "deploy.key",
+            "cert.pem",
+            "config/deploy.key",
+            "config/cert.pem",
+        ):
+            with self.subTest(path=path):
+                proposal = self.valid_proposal()
+                proposal["changes"] = [self.valid_change(path)]
+                self.assert_rejects(proposal, "PROTECTED_PATH")
+
+    def test_root_and_nested_credential_keywords_are_rejected(self):
+        for path in (
+            "secret.txt",
+            "credential-store.txt",
+            "api-token.txt",
+            "config/secret.txt",
+            "config/credential-store.txt",
+            "config/api-token.txt",
+        ):
+            with self.subTest(path=path):
+                proposal = self.valid_proposal()
+                proposal["changes"] = [self.valid_change(path)]
+                self.assert_rejects(proposal, "PROTECTED_PATH")
 
     def test_path_traversal_is_rejected(self):
         proposal = self.valid_proposal()

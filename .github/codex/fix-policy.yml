@@ -20,8 +20,13 @@ protected_paths:
   - .github/codex/review-policy.yml
   - .github/codex/fix-policy.yml
   - .github/codex/schemas/**
+  - "*.pem"
   - "**/*.pem"
+  - "*.key"
   - "**/*.key"
+  - "*secret*"
   - "**/*secret*"
+  - "*credential*"
   - "**/*credential*"
+  - "*token*"
   - "**/*token*"

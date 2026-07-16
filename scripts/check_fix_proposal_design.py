@@ -52,6 +52,18 @@ REQUIRED_PROTECTED_PATHS = {
     ".github/actions/**",
     ".github/codex/prompts/**",
     ".github/codex/review-policy.yml",
+    ".github/codex/fix-policy.yml",
+    ".github/codex/schemas/**",
+    "*.pem",
+    "**/*.pem",
+    "*.key",
+    "**/*.key",
+    "*secret*",
+    "**/*secret*",
+    "*credential*",
+    "**/*credential*",
+    "*token*",
+    "**/*token*",
 }
 PROPOSAL_KEYS = {
     "schema_version",
