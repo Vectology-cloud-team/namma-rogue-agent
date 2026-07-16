@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -661,6 +663,52 @@ class FixProposalGeneratorTests(unittest.TestCase):
                 proposal["proposal_id"],
                 json.loads((output / "fix-proposal.json").read_text())["proposal_id"],
             )
+
+    def test_artifact_download_uses_github_rest_accept_header(self):
+        original_github_json = fix_proposal_generator.stage1.github_json
+        original_github_api_request = fix_proposal_generator.stage1.github_api_request
+        calls = []
+
+        def fake_github_json(method, api_path, **_kwargs):
+            self.assertEqual("GET", method)
+            self.assertEqual(
+                "/repos/Vectology-cloud-team/namma-rogue-agent/actions/runs/123/artifacts?per_page=100",
+                api_path,
+            )
+            return {"artifacts": [{"id": 456, "name": "fix-proposal-request-123"}]}, {}
+
+        def fake_github_api_request(method, api_path, **kwargs):
+            calls.append(kwargs)
+            self.assertEqual("GET", method)
+            self.assertEqual(
+                "/repos/Vectology-cloud-team/namma-rogue-agent/actions/artifacts/456/zip",
+                api_path,
+            )
+            archive_bytes = io.BytesIO()
+            with zipfile.ZipFile(archive_bytes, "w") as archive:
+                archive.writestr("manifest.json", "{}\n")
+                archive.writestr("review.diff", "")
+            return archive_bytes.getvalue(), {}
+
+        fix_proposal_generator.stage1.github_json = fake_github_json
+        fix_proposal_generator.stage1.github_api_request = fake_github_api_request
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                artifact_id = fix_proposal_generator.download_artifact_by_name(
+                    repo="Vectology-cloud-team/namma-rogue-agent",
+                    token="token",
+                    run_id="123",
+                    artifact_name="fix-proposal-request-123",
+                    target_dir=Path(tmpdir),
+                    expected_files={"manifest.json", "review.diff"},
+                    max_bytes=50000,
+                )
+                self.assertEqual(456, artifact_id)
+                self.assertEqual(1, len(calls))
+                self.assertNotEqual("application/zip", calls[0].get("accept"))
+        finally:
+            fix_proposal_generator.stage1.github_json = original_github_json
+            fix_proposal_generator.stage1.github_api_request = original_github_api_request
 
     def test_parse_codex_json_accepts_json_only(self):
         parsed = fix_proposal_generator.parse_codex_json(json.dumps(self.proposal()))

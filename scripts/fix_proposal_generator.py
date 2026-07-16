@@ -1090,7 +1090,6 @@ def download_artifact_by_name(
         f"/repos/{repo}/actions/artifacts/{artifact_id}/zip",
         token=token,
         max_response_bytes=max_bytes,
-        accept="application/zip",
     )
     safe_extract_expected_zip(
         data,
