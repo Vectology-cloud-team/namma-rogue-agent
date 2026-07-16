@@ -170,6 +170,8 @@ jobs:
     if: needs.generate.result == 'success' && needs.generate.outputs.should_comment == 'true'
     runs-on: ubuntu-latest
     permissions:
+      actions: read
+      contents: read
       issues: write
       pull-requests: read
     steps:

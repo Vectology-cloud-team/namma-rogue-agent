@@ -87,6 +87,25 @@ class FixProposalWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("steps.prepare.outputs.should_generate != 'true'", text)
 
+    def test_post_job_uses_issue_comment_permission_profile(self):
+        labels = self.failed_labels(
+            check_fix_proposal_workflow.check_generator(self.generator_text())
+        )
+        self.assertNotIn("post job can read artifacts", labels)
+        self.assertNotIn("post job can read trusted control plane", labels)
+        self.assertNotIn("post job can write issue comments", labels)
+        self.assertNotIn("post job has pull request read only", labels)
+        self.assertNotIn("post job has no contents write", labels)
+
+    def test_fix_proposal_uses_issue_comments_not_review_comments(self):
+        labels = self.failed_labels(
+            check_fix_proposal_workflow.check_generator(self.generator_text())
+        )
+        self.assertNotIn("proposal comment uses issue comment list endpoint", labels)
+        self.assertNotIn("proposal comment uses issue comment create endpoint", labels)
+        self.assertNotIn("proposal comment uses issue comment update endpoint", labels)
+        self.assertNotIn("proposal comment does not use PR review API", labels)
+
     def test_generator_passes_trusted_target_contents_to_codex_and_finalize(self):
         text = self.generator_text()
         self.assertIn("TRUSTED_TARGET_CONTENTS:", text)
