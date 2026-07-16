@@ -269,7 +269,7 @@ def reject_path(path: str, policy: FixPolicy) -> str:
             "secret, credential, and token paths are forbidden",
         )
     for pattern in policy.protected_paths:
-        if fnmatch.fnmatchcase(normalized, pattern):
+        if fnmatch.fnmatchcase(lowered, pattern.lower()):
             raise ProposalValidationError(
                 "PROTECTED_PATH",
                 f"{normalized} is protected",
@@ -351,6 +351,14 @@ def validate_patch(change: dict[str, Any], policy: FixPolicy) -> None:
             "FORBIDDEN_PATCH_KIND",
             "binary, mode, rename, create, or delete patches are forbidden",
         )
+    for line in patch.splitlines():
+        if line.startswith(("--- ", "+++ ")):
+            raw = line[4:].strip().split("\t", 1)[0]
+            if raw == "/dev/null":
+                raise ProposalValidationError(
+                    "FORBIDDEN_PATCH_KIND",
+                    "/dev/null create and delete patches are forbidden",
+                )
     patch_paths = parse_patch_paths(patch)
     if not patch_paths:
         raise ProposalValidationError(
@@ -413,6 +421,7 @@ def validate_fix_proposal(
     reject_unexpected_keys(generator, GENERATOR_KEYS, "generator")
     for field_name in ("model", "reasoning_effort", "policy_version"):
         require_string(generator.get(field_name), f"generator.{field_name}")
+    require_string(proposal.get("summary"), "summary")
     findings = proposal.get("findings_addressed")
     if not isinstance(findings, list) or not findings:
         raise ProposalValidationError(
@@ -468,6 +477,22 @@ def validate_fix_proposal(
             "PATCH_TOO_LARGE",
             "proposal exceeds max_patch_bytes",
         )
+    tests_recommended = proposal.get("tests_recommended")
+    if not isinstance(tests_recommended, list):
+        raise ProposalValidationError(
+            "INVALID_PROPOSAL",
+            "tests_recommended must be a list",
+        )
+    for test in tests_recommended:
+        require_string(test, "tests_recommended[]")
+    risks = proposal.get("risks")
+    if not isinstance(risks, list):
+        raise ProposalValidationError(
+            "INVALID_PROPOSAL",
+            "risks must be a list",
+        )
+    for risk in risks:
+        require_string(risk, "risks[]")
 
 
 def validate_approval_gate(

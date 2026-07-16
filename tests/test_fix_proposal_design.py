@@ -188,8 +188,12 @@ class FixProposalDesignTests(unittest.TestCase):
         for path in (
             "deploy.key",
             "cert.pem",
+            "DEPLOY.KEY",
+            "CERT.PEM",
             "config/deploy.key",
             "config/cert.pem",
+            "config/DEPLOY.KEY",
+            "config/CERT.PEM",
         ):
             with self.subTest(path=path):
                 proposal = self.valid_proposal()
@@ -250,6 +254,37 @@ class FixProposalDesignTests(unittest.TestCase):
                 proposal = self.valid_proposal()
                 change = self.valid_change()
                 change["patch"] = self.valid_patch() + marker
+                proposal["changes"] = [change]
+                self.assert_rejects(proposal, "FORBIDDEN_PATCH_KIND")
+
+    def test_dev_null_create_and_delete_patches_are_rejected(self):
+        cases = [
+            (
+                "src/new.py",
+                (
+                    "diff --git a/src/new.py b/src/new.py\n"
+                    "--- /dev/null\n"
+                    "+++ b/src/new.py\n"
+                    "@@ -0,0 +1 @@\n"
+                    "+new\n"
+                ),
+            ),
+            (
+                "src/old.py",
+                (
+                    "diff --git a/src/old.py b/src/old.py\n"
+                    "--- a/src/old.py\n"
+                    "+++ /dev/null\n"
+                    "@@ -1 +0,0 @@\n"
+                    "-old\n"
+                ),
+            ),
+        ]
+        for path, patch in cases:
+            with self.subTest(path=path):
+                proposal = self.valid_proposal()
+                change = self.valid_change(path)
+                change["patch"] = patch
                 proposal["changes"] = [change]
                 self.assert_rejects(proposal, "FORBIDDEN_PATCH_KIND")
 
@@ -324,6 +359,20 @@ class FixProposalDesignTests(unittest.TestCase):
         proposal = self.valid_proposal()
         proposal["findings_addressed"][0]["severity"] = "urgent"
         self.assert_rejects(proposal, "INVALID_PROPOSAL")
+
+    def test_summary_tests_and_risks_schema_constraints_are_enforced(self):
+        cases = [
+            ("summary", 123),
+            ("tests_recommended", "python -m unittest"),
+            ("tests_recommended", [123]),
+            ("risks", "risk text"),
+            ("risks", [123]),
+        ]
+        for field_name, value in cases:
+            with self.subTest(field_name=field_name, value=value):
+                proposal = self.valid_proposal()
+                proposal[field_name] = value
+                self.assert_rejects(proposal, "INVALID_PROPOSAL")
 
     def test_patch_path_mismatch_is_rejected(self):
         proposal = self.valid_proposal()
