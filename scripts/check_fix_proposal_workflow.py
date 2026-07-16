@@ -122,6 +122,7 @@ def check_collector(text: str) -> list[CheckResult]:
     add(results, "collector has no workflow_dispatch", "workflow_dispatch" not in text)
     add(results, "collector has only contents read permission", regex(collect_job, r"permissions:\n\s+contents: read"))
     add(results, "collector has no write permission", ": write" not in collect_job)
+    add(results, "collector has no pull request write permission", "pull-requests: write" not in collect_job)
     add(results, "collector has no secrets", "secrets." not in collect_job)
     add(results, "collector has no OPENAI_API_KEY", "OPENAI_API_KEY" not in collect_job)
     add(results, "collector does not run Codex", "openai/codex-action" not in collect_job)
@@ -147,12 +148,14 @@ def check_generator(text: str) -> list[CheckResult]:
     add(results, "generator checks repository identity", f"github.repository == '{EXPECTED_REPOSITORY}'" in text)
     add(results, "generator has no workflow_dispatch", "workflow_dispatch" not in text)
     add(results, "generate job has no write permission", ": write" not in generate_job)
+    add(results, "generate job has no pull request write permission", "pull-requests: write" not in generate_job)
     add(results, "generate job can read artifacts", "actions: read" in generate_job)
     add(results, "generate job can read contents", "contents: read" in generate_job)
     add(results, "post job can read artifacts", "actions: read" in post_job)
     add(results, "post job can read trusted control plane", "contents: read" in post_job)
     add(results, "post job can write issue comments", "issues: write" in post_job)
-    add(results, "post job has pull request read only", "pull-requests: read" in post_job and "pull-requests: write" not in post_job)
+    add(results, "post job has pull request write for sticky comments", "pull-requests: write" in post_job)
+    add(results, "pull request write is limited to post job", text.count("pull-requests: write") == 1 and "pull-requests: write" in post_job)
     add(results, "post job has no contents write", "contents: write" not in post_job)
     add(results, "only generator references OPENAI_API_KEY", "OPENAI_API_KEY" in generate_job and "OPENAI_API_KEY" not in post_job)
     add(results, "collector artifact is downloaded before Codex", "download-request-artifact" in generate_job)
@@ -176,6 +179,7 @@ def check_generator(text: str) -> list[CheckResult]:
     add(results, "proposal comment uses issue comment create endpoint", "/issues/{issue_number}/comments" in script)
     add(results, "proposal comment uses issue comment update endpoint", "/issues/comments/{comment_id}" in script)
     add(results, "proposal comment does not use PR review API", "pulls.createReview" not in script and "pulls.createReviewComment" not in script and "/pulls/{issue_number}/comments" not in script)
+    add(results, "post job downloads proposal artifact before commenting", post_job.find("Download generated fix proposal artifact") < post_job.find("Post or update fix proposal comment"))
     add(results, "duplicate proposal detection is wired", "existing_proposal_records_from_comments" in script and "existing_proposals=existing_proposals" in script)
     add(results, "Stage 2B and Stage 2C are absent", "Stage 2B" not in text and "Stage 2C" not in text)
     return results
@@ -189,10 +193,24 @@ def check_forbidden_automation(text: str) -> list[CheckResult]:
         "git merge",
         "gh pr merge",
         "gh pr create",
+        "merge_pull_request",
         "createcommitonbranch",
         "createpullrequest",
         "createreviewcomment",
+        "createreview",
+        "submitreview",
+        "pulls.createreview",
+        "pulls.submitreview",
+        "pulls.createreviewcomment",
+        "code suggestion",
         "contents: write",
+        "actions: write",
+        "checks: write",
+        "deployments: write",
+        "id-token: write",
+        "packages: write",
+        "security-events: write",
+        "statuses: write",
     ):
         add(results, f"workflow does not contain {token}", token not in lowered)
     add(results, "workflow does not use pull_request_target", "pull_request_target" not in lowered)
