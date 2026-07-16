@@ -284,16 +284,21 @@ and review status so later readers can see which settings were used.
 Policy retry and budget control are not Stage 2 automation. They do not
 edit files, commit, push, merge, label, approve, or block merges.
 
-## Stage 2 Plan
+## Stage 2A: Fix Proposal Generator
 
-Stage 2 is designed but not implemented as a runtime workflow. The
-design is recorded in:
+Stage 2A implements the proposal-generation part of the Stage 2 design.
+It is label-gated by `ai-fix-proposal` and still preserves the Stage 1
+trust boundary: an unprivileged collector records the request, and a
+privileged default-branch generator validates all gates before using
+Codex.
+
+The design is recorded in:
 
 ```text
 docs/stage2-fix-proposal-design.md
 ```
 
-Stage 2 is split into:
+Stage 2 remains split into:
 
 - `Stage 2A: Fix Proposal`, where AI may generate a structured proposal
   without changing repository files,
@@ -311,11 +316,15 @@ label permits only proposal generation. A separate `ai-fix-approved`
 label is required before any future sandbox apply, and even that label
 does not permit commit, push, merge, or production branch writes.
 
-The Stage 2 design does not add workflow runtime wiring, does not add
-new secret access, does not post GitHub code suggestions, and does not
-execute recommended tests. It only defines the guarded proposal contract,
-approval boundary, stale-SHA invalidation, protected paths, and threat
-model.
+Stage 2A may generate a verified JSON proposal, save it as an artifact,
+and post or update a separate sticky comment with marker
+`<!-- namma-ai-fix-proposal -->`. It does not apply patches, modify the
+working tree, run recommended tests, commit, push, create branches, open
+pull requests, merge, or use GitHub code suggestions.
+
+Stage 2B approval handling and Stage 2C sandbox apply are still not
+implemented. The `ai-fix-approved` label is not consumed by the Stage 2A
+workflow.
 
 ## Human Decisions
 

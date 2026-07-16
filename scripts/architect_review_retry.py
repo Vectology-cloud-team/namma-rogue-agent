@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import fnmatch
+import hashlib
 import io
 import json
 import os
@@ -52,6 +54,7 @@ ALLOWED_AUTHOR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 COMMENT_MARKER = "<!-- namma-ai-architect-review -->"
 POLICY_VERSION = "architect-review-policy-v1"
+REVIEW_RESULT_SCHEMA_VERSION = "architect-review-result-v1"
 
 
 class FailureClass(str, Enum):
@@ -1640,6 +1643,134 @@ def normalize_success_code(final_message: str) -> SuccessCode:
     return SuccessCode.NEEDS_HUMAN
 
 
+def section_lines(final_message: str, section_name: str) -> list[str]:
+    lines = final_message.splitlines()
+    start_index: int | None = None
+    for index, line in enumerate(lines):
+        if line.strip() == section_name:
+            start_index = index + 1
+            break
+    if start_index is None:
+        return []
+    collected: list[str] = []
+    for line in lines[start_index:]:
+        stripped = line.strip()
+        if stripped.isupper() and stripped and not stripped.startswith("-"):
+            break
+        collected.append(line)
+    return collected
+
+
+def stable_finding_id(finding: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        {
+            "severity": finding.get("severity"),
+            "category": finding.get("category"),
+            "file": finding.get("file"),
+            "line": finding.get("line"),
+            "message": finding.get("message"),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "finding-" + hashlib.sha256(encoded).hexdigest()[:16]
+
+
+STRICT_BLOCKING_FINDING_RE = re.compile(
+    r"^(?:[-*]\s+|\d+\.\s+)`(?P<file>[^`:\s][^`:\n]*):(?P<line>\d+)`:\s+(?P<message>.+)$"
+)
+
+
+def parse_blocking_findings(final_message: str) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for raw_line in section_lines(final_message, "BLOCKING FINDINGS"):
+        line = raw_line.strip()
+        if not line or line == "None.":
+            continue
+        match = STRICT_BLOCKING_FINDING_RE.match(line)
+        if not match:
+            continue
+        finding = {
+            "severity": "high",
+            "category": "architect-review",
+            "file": match.group("file"),
+            "line": int(match.group("line")),
+            "message": match.group("message").strip(),
+            "suggestion": "",
+            "blocking": True,
+        }
+        finding["finding_id"] = stable_finding_id(finding)
+        findings.append(finding)
+    return findings
+
+
+def build_structured_review_result(
+    *,
+    final_message: str,
+    repository: str,
+    pull_request_number: str,
+    base_sha: str,
+    head_sha: str,
+    workflow_run_id: str,
+    policy_version: str,
+    model: str,
+    effort: str,
+    review_status: str,
+    prompt_version: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": REVIEW_RESULT_SCHEMA_VERSION,
+        "repository": repository,
+        "pull_request_number": int(pull_request_number),
+        "base_sha": base_sha,
+        "reviewed_head_sha": head_sha,
+        "workflow_run_id": int(workflow_run_id),
+        "review_artifact_id": f"architect-review-result-{workflow_run_id}",
+        "review_status": review_status,
+        "verdict": normalize_success_code(final_message).value,
+        "prompt_version": prompt_version,
+        "policy_version": policy_version,
+        "model": model,
+        "reasoning_effort": effort,
+        "generated_at": dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z"),
+        "findings": parse_blocking_findings(final_message),
+    }
+
+
+def command_write_review_result(_: argparse.Namespace) -> int:
+    try:
+        output_dir = Path(required_env("REVIEW_RESULT_DIR"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        final_message = os.environ.get("FINAL_MESSAGE") or "VERDICT: HUMAN_DECISION_REQUIRED"
+        result = build_structured_review_result(
+            final_message=final_message,
+            repository=required_env("GITHUB_REPOSITORY"),
+            pull_request_number=required_env("PR_NUMBER"),
+            base_sha=required_env("BASE_SHA"),
+            head_sha=required_env("REVIEWED_SHA"),
+            workflow_run_id=required_env("WORKFLOW_RUN_ID"),
+            policy_version=required_env("POLICY_VERSION"),
+            model=required_env("REVIEW_MODEL"),
+            effort=required_env("REVIEW_EFFORT"),
+            review_status=required_env("REVIEW_STATUS"),
+            prompt_version=required_env("PROMPT_VERSION"),
+        )
+        (output_dir / "architect-review-result.json").write_text(
+            json.dumps(result, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        github_output(
+            {
+                "review_result_written": "true",
+                "review_result_artifact": f"architect-review-result-{required_env('WORKFLOW_RUN_ID')}",
+                "blocking_findings": str(len(result["findings"])),
+            }
+        )
+        return 0
+    except BaseException as error:
+        return fail_command(error)
+
+
 def command_finalize_codex(_: argparse.Namespace) -> int:
     outcomes = [
         os.environ.get("CODEX_OUTCOME_1", ""),
@@ -1854,6 +1985,9 @@ def build_parser() -> argparse.ArgumentParser:
         func=command_classify_codex_attempt
     )
     subparsers.add_parser("finalize-codex").set_defaults(func=command_finalize_codex)
+    subparsers.add_parser("write-review-result").set_defaults(
+        func=command_write_review_result
+    )
     subparsers.add_parser("post-comment").set_defaults(func=command_post_comment)
     return parser
 

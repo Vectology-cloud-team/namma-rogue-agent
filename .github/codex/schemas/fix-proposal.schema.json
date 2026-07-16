@@ -11,7 +11,8 @@
     "pull_request_number",
     "base_sha",
     "head_sha",
-    "review_comment_id",
+    "source_review_run_id",
+    "source_review_artifact_id",
     "reviewed_at",
     "generator",
     "summary",
@@ -44,9 +45,13 @@
     "head_sha": {
       "$ref": "#/$defs/full_sha"
     },
-    "review_comment_id": {
+    "source_review_run_id": {
       "type": "integer",
       "minimum": 1
+    },
+    "source_review_artifact_id": {
+      "type": "string",
+      "minLength": 1
     },
     "reviewed_at": {
       "type": "string",

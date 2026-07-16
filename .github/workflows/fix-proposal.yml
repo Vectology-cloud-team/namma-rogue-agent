@@ -1,0 +1,205 @@
+name: Fix Proposal Generator
+
+on:
+  workflow_run:
+    workflows:
+      - Fix Proposal Request Collect
+    types:
+      - completed
+
+concurrency:
+  group: fix-proposal-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    name: Generate verified fix proposal
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.name == 'Fix Proposal Request Collect' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.repository.full_name == github.repository &&
+      github.repository == 'Vectology-cloud-team/namma-rogue-agent'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      should_comment: ${{ steps.finalize_proposal.outputs.proposal_ready == 'true' }}
+      proposal_ready: ${{ steps.finalize_proposal.outputs.proposal_ready || 'false' }}
+      pr_number: ${{ steps.validate_request.outputs.pr_number }}
+      head_sha: ${{ steps.validate_request.outputs.head_sha }}
+      status: ${{ steps.prepare.outputs.status || 'FAILED' }}
+      reason_code: ${{ steps.prepare.outputs.reason_code || 'UNKNOWN' }}
+      reason_message: ${{ steps.prepare.outputs.reason_message || 'Fix proposal was not generated.' }}
+      proposal_id: ${{ steps.finalize_proposal.outputs.proposal_id }}
+      proposal_hash: ${{ steps.finalize_proposal.outputs.proposal_hash }}
+      artifact_name: ${{ steps.finalize_proposal.outputs.artifact_name }}
+      max_comment_patch_bytes: ${{ steps.policy.outputs.max_comment_patch_bytes }}
+    steps:
+      - name: Checkout trusted generator control plane
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ github.sha }}
+          path: generator-control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Load fix proposal policy
+        id: policy
+        env:
+          FIX_POLICY: ${{ github.workspace }}/generator-control/.github/codex/fix-policy.yml
+        run: |
+          python3 generator-control/scripts/fix_proposal_generator.py load-policy
+
+      - name: Download request artifact
+        id: download_request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COLLECTOR_RUN_ID: ${{ github.event.workflow_run.id }}
+          ARTIFACT_NAME: fix-proposal-request-${{ github.event.workflow_run.id }}
+          FIX_REQUEST_DIR: ${{ github.workspace }}/fix-request
+          MAX_ARTIFACT_BYTES: "50000"
+        run: |
+          python3 generator-control/scripts/fix_proposal_generator.py download-request-artifact
+
+      - name: Validate request manifest
+        id: validate_request
+        env:
+          FIX_REQUEST_DIR: ${{ github.workspace }}/fix-request
+        run: |
+          python3 generator-control/scripts/fix_proposal_generator.py validate-request
+
+      - name: Verify trusted fix prompt
+        id: verify_prompt
+        env:
+          TRUSTED_PROMPT: ${{ github.workspace }}/generator-control/.github/codex/prompts/fix-proposal.md
+          MAX_PROMPT_BYTES: ${{ steps.policy.outputs.max_prompt_bytes }}
+        run: |
+          python3 generator-control/scripts/fix_proposal_generator.py verify-prompt
+
+      - name: Prepare generation input and gates
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          FIX_REQUEST_DIR: ${{ github.workspace }}/fix-request
+          REVIEW_RESULT_DIR: ${{ github.workspace }}/stage1-review-result
+          FIX_POLICY: ${{ github.workspace }}/generator-control/.github/codex/fix-policy.yml
+          MAX_ARTIFACT_BYTES: "100000"
+        run: |
+          python3 generator-control/scripts/fix_proposal_generator.py prepare-generation
+
+      - name: Check API key availability
+        if: steps.prepare.outputs.should_generate == 'true'
+        env:
+          HAS_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY != '' }}
+        run: |
+          python3 generator-control/scripts/architect_review_retry.py check-api-key
+
+      - name: Run Codex fix proposal generator
+        if: steps.prepare.outputs.should_generate == 'true'
+        id: codex_proposal
+        continue-on-error: true
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
+        env:
+          PR_NUMBER: ${{ steps.prepare.outputs.pr_number }}
+          BASE_SHA: ${{ steps.prepare.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+          FIX_REQUEST_MANIFEST: ${{ github.workspace }}/fix-request/manifest.json
+          STAGE1_REVIEW_RESULT: ${{ github.workspace }}/stage1-review-result/architect-review-result.json
+          TRUSTED_TARGET_CONTENTS: ${{ github.workspace }}/fix-request/target-file-contents.json
+          FIX_POLICY: ${{ github.workspace }}/generator-control/.github/codex/fix-policy.yml
+          FIX_PROPOSAL_SCHEMA: ${{ github.workspace }}/generator-control/.github/codex/schemas/fix-proposal.schema.json
+          ORIGINAL_BLOB_SHAS: ${{ github.workspace }}/fix-request/original-blob-shas.json
+          PROMPT_VERSION: ${{ steps.policy.outputs.prompt_version }}
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ${{ github.workspace }}/generator-control/.github/codex/prompts/fix-proposal.md
+          working-directory: ${{ github.workspace }}
+          permission-profile: ":read-only"
+          model: ${{ steps.policy.outputs.model }}
+          effort: ${{ steps.policy.outputs.effort }}
+          safety-strategy: drop-sudo
+
+      - name: Fail when Codex proposal generation fails
+        if: steps.prepare.outputs.should_generate == 'true' && steps.codex_proposal.outcome != 'success'
+        run: |
+          {
+            echo "## Fix Proposal Failure"
+            echo
+            echo "- failure class: \`RETRYABLE\`"
+            echo "- failure code: \`NETWORK_ERROR\`"
+            echo "- failed operation: \`openai_codex_action\`"
+            echo "- attempts: \`1\`"
+            echo
+            echo "Codex proposal generation failed. No proposal comment or artifact was produced."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Finalize and validate proposal
+        if: steps.prepare.outputs.should_generate == 'true' && steps.codex_proposal.outcome == 'success'
+        id: finalize_proposal
+        env:
+          FIX_REQUEST_DIR: ${{ github.workspace }}/fix-request
+          REVIEW_RESULT_PATH: ${{ github.workspace }}/stage1-review-result/architect-review-result.json
+          FIX_POLICY: ${{ github.workspace }}/generator-control/.github/codex/fix-policy.yml
+          PROPOSAL_INPUT_HASH: ${{ steps.prepare.outputs.proposal_input_hash }}
+          ORIGINAL_BLOB_SHAS: ${{ steps.prepare.outputs.original_blob_shas }}
+          TRUSTED_TARGET_CONTENTS_PATH: ${{ github.workspace }}/fix-request/target-file-contents.json
+          CODEX_FINAL_MESSAGE: ${{ steps.codex_proposal.outputs.final-message }}
+          PROPOSAL_OUTPUT_DIR: ${{ runner.temp }}/fix-proposal
+        run: |
+          python3 generator-control/scripts/fix_proposal_generator.py finalize-proposal
+
+      - name: Upload verified fix proposal artifact
+        if: steps.finalize_proposal.outputs.proposal_ready == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.finalize_proposal.outputs.artifact_name }}
+          path: ${{ runner.temp }}/fix-proposal
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: false
+
+  post_feedback:
+    name: Post fix proposal comment
+    needs: generate
+    if: needs.generate.result == 'success' && needs.generate.outputs.should_comment == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Checkout trusted generator control plane
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ github.sha }}
+          path: generator-control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download generated fix proposal artifact
+        if: needs.generate.outputs.proposal_ready == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.generate.outputs.artifact_name }}
+          path: ${{ github.workspace }}/fix-proposal
+
+      - name: Post or update fix proposal comment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.generate.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.generate.outputs.head_sha }}
+          STATUS: ${{ needs.generate.outputs.status }}
+          REASON_CODE: ${{ needs.generate.outputs.reason_code }}
+          REASON_MESSAGE: ${{ needs.generate.outputs.reason_message }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          PROPOSAL_PATH: ${{ github.workspace }}/fix-proposal/fix-proposal.json
+          PROPOSAL_METADATA_PATH: ${{ github.workspace }}/fix-proposal/proposal-metadata.json
+          MAX_COMMENT_PATCH_BYTES: ${{ needs.generate.outputs.max_comment_patch_bytes }}
+        run: |
+          python3 generator-control/scripts/fix_proposal_generator.py post-comment

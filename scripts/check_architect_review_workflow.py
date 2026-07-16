@@ -38,6 +38,10 @@ PINNED_ACTIONS = {
         "sha": "ea165f8d65b6e75b540449e92b4886f43607fa02",
         "version": "v4",
     },
+    "actions/download-artifact": {
+        "sha": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        "version": "v4",
+    },
     "openai/codex-action": {
         "sha": "52fe01ec70a42f454c9d2ebd47598f9fd6893d56",
         "version": "v1",
@@ -305,7 +309,11 @@ def check_doc_text(text: str) -> list[CheckResult]:
     _add(results, "docs describe Stage 1", "Stage 1: Automated Architect Review" in text)
     _add(results, "docs describe bootstrap PR", "bootstrap pull request" in text and "canary pull request" in text)
     _add(results, "docs describe two-stage control plane", "unprivileged collector" in text and "privileged reviewer" in text)
-    _add(results, "docs describe Stage 2", "Stage 2 Plan" in text)
+    _add(
+        results,
+        "docs describe Stage 2",
+        "Stage 2 Plan" in text or "Stage 2A: Fix Proposal Generator" in text,
+    )
     _add(results, "docs describe stop methods", "Stop Methods" in text)
     _add(results, "docs mention API billing", "API Billing" in text)
     _add(results, "docs state no pull_request_target", "Neither workflow uses `pull_request_target`" in text)

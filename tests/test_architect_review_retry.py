@@ -81,6 +81,60 @@ class ArchitectReviewRetryTests(unittest.TestCase):
         self.assertEqual(200000, policy.max_prompt_bytes)
         self.assertIn("vendor/**", policy.exclude)
 
+    def test_structured_review_result_extracts_blocking_findings(self):
+        message = "\n".join(
+            [
+                "VERDICT: CHANGES_REQUESTED",
+                "SUMMARY",
+                "A problem exists.",
+                "BLOCKING FINDINGS",
+                "- `src/example.py:12`: mixes trust boundaries.",
+                "NON-BLOCKING FINDINGS",
+                "None.",
+            ]
+        )
+        result = architect_review_retry.build_structured_review_result(
+            final_message=message,
+            repository="Vectology-cloud-team/namma-rogue-agent",
+            pull_request_number="16",
+            base_sha="a" * 40,
+            head_sha="b" * 40,
+            workflow_run_id="123",
+            policy_version="policy",
+            model="gpt-5.5",
+            effort="medium",
+            review_status="completed",
+            prompt_version="architect-review-v1",
+        )
+        self.assertEqual("architect-review-result-v1", result["schema_version"])
+        self.assertEqual("CHANGES_REQUESTED", result["verdict"])
+        self.assertEqual(1, len(result["findings"]))
+        finding = result["findings"][0]
+        self.assertEqual("src/example.py", finding["file"])
+        self.assertEqual(12, finding["line"])
+        self.assertTrue(finding["blocking"])
+        self.assertTrue(finding["finding_id"].startswith("finding-"))
+
+    def test_structured_review_result_rejects_unparseable_blocking_lines(self):
+        message = "\n".join(
+            [
+                "VERDICT: CHANGES_REQUESTED",
+                "BLOCKING FINDINGS",
+                "- A fileless architecture concern.",
+                "- `Stage 2A`: backticked non-path token.",
+                "- `src/one.py:1`, `src/two.py:2`: multiple files.",
+                "- `src/wrapped.py:4`: parseable first line.",
+                "  continuation text must not become another finding.",
+                "NON-BLOCKING FINDINGS",
+                "None.",
+            ]
+        )
+        findings = architect_review_retry.parse_blocking_findings(message)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("src/wrapped.py", findings[0]["file"])
+        self.assertEqual(4, findings[0]["line"])
+        self.assertNotIn("continuation", findings[0]["message"])
+
     def test_review_policy_model_is_required(self):
         with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
             architect_review_retry.parse_review_policy_text(

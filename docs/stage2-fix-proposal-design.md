@@ -1,9 +1,9 @@
 # Stage 2 Fix Proposal Design
 
-This document defines the Stage 2 guarded AI fix suggestion flow. It is
-only a design and contract document. The repository does not yet contain
-workflow code that generates, posts, applies, commits, pushes, or merges
-AI fixes.
+This document defines the Stage 2 guarded AI fix suggestion flow. PR #16
+implements Stage 2A proposal generation only. The repository still does
+not contain workflow code that applies proposals, commits, pushes, or
+merges AI fixes.
 
 Stage 2 must preserve the Stage 1 trust boundary: pull request content,
 review artifacts, proposal comments, and generated patches are
@@ -12,7 +12,7 @@ the default-branch control plane.
 
 ## Non-Goals
 
-PR #15 does not implement:
+PR #16 still does not implement:
 
 - repository file modification by AI,
 - commits,
@@ -23,11 +23,12 @@ PR #15 does not implement:
 - shell command execution,
 - test command execution,
 - GitHub code suggestion posting,
-- new write processing with repository secrets,
-- Stage 2 workflow runtime wiring.
+- Stage 2B human approval processing,
+- Stage 2C sandbox apply.
 
-The only added artifacts are design documentation, a proposal schema, a
-trusted fix policy draft, static validation, and tests.
+The Stage 2A runtime artifacts are limited to request collection,
+trusted proposal generation, proposal validation, artifact storage, and a
+proposal sticky comment.
 
 ## Stage Split
 
@@ -120,12 +121,12 @@ schema-expressible safety constraints:
 ```
 
 The schema is not sufficient as the trusted Stage 2 gate by itself. The
-normative validator is the policy-aware validation layer represented in
-this PR by `scripts/check_fix_proposal_design.py` and, in a future
-runtime, by equivalent trusted control-plane code. That validator must
-combine the schema, `.github/codex/fix-policy.yml`, patch parsing, target
-blob checks, proposal hash checks, approval binding checks, and live PR
-head checks before any sandbox apply attempt.
+normative validator is the policy-aware validation layer represented by
+`scripts/check_fix_proposal_design.py` and
+`scripts/fix_proposal_generator.py`. That validator combines the schema,
+`.github/codex/fix-policy.yml`, patch parsing, target blob checks,
+proposal hash checks, and live PR head checks. Approval binding remains a
+future Stage 2B concern.
 
 Each proposal records:
 
@@ -269,8 +270,8 @@ The comment should display:
 - approval binding status,
 - a clear note that no file modification, commit, or push has occurred.
 
-PR #15 does not implement comment posting. It only defines this marker
-and display contract.
+Stage 2A implements proposal comment posting with this marker. The
+comment is a display artifact and never an approval or apply command.
 
 ## Threat Model
 
@@ -293,9 +294,10 @@ and display contract.
 ## Static Validation
 
 `scripts/check_fix_proposal_design.py` validates the design artifacts and
-sample proposal objects. It is read-only and does not call GitHub,
-execute shell commands, apply patches, commit, push, or merge.
+sample proposal objects. `scripts/check_fix_proposal_workflow.py`
+validates the Stage 2A workflow trust boundary. These checks are
+read-only and do not apply patches, commit, push, or merge.
 
 The tests in `tests/test_fix_proposal_design.py` verify the schema,
 policy, proposal validation rules, stale approval invalidation, and the
-absence of Stage 2 workflow wiring.
+proposal-only Stage 2A runtime boundary.

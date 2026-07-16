@@ -1,5 +1,10 @@
 schema_version: 1
 
+generator:
+  model: gpt-5.5
+  reasoning_effort: medium
+  prompt_version: fix-proposal-v1
+
 labels:
   proposal: ai-fix-proposal
   approval: ai-fix-approved
@@ -8,6 +13,8 @@ limits:
   max_changed_files: 5
   max_patch_bytes: 50000
   max_file_patch_bytes: 20000
+  max_prompt_bytes: 200000
+  max_comment_patch_bytes: 4000
 
 allowed_operations:
   - modify
