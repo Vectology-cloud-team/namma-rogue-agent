@@ -454,6 +454,8 @@ def evaluate_generation_gate(
         raise fatal(FailureCode.PR_MISMATCH, "review result PR number mismatch", "gate")
     if review_result.get("reviewed_head_sha") != current_head:
         return GateDecision(False, PROPOSAL_STATUS_SKIPPED, FailureCode.SHA_MISMATCH.value, "Stage 1 reviewed SHA does not match current head")
+    if review_result.get("base_sha") != current_base:
+        return GateDecision(False, PROPOSAL_STATUS_SKIPPED, FailureCode.SHA_MISMATCH.value, "Stage 1 base SHA does not match current base")
     if review_result.get("review_status") != "completed":
         return GateDecision(False, PROPOSAL_STATUS_SKIPPED, FailureCode.REVIEW_NOT_READY.value, "Stage 1 review did not complete normally")
     if not blocking_findings(review_result):
@@ -658,6 +660,7 @@ def proposal_comment_body(
             f"- Status: `{metadata['status']}`",
             f"- Proposal ID: `{metadata['proposal_id']}`",
             f"- Target head SHA: `{metadata['head_sha']}`",
+            f"- Proposal input hash: `{metadata['proposal_input_hash']}`",
             f"- Workflow run: [{workflow_run_id}](https://github.com/{repo}/actions/runs/{workflow_run_id})",
             f"- Proposal hash: `{metadata['proposal_hash'][:16]}`",
             f"- Findings addressed: `{', '.join(findings)}`",
@@ -978,12 +981,16 @@ def command_prepare_generation(_: argparse.Namespace) -> int:
             review_result=review_result,
             policy_hash=policy.policy_hash,
         )
+        existing_comments = list(
+            iter_fix_comments(repo, str(manifest["pull_request_number"]), token)
+        )
+        existing_proposals = existing_proposal_records_from_comments(existing_comments)
         gate = evaluate_generation_gate(
             request_manifest=manifest,
             pull=pull_data,
             review_result=review_result,
             policy=policy,
-            existing_proposals=(),
+            existing_proposals=existing_proposals,
         )
         blob_map = blob_sha_map_from_files(files)
         (request_dir / "original-blob-shas.json").write_text(
@@ -1038,6 +1045,30 @@ def parse_blob_sha_map(raw: str) -> dict[str, str]:
 
 def extract_issue_comment_id(comment: dict[str, Any]) -> str:
     return str(comment.get("id", ""))
+
+
+def existing_proposal_records_from_comments(
+    comments: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for comment in comments:
+        body = comment.get("body")
+        if not isinstance(body, str) or PROPOSAL_MARKER not in body:
+            continue
+        head_match = re.search(r"Target head SHA:\s*`([0-9a-f]{40})`", body)
+        input_match = re.search(r"Proposal input hash:\s*`([0-9a-f]{64})`", body)
+        status_match = re.search(r"Status:\s*`([^`]+)`", body)
+        if head_match and input_match:
+            records.append(
+                {
+                    "metadata": {
+                        "head_sha": head_match.group(1),
+                        "proposal_input_hash": input_match.group(1),
+                        "status": status_match.group(1) if status_match else "",
+                    }
+                }
+            )
+    return records
 
 
 def iter_fix_comments(repo: str, issue_number: str, token: str) -> Iterable[dict[str, Any]]:
@@ -1272,11 +1303,14 @@ def command_post_comment(_: argparse.Namespace) -> int:
             )
         run_with_retry(
             "github_fix_proposal_comment",
-            lambda: post_or_update_comment(
-                repo=repo,
-                issue_number=issue_number,
-                token=token,
-                body=body,
+            lambda: (
+                stage1.validate_comment_target(repo, issue_number, required_env("HEAD_SHA"), token),
+                post_or_update_comment(
+                    repo=repo,
+                    issue_number=issue_number,
+                    token=token,
+                    body=body,
+                ),
             ),
         )
         return 0

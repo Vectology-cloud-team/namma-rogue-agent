@@ -248,6 +248,16 @@ class FixProposalGeneratorTests(unittest.TestCase):
             "SHA_MISMATCH",
         )
 
+    def test_stage1_base_sha_mismatch_is_rejected(self):
+        review = self.review_result()
+        review["base_sha"] = "d" * 40
+        self.assert_gate_code(
+            self.request_manifest(),
+            self.pull(),
+            review,
+            "SHA_MISMATCH",
+        )
+
     def test_blocking_finding_is_required(self):
         review = self.review_result()
         review["findings"] = []
@@ -353,8 +363,27 @@ class FixProposalGeneratorTests(unittest.TestCase):
             max_patch_bytes=1,
         )
         self.assertIn("<!-- namma-ai-fix-proposal -->", body)
+        self.assertIn("Proposal input hash:", body)
         self.assertIn("No file changes, patch application, tests, commit, push, or merge", body)
         self.assertNotIn("@@ -1 +1 @@", body)
+
+    def test_existing_proposal_comment_metadata_is_detected(self):
+        proposal, metadata = self.validate()
+        body = fix_proposal_generator.proposal_comment_body(
+            proposal=proposal,
+            metadata=metadata,
+            workflow_run_id="999",
+            repo="Vectology-cloud-team/namma-rogue-agent",
+        )
+        records = fix_proposal_generator.existing_proposal_records_from_comments(
+            [{"body": body}]
+        )
+        self.assertEqual(1, len(records))
+        self.assertEqual(metadata["head_sha"], records[0]["metadata"]["head_sha"])
+        self.assertEqual(
+            metadata["proposal_input_hash"],
+            records[0]["metadata"]["proposal_input_hash"],
+        )
 
     def test_stale_comment_marks_old_proposal_invalid(self):
         _, metadata = self.validate()

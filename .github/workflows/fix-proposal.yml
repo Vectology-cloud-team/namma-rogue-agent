@@ -26,11 +26,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      should_comment: >-
-        ${{
-          steps.prepare.outputs.should_generate != 'true' ||
-          steps.finalize_proposal.outputs.proposal_ready == 'true'
-        }}
+      should_comment: ${{ steps.finalize_proposal.outputs.proposal_ready == 'true' }}
       proposal_ready: ${{ steps.finalize_proposal.outputs.proposal_ready || 'false' }}
       pr_number: ${{ steps.validate_request.outputs.pr_number }}
       head_sha: ${{ steps.validate_request.outputs.head_sha }}

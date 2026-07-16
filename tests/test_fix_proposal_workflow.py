@@ -79,6 +79,14 @@ class FixProposalWorkflowTests(unittest.TestCase):
         self.assertNotIn("gate runs before Codex", labels)
         self.assertNotIn("Codex only runs when gate passes", labels)
 
+    def test_generator_comments_only_for_verified_proposal(self):
+        text = self.generator_text()
+        self.assertIn(
+            "should_comment: ${{ steps.finalize_proposal.outputs.proposal_ready == 'true' }}",
+            text,
+        )
+        self.assertNotIn("steps.prepare.outputs.should_generate != 'true'", text)
+
     def test_all_actions_are_full_sha_pinned(self):
         combined = "\n".join(
             path.read_text(encoding="utf-8")

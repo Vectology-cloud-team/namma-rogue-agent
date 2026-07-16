@@ -164,6 +164,8 @@ def check_generator(text: str) -> list[CheckResult]:
     add(results, "sticky marker is implemented", "<!-- namma-ai-fix-proposal -->" in script)
     add(results, "proposal hash is deterministic", "canonical_json_bytes" in script and "proposal_input_hash" in script)
     add(results, "protected path validation is reused", "validate_fix_proposal" in script)
+    add(results, "proposal comment validates live head", "validate_comment_target" in script and "github_fix_proposal_comment" in script)
+    add(results, "duplicate proposal detection is wired", "existing_proposal_records_from_comments" in script and "existing_proposals=existing_proposals" in script)
     add(results, "Stage 2B and Stage 2C are absent", "Stage 2B" not in text and "Stage 2C" not in text)
     return results
 
