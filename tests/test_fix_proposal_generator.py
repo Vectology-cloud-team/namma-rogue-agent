@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -413,6 +414,53 @@ class FixProposalGeneratorTests(unittest.TestCase):
             )
         self.assertEqual("PATCH_DOES_NOT_APPLY", raised.exception.code.value)
 
+    def test_duplicate_patch_hunks_are_rejected(self):
+        proposal = self.proposal()
+        proposal["changes"][0]["patch"] = (
+            "diff --git a/src/example.py b/src/example.py\n"
+            "--- a/src/example.py\n"
+            "+++ b/src/example.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+newer\n"
+        )
+        with self.assertRaises(fix_proposal_generator.FixProposalFailure) as raised:
+            self.validate(proposal)
+        self.assertEqual("PATCH_DOES_NOT_APPLY", raised.exception.code.value)
+
+    def test_out_of_order_patch_hunks_are_rejected(self):
+        proposal = self.proposal()
+        proposal["changes"][0]["patch"] = (
+            "diff --git a/src/example.py b/src/example.py\n"
+            "--- a/src/example.py\n"
+            "+++ b/src/example.py\n"
+            "@@ -2 +2 @@\n"
+            "-second\n"
+            "+second-new\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        with self.assertRaises(fix_proposal_generator.FixProposalFailure) as raised:
+            fix_proposal_generator.validate_verified_proposal(
+                proposal,
+                request_manifest=self.request_manifest(),
+                review_result=self.review_result(),
+                policy=self.policy,
+                proposal_input_hash_value=self.input_hash(),
+                original_blob_shas={"src/example.py": FULL_SHA_C},
+                target_contents=self.target_contents(content="old\nsecond\n"),
+                generator_metadata={
+                    "model": self.policy.model,
+                    "reasoning_effort": self.policy.reasoning_effort,
+                    "policy_version": self.policy.policy_hash,
+                },
+            )
+        self.assertEqual("PATCH_DOES_NOT_APPLY", raised.exception.code.value)
+
     def test_fabricated_finding_id_is_rejected(self):
         proposal = self.proposal()
         proposal["findings_addressed"][0]["finding_id"] = "made-up"
@@ -473,6 +521,69 @@ class FixProposalGeneratorTests(unittest.TestCase):
             metadata["proposal_input_hash"],
             records[0]["metadata"]["proposal_input_hash"],
         )
+
+    def test_prepare_generation_defers_when_stage1_result_is_not_ready(self):
+        original_find = fix_proposal_generator.find_latest_review_result_artifact
+        original_github_json = fix_proposal_generator.stage1.github_json
+
+        def missing_review_result(**_kwargs):
+            raise fix_proposal_generator.fatal(
+                fix_proposal_generator.FailureCode.REVIEW_NOT_READY,
+                "no matching structured Stage 1 review result artifact was found",
+                "stage1_review_lookup",
+            )
+
+        def fake_github_json(method, api_path, **_kwargs):
+            self.assertEqual("GET", method)
+            self.assertEqual(
+                "/repos/Vectology-cloud-team/namma-rogue-agent/pulls/16",
+                api_path,
+            )
+            return self.pull(), {}
+
+        fix_proposal_generator.find_latest_review_result_artifact = missing_review_result
+        fix_proposal_generator.stage1.github_json = fake_github_json
+        old_env = os.environ.copy()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                request_dir = root / "request"
+                review_dir = root / "review"
+                request_dir.mkdir()
+                review_dir.mkdir()
+                (request_dir / "manifest.json").write_text(
+                    json.dumps(self.request_manifest()),
+                    encoding="utf-8",
+                )
+                output_path = root / "output.txt"
+                summary_path = root / "summary.md"
+                os.environ.update(
+                    {
+                        "GITHUB_REPOSITORY": "Vectology-cloud-team/namma-rogue-agent",
+                        "GITHUB_TOKEN": "token",
+                        "FIX_REQUEST_DIR": str(request_dir),
+                        "REVIEW_RESULT_DIR": str(review_dir),
+                        "FIX_POLICY": str(
+                            Path(__file__).resolve().parents[1]
+                            / ".github"
+                            / "codex"
+                            / "fix-policy.yml"
+                        ),
+                        "MAX_ARTIFACT_BYTES": "100000",
+                        "GITHUB_OUTPUT": str(output_path),
+                        "GITHUB_STEP_SUMMARY": str(summary_path),
+                    }
+                )
+                self.assertEqual(0, fix_proposal_generator.command_prepare_generation(None))
+                output = output_path.read_text(encoding="utf-8")
+                self.assertIn("should_generate=false", output)
+                self.assertIn("reason_code=REVIEW_NOT_READY", output)
+                self.assertIn("blocking_findings=0", output)
+        finally:
+            fix_proposal_generator.find_latest_review_result_artifact = original_find
+            fix_proposal_generator.stage1.github_json = original_github_json
+            os.environ.clear()
+            os.environ.update(old_env)
 
     def test_stale_comment_marks_old_proposal_invalid(self):
         _, metadata = self.validate()

@@ -698,6 +698,7 @@ def validate_unified_patch_applies(
     original_lines = content.splitlines()
     hunk_count = 0
     index = 0
+    consumed_original_index = 0
     while index < len(lines):
         header = HUNK_RE.match(lines[index])
         if not header:
@@ -705,6 +706,12 @@ def validate_unified_patch_applies(
             continue
         hunk_count += 1
         original_index = int(header.group(1)) - 1
+        if original_index < consumed_original_index:
+            raise fatal(
+                FailureCode.PATCH_DOES_NOT_APPLY,
+                f"patch hunks overlap or are out of order for {path}",
+                "proposal_validation",
+            )
         index += 1
         while index < len(lines):
             line = lines[index]
@@ -738,6 +745,7 @@ def validate_unified_patch_applies(
                     "proposal_validation",
                 )
             index += 1
+        consumed_original_index = original_index
     if hunk_count == 0:
         raise fatal(
             FailureCode.PATCH_DOES_NOT_APPLY,
@@ -1181,17 +1189,53 @@ def command_prepare_generation(_: argparse.Namespace) -> int:
             token=token,
         )
         assert isinstance(pull_data, dict)
-        review_result, review_artifact_id = run_with_retry(
-            "github_stage1_review_artifact",
-            lambda: find_latest_review_result_artifact(
-                repo=repo,
-                token=token,
-                pr_number=int(manifest["pull_request_number"]),
-                head_sha=str(manifest["head_sha"]),
-                output_dir=review_result_dir,
-                max_bytes=int(required_env("MAX_ARTIFACT_BYTES")),
-            ),
-        ).value
+        try:
+            review_result, review_artifact_id = run_with_retry(
+                "github_stage1_review_artifact",
+                lambda: find_latest_review_result_artifact(
+                    repo=repo,
+                    token=token,
+                    pr_number=int(manifest["pull_request_number"]),
+                    head_sha=str(manifest["head_sha"]),
+                    output_dir=review_result_dir,
+                    max_bytes=int(required_env("MAX_ARTIFACT_BYTES")),
+                ),
+            ).value
+        except FixProposalFailure as exc:
+            if exc.code is FailureCode.REVIEW_NOT_READY:
+                github_output(
+                    {
+                        "should_generate": "false",
+                        "status": PROPOSAL_STATUS_SKIPPED,
+                        "reason_code": exc.code.value,
+                        "reason_message": exc.message,
+                        "pr_number": str(manifest["pull_request_number"]),
+                        "base_sha": str(manifest["base_sha"]),
+                        "head_sha": str(manifest["head_sha"]),
+                        "review_artifact_id": "",
+                        "proposal_input_hash": "",
+                        "original_blob_shas": "{}",
+                        "target_file_count": "0",
+                        "blocking_findings": "0",
+                    }
+                )
+                write_job_summary(
+                    "\n".join(
+                        [
+                            "## Fix Proposal Gate",
+                            "",
+                            f"- Status: `{PROPOSAL_STATUS_SKIPPED}`",
+                            f"- Reason: `{exc.code.value}`",
+                            f"- PR: `#{manifest['pull_request_number']}`",
+                            f"- Head SHA: `{manifest['head_sha']}`",
+                            "- Blocking findings: `0`",
+                            "",
+                            "Stage 1 review has not produced a matching structured result yet.",
+                        ]
+                    )
+                )
+                return 0
+            raise
         files = run_with_retry(
             "github_pr_files",
             lambda: list_pr_files(repo, int(manifest["pull_request_number"]), token),
