@@ -13,6 +13,7 @@ import datetime as dt
 import json
 import os
 import re
+import urllib.error
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -32,7 +33,7 @@ APPROVAL_STATUS_APPROVED = "APPROVED"
 APPROVAL_STATUS_PENDING = "PENDING"
 APPROVAL_STATUS_STALE = "STALE"
 MAX_ARTIFACT_BYTES = 100000
-ALLOWED_AUTHOR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
+ALLOWED_APPROVER_ASSOCIATIONS = {"OWNER", "MEMBER"}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -320,9 +321,13 @@ def validate_approval_gate(
     live_pull: dict[str, Any],
     live_issue: dict[str, Any],
     policy: fix.FixProposalPolicy,
+    approval_actor_association: str,
 ) -> None:
     validate_request_manifest_shape(manifest)
+    proposal_label = policy.proposal_policy.proposal_label
     approval_label = policy.proposal_policy.approval_label
+    request_labels = labels_from_request(manifest)
+    live_labels = labels_from_pull_or_issue(live_issue)
     if manifest.get("event_action") != "labeled":
         raise fatal(
             fix.FailureCode.LABEL_MISSING,
@@ -335,16 +340,28 @@ def validate_approval_gate(
             "approval record requires the ai-fix-approved label event",
             "approval_gate",
         )
-    if approval_label not in labels_from_request(manifest):
+    if approval_label not in request_labels:
         raise fatal(
             fix.FailureCode.LABEL_MISSING,
             "approval request does not contain the approval label",
             "approval_gate",
         )
-    if approval_label not in labels_from_pull_or_issue(live_issue):
+    if approval_label not in live_labels:
         raise fatal(
             fix.FailureCode.LABEL_MISSING,
             "live pull request does not contain the approval label",
+            "approval_gate",
+        )
+    if proposal_label not in request_labels:
+        raise fatal(
+            fix.FailureCode.LABEL_MISSING,
+            "approval request does not contain the proposal label",
+            "approval_gate",
+        )
+    if proposal_label not in live_labels:
+        raise fatal(
+            fix.FailureCode.LABEL_MISSING,
+            "live pull request does not contain the proposal label",
             "approval_gate",
         )
     if bool(manifest.get("draft")) or bool(live_pull.get("draft")):
@@ -391,13 +408,47 @@ def validate_approval_gate(
             "bot pull requests cannot produce approval records",
             "approval_gate",
         )
-    association = str(manifest.get("author_association", ""))
-    if association not in ALLOWED_AUTHOR_ASSOCIATIONS:
+    if approval_actor_association not in ALLOWED_APPROVER_ASSOCIATIONS:
         raise fatal(
             fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
-            "pull request author association is not approved for Stage 2B",
+            "approval actor must be OWNER or MEMBER",
             "approval_gate",
         )
+
+
+def approval_actor_association(
+    *,
+    repo: str,
+    actor: str,
+    token: str,
+) -> str:
+    owner = repo.split("/", 1)[0]
+    if actor == owner:
+        return "OWNER"
+    try:
+        stage1.github_api_request(
+            "GET",
+            f"/orgs/{owner}/members/{actor}",
+            token=token,
+            operation="github_approval_actor_membership",
+        )
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            raise fatal(
+                fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
+                "approval actor is not a visible organization member",
+                "github_approval_actor_membership",
+            ) from error
+        raise fix.classify_github_operation(
+            error,
+            "github_approval_actor_membership",
+        ) from error
+    except BaseException as error:
+        raise fix.classify_github_operation(
+            error,
+            "github_approval_actor_membership",
+        ) from error
+    return "MEMBER"
 
 
 def validate_proposal_for_approval(
@@ -840,11 +891,17 @@ def command_record_approval(_: argparse.Namespace) -> int:
             pr_number=int(manifest["pull_request_number"]),
             token=token,
         )
+        actor_association = approval_actor_association(
+            repo=repo,
+            actor=str(manifest["actor"]),
+            token=token,
+        )
         validate_approval_gate(
             manifest=manifest,
             live_pull=live_pull,
             live_issue=live_issue,
             policy=policy,
+            approval_actor_association=actor_association,
         )
         proposal, metadata, proposal_artifact_id = fix.run_with_retry(
             "github_verified_proposal_artifact",

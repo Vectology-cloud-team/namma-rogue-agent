@@ -52,6 +52,15 @@ class ApprovalWorkflowTests(unittest.TestCase):
         self.assertNotIn("approval collector does not run Codex", labels)
         self.assertNotIn("approval collector does not run repository scripts", labels)
 
+    def test_collector_only_runs_on_labeled_pull_request_events(self):
+        labels = self.failed_labels(
+            check_approval_workflow.check_collector(self.collector_text())
+        )
+        self.assertNotIn("approval collector listens for labeled", labels)
+        self.assertNotIn("approval collector does not listen for synchronize", labels)
+        self.assertNotIn("approval collector does not listen for reopened", labels)
+        self.assertNotIn("approval collector does not listen for ready_for_review", labels)
+
     def test_recorder_is_workflow_run_only(self):
         labels = self.failed_labels(
             check_approval_workflow.check_recorder(self.recorder_text())
@@ -131,6 +140,7 @@ class ApprovalWorkflowTests(unittest.TestCase):
         self.assertNotIn("approval uses issue comment create endpoint", labels)
         self.assertNotIn("approval uses issue comment update endpoint", labels)
         self.assertNotIn("approval does not use PR review API", labels)
+        self.assertNotIn("approval validates actor membership", labels)
 
     def test_validated_artifact_is_downloaded_before_comment(self):
         labels = self.failed_labels(

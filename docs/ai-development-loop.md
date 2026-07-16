@@ -326,8 +326,9 @@ Stage 2B may consume the `ai-fix-approved` label only to create a
 trusted approval record artifact and a separate sticky comment with
 marker `<!-- namma-ai-approval -->`. Approval is valid only when the
 current pull request head SHA, repository, pull request number, proposal
-ID, proposal hash, trusted policy hash, and proposal artifact all match.
-The label alone is never sufficient.
+ID, proposal hash, trusted policy hash, proposal artifact, live
+`ai-fix-proposal` label, and verified `OWNER` or `MEMBER` label actor all
+match. The label alone is never sufficient.
 
 Stage 2B does not apply patches, modify the working tree, run
 recommended tests, commit, push, create branches, open pull requests,

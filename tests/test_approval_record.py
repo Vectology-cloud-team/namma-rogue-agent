@@ -44,7 +44,10 @@ class ApprovalRecordTests(unittest.TestCase):
             "draft": False,
             "base_repository": approval_record.EXPECTED_REPOSITORY,
             "head_repository": approval_record.EXPECTED_REPOSITORY,
-            "labels": labels if labels is not None else ["ai-fix-approved"],
+            "labels": labels if labels is not None else [
+                "ai-fix-proposal",
+                "ai-fix-approved",
+            ],
             "event_action": "labeled",
             "event_label": event_label,
             "collector_workflow_name": approval_record.COLLECTOR_WORKFLOW_NAME,
@@ -67,7 +70,10 @@ class ApprovalRecordTests(unittest.TestCase):
         }
 
     def live_issue(self, *, labels=None):
-        labels = labels if labels is not None else ["ai-fix-approved"]
+        labels = labels if labels is not None else [
+            "ai-fix-proposal",
+            "ai-fix-approved",
+        ]
         return {
             "labels": [
                 {
@@ -166,6 +172,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_pull=self.live_pull(),
             live_issue=self.live_issue(),
             policy=policy,
+            approval_actor_association="MEMBER",
         )
         approval_record.validate_proposal_for_approval(
             manifest=manifest,
@@ -204,6 +211,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_pull=self.live_pull(head_sha="1" * 40),
             live_issue=self.live_issue(),
             policy=self.policy(),
+            approval_actor_association="MEMBER",
         )
 
     def test_stale_proposal_is_rejected(self):
@@ -224,6 +232,40 @@ class ApprovalRecordTests(unittest.TestCase):
             live_pull=self.live_pull(),
             live_issue=self.live_issue(labels=[]),
             policy=self.policy(),
+            approval_actor_association="MEMBER",
+        )
+
+    def test_proposal_label_missing_is_rejected(self):
+        self.assert_failure_code(
+            approval_record.fix.FailureCode.LABEL_MISSING,
+            approval_record.validate_approval_gate,
+            manifest=self.manifest(labels=["ai-fix-approved"]),
+            live_pull=self.live_pull(),
+            live_issue=self.live_issue(labels=["ai-fix-approved"]),
+            policy=self.policy(),
+            approval_actor_association="MEMBER",
+        )
+
+    def test_collaborator_approval_actor_is_rejected(self):
+        self.assert_failure_code(
+            approval_record.fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
+            approval_record.validate_approval_gate,
+            manifest=self.manifest(),
+            live_pull=self.live_pull(),
+            live_issue=self.live_issue(),
+            policy=self.policy(),
+            approval_actor_association="COLLABORATOR",
+        )
+
+    def test_pr_author_association_is_not_used_as_label_actor_association(self):
+        manifest = self.manifest()
+        manifest["author_association"] = "COLLABORATOR"
+        approval_record.validate_approval_gate(
+            manifest=manifest,
+            live_pull=self.live_pull(),
+            live_issue=self.live_issue(),
+            policy=self.policy(),
+            approval_actor_association="MEMBER",
         )
 
     def test_approval_label_alone_does_not_create_record_without_proposal_artifact(self):

@@ -93,6 +93,7 @@ The approval label is distinct from `ai-fix-proposal`. Approval is valid
 only when all of these are true:
 
 - `ai-fix-proposal` is still present,
+- `ai-fix-approved` was applied by an `OWNER` or `MEMBER`,
 - a trusted approval record exists for the label event,
 - the latest proposal targets the current head SHA,
 - the head SHA did not change after proposal generation,
@@ -129,6 +130,11 @@ approval requirement, and status. `approval_id` is a deterministic hash
 prefix derived from the proposal ID, proposal hash, head SHA, approver,
 approval timestamp, policy hash, and related approval metadata. It is
 not a random UUID.
+
+The approval actor is the label event sender, not the pull request
+author. The trusted recorder checks organization membership for that
+actor and fails closed unless the actor is verified as `OWNER` or
+`MEMBER`.
 
 ## Proposal Schema
 
