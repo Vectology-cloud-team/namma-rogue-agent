@@ -87,6 +87,44 @@ class FixProposalWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("steps.prepare.outputs.should_generate != 'true'", text)
 
+    def test_post_job_uses_issue_comment_permission_profile(self):
+        labels = self.failed_labels(
+            check_fix_proposal_workflow.check_generator(self.generator_text())
+        )
+        self.assertNotIn("post job can read artifacts", labels)
+        self.assertNotIn("post job can read trusted control plane", labels)
+        self.assertNotIn("post job can write issue comments", labels)
+        self.assertNotIn("post job has pull request write for sticky comments", labels)
+        self.assertNotIn("pull request write is limited to post job", labels)
+        self.assertNotIn("post job has no contents write", labels)
+
+    def test_pull_request_write_is_not_granted_to_collector_or_generate_job(self):
+        collector_labels = self.failed_labels(
+            check_fix_proposal_workflow.check_collector(self.collector_text())
+        )
+        generator_labels = self.failed_labels(
+            check_fix_proposal_workflow.check_generator(self.generator_text())
+        )
+        self.assertNotIn("collector has no pull request write permission", collector_labels)
+        self.assertNotIn("generate job has no pull request write permission", generator_labels)
+        self.assertIn("pull-requests: write", self.generator_text())
+        self.assertNotIn("pull-requests: write", self.collector_text())
+
+    def test_workflow_has_no_top_level_write_permissions(self):
+        text = self.generator_text()
+        jobs_index = text.index("jobs:")
+        self.assertNotIn(": write", text[:jobs_index])
+
+    def test_fix_proposal_uses_issue_comments_not_review_comments(self):
+        labels = self.failed_labels(
+            check_fix_proposal_workflow.check_generator(self.generator_text())
+        )
+        self.assertNotIn("proposal comment uses issue comment list endpoint", labels)
+        self.assertNotIn("proposal comment uses issue comment create endpoint", labels)
+        self.assertNotIn("proposal comment uses issue comment update endpoint", labels)
+        self.assertNotIn("proposal comment does not use PR review API", labels)
+        self.assertNotIn("post job downloads proposal artifact before commenting", labels)
+
     def test_generator_passes_trusted_target_contents_to_codex_and_finalize(self):
         text = self.generator_text()
         self.assertIn("TRUSTED_TARGET_CONTENTS:", text)

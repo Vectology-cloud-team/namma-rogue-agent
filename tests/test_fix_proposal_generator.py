@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.error
 import zipfile
 from pathlib import Path
 
@@ -570,6 +571,253 @@ class FixProposalGeneratorTests(unittest.TestCase):
         self.assertEqual(
             metadata["proposal_input_hash"],
             records[0]["metadata"]["proposal_input_hash"],
+        )
+
+    def test_fix_proposal_comment_creates_issue_comment_when_marker_missing(self):
+        original_iter = fix_proposal_generator.stage1.iter_issue_comments
+        original_github_json = fix_proposal_generator.stage1.github_json
+        calls = []
+
+        def fake_iter(_repo, _issue_number, _token):
+            return iter([])
+
+        def fake_github_json(method, api_path, **kwargs):
+            calls.append((method, api_path, kwargs.get("body")))
+            return {}, {}
+
+        fix_proposal_generator.stage1.iter_issue_comments = fake_iter
+        fix_proposal_generator.stage1.github_json = fake_github_json
+        try:
+            fix_proposal_generator.post_or_update_comment(
+                repo="Vectology-cloud-team/namma-rogue-agent",
+                issue_number="17",
+                token="token",
+                body="<!-- namma-ai-fix-proposal -->\nproposal",
+            )
+        finally:
+            fix_proposal_generator.stage1.iter_issue_comments = original_iter
+            fix_proposal_generator.stage1.github_json = original_github_json
+
+        self.assertEqual(
+            [
+                (
+                    "POST",
+                    "/repos/Vectology-cloud-team/namma-rogue-agent/issues/17/comments",
+                    {"body": "<!-- namma-ai-fix-proposal -->\nproposal"},
+                )
+            ],
+            calls,
+        )
+
+    def test_fix_proposal_comment_updates_existing_marker_comment(self):
+        original_iter = fix_proposal_generator.stage1.iter_issue_comments
+        original_github_json = fix_proposal_generator.stage1.github_json
+        calls = []
+
+        def fake_iter(_repo, _issue_number, _token):
+            return iter(
+                [
+                    {
+                        "id": 12345,
+                        "body": "<!-- namma-ai-fix-proposal -->\nold",
+                    }
+                ]
+            )
+
+        def fake_github_json(method, api_path, **kwargs):
+            calls.append((method, api_path, kwargs.get("body")))
+            return {}, {}
+
+        fix_proposal_generator.stage1.iter_issue_comments = fake_iter
+        fix_proposal_generator.stage1.github_json = fake_github_json
+        try:
+            fix_proposal_generator.post_or_update_comment(
+                repo="Vectology-cloud-team/namma-rogue-agent",
+                issue_number="17",
+                token="token",
+                body="<!-- namma-ai-fix-proposal -->\nnew",
+            )
+        finally:
+            fix_proposal_generator.stage1.iter_issue_comments = original_iter
+            fix_proposal_generator.stage1.github_json = original_github_json
+
+        self.assertEqual(
+            [
+                (
+                    "PATCH",
+                    "/repos/Vectology-cloud-team/namma-rogue-agent/issues/comments/12345",
+                    {"body": "<!-- namma-ai-fix-proposal -->\nnew"},
+                )
+            ],
+            calls,
+        )
+
+    def test_fix_proposal_comment_retry_revalidates_and_relists(self):
+        original_validate = fix_proposal_generator.stage1.validate_comment_target
+        original_iter = fix_proposal_generator.stage1.iter_issue_comments
+        original_github_json = fix_proposal_generator.stage1.github_json
+        validate_calls = []
+        list_calls = []
+        write_calls = []
+        list_responses = [
+            [],
+            [
+                {
+                    "id": 12345,
+                    "body": "<!-- namma-ai-fix-proposal -->\nold",
+                }
+            ],
+        ]
+
+        def fake_validate(repo, issue_number, head_sha, token):
+            validate_calls.append((repo, issue_number, head_sha, token))
+
+        def fake_iter(repo, issue_number, token):
+            list_calls.append((repo, issue_number, token))
+            return iter(list_responses.pop(0))
+
+        def fake_github_json(method, api_path, **kwargs):
+            write_calls.append((method, api_path, kwargs.get("body")))
+            if method == "POST":
+                raise fix_proposal_generator.retryable(
+                    fix_proposal_generator.FailureCode.NETWORK_ERROR,
+                    "temporary network error",
+                    "github_issue_comment_create",
+                )
+            return {}, {}
+
+        fix_proposal_generator.stage1.validate_comment_target = fake_validate
+        fix_proposal_generator.stage1.iter_issue_comments = fake_iter
+        fix_proposal_generator.stage1.github_json = fake_github_json
+        delays = []
+        try:
+            result = fix_proposal_generator.run_with_retry(
+                "github_fix_proposal_comment",
+                lambda: fix_proposal_generator.publish_fix_comment(
+                    repo="Vectology-cloud-team/namma-rogue-agent",
+                    issue_number="17",
+                    head_sha=FULL_SHA_B,
+                    token="token",
+                    body="<!-- namma-ai-fix-proposal -->\nnew",
+                ),
+                sleep_func=delays.append,
+            )
+        finally:
+            fix_proposal_generator.stage1.validate_comment_target = original_validate
+            fix_proposal_generator.stage1.iter_issue_comments = original_iter
+            fix_proposal_generator.stage1.github_json = original_github_json
+
+        self.assertEqual(2, result.attempts)
+        self.assertEqual([30], delays)
+        self.assertEqual(2, len(validate_calls))
+        self.assertEqual(2, len(list_calls))
+        self.assertEqual(
+            [
+                (
+                    "POST",
+                    "/repos/Vectology-cloud-team/namma-rogue-agent/issues/17/comments",
+                    {"body": "<!-- namma-ai-fix-proposal -->\nnew"},
+                ),
+                (
+                    "PATCH",
+                    "/repos/Vectology-cloud-team/namma-rogue-agent/issues/comments/12345",
+                    {"body": "<!-- namma-ai-fix-proposal -->\nnew"},
+                ),
+            ],
+            write_calls,
+        )
+
+    def test_fix_proposal_comment_retry_rechecks_stale_head_before_writing(self):
+        original_validate = fix_proposal_generator.stage1.validate_comment_target
+        original_iter = fix_proposal_generator.stage1.iter_issue_comments
+        original_github_json = fix_proposal_generator.stage1.github_json
+        validate_calls = []
+        list_calls = []
+        write_calls = []
+
+        def fake_validate(repo, issue_number, head_sha, token):
+            validate_calls.append((repo, issue_number, head_sha, token))
+            if len(validate_calls) == 2:
+                raise fix_proposal_generator.fatal(
+                    fix_proposal_generator.FailureCode.STALE_ARTIFACT,
+                    "pull request head changed before comment publication",
+                    "github_fix_comment_target",
+                )
+
+        def fake_iter(repo, issue_number, token):
+            list_calls.append((repo, issue_number, token))
+            return iter([])
+
+        def fake_github_json(method, api_path, **kwargs):
+            write_calls.append((method, api_path, kwargs.get("body")))
+            raise fix_proposal_generator.retryable(
+                fix_proposal_generator.FailureCode.NETWORK_ERROR,
+                "temporary network error",
+                "github_issue_comment_create",
+            )
+
+        fix_proposal_generator.stage1.validate_comment_target = fake_validate
+        fix_proposal_generator.stage1.iter_issue_comments = fake_iter
+        fix_proposal_generator.stage1.github_json = fake_github_json
+        delays = []
+        try:
+            with self.assertRaises(fix_proposal_generator.FixProposalFailure) as cm:
+                fix_proposal_generator.run_with_retry(
+                    "github_fix_proposal_comment",
+                    lambda: fix_proposal_generator.publish_fix_comment(
+                        repo="Vectology-cloud-team/namma-rogue-agent",
+                        issue_number="17",
+                        head_sha=FULL_SHA_B,
+                        token="token",
+                        body="<!-- namma-ai-fix-proposal -->\nnew",
+                    ),
+                    sleep_func=delays.append,
+                )
+        finally:
+            fix_proposal_generator.stage1.validate_comment_target = original_validate
+            fix_proposal_generator.stage1.iter_issue_comments = original_iter
+            fix_proposal_generator.stage1.github_json = original_github_json
+
+        self.assertEqual(
+            fix_proposal_generator.FailureClass.FATAL,
+            cm.exception.failure_class,
+        )
+        self.assertEqual(
+            fix_proposal_generator.FailureCode.STALE_ARTIFACT,
+            cm.exception.code,
+        )
+        self.assertEqual([30], delays)
+        self.assertEqual(2, len(validate_calls))
+        self.assertEqual(1, len(list_calls))
+        self.assertEqual(1, len(write_calls))
+
+    def test_fix_proposal_comment_uses_no_pull_request_review_api(self):
+        script = SCRIPT_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("/pulls/{issue_number}/comments", script)
+        self.assertNotIn("pulls.createReview", script)
+        self.assertNotIn("pulls.createReviewComment", script)
+        self.assertIn("/issues/{issue_number}/comments", script)
+        self.assertIn("/issues/comments/{comment_id}", script)
+
+    def test_forbidden_comment_permission_is_fatal_without_retry(self):
+        error = urllib.error.HTTPError(
+            "https://api.github.com/repos/example/repo/issues/17/comments",
+            403,
+            "Forbidden",
+            {},
+            None,
+        )
+        failure = fix_proposal_generator.classify_exception(
+            error,
+            "github_issue_comment_create",
+        )
+        self.assertEqual(
+            fix_proposal_generator.FailureClass.FATAL,
+            failure.failure_class,
+        )
+        self.assertEqual(
+            fix_proposal_generator.FailureCode.PERMISSION_ERROR,
+            failure.code,
         )
 
     def test_prepare_generation_defers_when_stage1_result_is_not_ready(self):

@@ -1368,6 +1368,41 @@ def iter_fix_comments(repo: str, issue_number: str, token: str) -> Iterable[dict
             yield comment
 
 
+def classify_github_operation(error: BaseException, operation: str) -> FixProposalFailure:
+    failure = classify_exception(error, operation)
+    return FixProposalFailure(
+        failure.failure_class,
+        failure.code,
+        failure.message,
+        operation,
+    )
+
+
+def validate_fix_comment_target(
+    *,
+    repo: str,
+    issue_number: str,
+    head_sha: str,
+    token: str,
+) -> None:
+    try:
+        stage1.validate_comment_target(repo, issue_number, head_sha, token)
+    except BaseException as error:
+        raise classify_github_operation(error, "github_fix_comment_target") from error
+
+
+def list_existing_fix_comments(
+    *,
+    repo: str,
+    issue_number: str,
+    token: str,
+) -> list[dict[str, Any]]:
+    try:
+        return list(iter_fix_comments(repo, issue_number, token))
+    except BaseException as error:
+        raise classify_github_operation(error, "github_issue_comments_list") from error
+
+
 def post_or_update_comment(
     *,
     repo: str,
@@ -1375,22 +1410,84 @@ def post_or_update_comment(
     token: str,
     body: str,
 ) -> None:
-    comments = list(iter_fix_comments(repo, issue_number, token))
+    comments = list_existing_fix_comments(
+        repo=repo,
+        issue_number=issue_number,
+        token=token,
+    )
     existing = comments[0] if comments else None
     if existing:
-        stage1.github_json(
-            "PATCH",
-            f"/repos/{repo}/issues/comments/{existing['id']}",
+        update_issue_comment(
+            repo=repo,
+            comment_id=str(existing["id"]),
             token=token,
-            body={"body": body},
+            body=body,
         )
     else:
+        create_issue_comment(
+            repo=repo,
+            issue_number=issue_number,
+            token=token,
+            body=body,
+        )
+
+
+def create_issue_comment(
+    *,
+    repo: str,
+    issue_number: str,
+    token: str,
+    body: str,
+) -> None:
+    try:
         stage1.github_json(
             "POST",
             f"/repos/{repo}/issues/{issue_number}/comments",
             token=token,
             body={"body": body},
         )
+    except BaseException as error:
+        raise classify_github_operation(error, "github_issue_comment_create") from error
+
+
+def update_issue_comment(
+    *,
+    repo: str,
+    comment_id: str,
+    token: str,
+    body: str,
+) -> None:
+    try:
+        stage1.github_json(
+            "PATCH",
+            f"/repos/{repo}/issues/comments/{comment_id}",
+            token=token,
+            body={"body": body},
+        )
+    except BaseException as error:
+        raise classify_github_operation(error, "github_issue_comment_update") from error
+
+
+def publish_fix_comment(
+    *,
+    repo: str,
+    issue_number: str,
+    head_sha: str,
+    token: str,
+    body: str,
+) -> None:
+    validate_fix_comment_target(
+        repo=repo,
+        issue_number=issue_number,
+        head_sha=head_sha,
+        token=token,
+    )
+    post_or_update_comment(
+        repo=repo,
+        issue_number=issue_number,
+        token=token,
+        body=body,
+    )
 
 
 def command_load_policy(_: argparse.Namespace) -> int:
@@ -1597,14 +1694,12 @@ def command_post_comment(_: argparse.Namespace) -> int:
             )
         run_with_retry(
             "github_fix_proposal_comment",
-            lambda: (
-                stage1.validate_comment_target(repo, issue_number, required_env("HEAD_SHA"), token),
-                post_or_update_comment(
-                    repo=repo,
-                    issue_number=issue_number,
-                    token=token,
-                    body=body,
-                ),
+            lambda: publish_fix_comment(
+                repo=repo,
+                issue_number=issue_number,
+                head_sha=required_env("HEAD_SHA"),
+                token=token,
+                body=body,
             ),
         )
         return 0
