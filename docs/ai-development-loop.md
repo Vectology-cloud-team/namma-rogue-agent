@@ -198,9 +198,11 @@ comment for a newer head SHA.
 The privileged reviewer verifies the artifact metadata against the live
 pull request before checking out the trusted prompt. The base repository,
 head repository, base SHA, and head SHA must match the live PR. The
-review diff is then refreshed from the GitHub API and replaces the
-collector-provided `review.diff`, so untrusted artifact contents cannot
-select the prompt base or forge the reviewed diff.
+live changed-file list must also match the manifest, and files without
+reviewable text patches cause a fail-closed result. The review diff is
+then refreshed from the GitHub API and replaces the collector-provided
+`review.diff`, so untrusted artifact contents cannot select the prompt
+base or forge the reviewed diff.
 
 Infrastructure failure reporting is kept separate from the AI review
 sticky comment. The reviewer does not overwrite an existing AI review

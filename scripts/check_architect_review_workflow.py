@@ -206,6 +206,7 @@ def check_reviewer_text(text: str) -> list[CheckResult]:
     _add(results, "reviewer checks author association", "ALLOWED_AUTHOR_ASSOCIATIONS" in retry_script_text)
     _add(results, "reviewer checks current head SHA", 'manifest["head_sha"] != pull["head"]["sha"]' in retry_script_text)
     _add(results, "reviewer checks current base SHA", 'manifest["base_sha"] != pull["base"]["sha"]' in retry_script_text)
+    _add(results, "reviewer validates live PR file list", "validate_live_pr_files" in retry_script_text and "iter_live_pr_files" in retry_script_text)
     _add(results, "reviewer refreshes review diff from GitHub", "application/vnd.github.v3.diff" in retry_script_text and "refresh_review_diff_from_github" in retry_script_text)
     _add(results, "reviewer fails stale artifact without comment", "STALE_ARTIFACT" in retry_script_text)
     _add(results, "reviewer validates artifact paths", "PATH_TRAVERSAL" in retry_script_text)

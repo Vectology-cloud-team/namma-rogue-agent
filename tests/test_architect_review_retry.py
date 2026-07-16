@@ -541,6 +541,77 @@ class ArchitectReviewRetryTests(unittest.TestCase):
             raised.exception.code,
         )
 
+    def test_live_pr_files_changed_count_mismatch_is_stale(self):
+        manifest = self.base_manifest(4)
+        files = [
+            {"filename": "one.txt", "patch": "@@ -1 +1 @@\n-old\n+new"},
+            {"filename": "two.txt", "patch": "@@ -1 +1 @@\n-old\n+new"},
+        ]
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pr_files(manifest, files)
+        self.assertEqual(
+            architect_review_retry.FailureCode.STALE_ARTIFACT,
+            raised.exception.code,
+        )
+
+    def test_live_pr_files_unreviewable_file_fails_closed(self):
+        manifest = self.base_manifest(4)
+        manifest["binary_file_count"] = 1
+        manifest["binary_files_omitted"] = ["image.png"]
+        files = [{"filename": "image.png"}]
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pr_files(manifest, files)
+        self.assertEqual(
+            architect_review_retry.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            raised.exception.code,
+        )
+
+    def test_live_pr_files_binary_metadata_mismatch_is_rejected(self):
+        manifest = self.base_manifest(4)
+        manifest["binary_file_count"] = 1
+        manifest["binary_files_omitted"] = ["wrong.png"]
+        files = [{"filename": "image.png"}]
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.validate_live_pr_files(manifest, files)
+        self.assertEqual(
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+            raised.exception.code,
+        )
+
+    def test_iter_live_pr_files_follows_pagination(self):
+        original = architect_review_retry.github_json
+        calls = []
+
+        def fake_github_json(method, api_path, **kwargs):
+            calls.append(api_path)
+            self.assertEqual("GET", method)
+            self.assertEqual("token", kwargs["token"])
+            if "page=2" in api_path:
+                return ([{"filename": "two.txt", "patch": "patch"}], {})
+            return (
+                [{"filename": "one.txt", "patch": "patch"}],
+                {
+                    "Link": (
+                        '<https://api.github.com/repos/x/y/pulls/13/files?'
+                        'per_page=100&page=2>; rel="next"'
+                    )
+                },
+            )
+
+        architect_review_retry.github_json = fake_github_json
+        try:
+            files = list(
+                architect_review_retry.iter_live_pr_files(
+                    "x/y",
+                    13,
+                    "token",
+                )
+            )
+        finally:
+            architect_review_retry.github_json = original
+        self.assertEqual(["one.txt", "two.txt"], [item["filename"] for item in files])
+        self.assertEqual(2, len(calls))
+
     def test_success_approved_does_not_fail_workflow(self):
         self.assertEqual(
             architect_review_retry.SuccessCode.APPROVED,

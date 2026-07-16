@@ -122,6 +122,7 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
         )
         self.assertIn('manifest["head_sha"] != pull["head"]["sha"]', script)
         self.assertIn('manifest["base_sha"] != pull["base"]["sha"]', script)
+        self.assertIn("validate_live_pr_files", script)
         self.assertIn("application/vnd.github.v3.diff", script)
         self.assertIn("STALE_ARTIFACT", script)
 

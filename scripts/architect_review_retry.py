@@ -863,6 +863,53 @@ def refresh_review_diff_from_github(
     diff_path.write_bytes(data)
 
 
+def iter_live_pr_files(repo: str, pull_request_number: int, token: str) -> Iterable[dict[str, Any]]:
+    next_path = f"/repos/{repo}/pulls/{pull_request_number}/files?per_page=100"
+    while next_path:
+        data, headers = github_json("GET", next_path, token=token)
+        if not isinstance(data, list):
+            raise fatal(
+                FailureCode.INVALID_MANIFEST,
+                "live pull request files response was not an array",
+                "github_pr_files",
+            )
+        yield from data
+        next_path = parse_next_link(headers.get("Link", ""))
+
+
+def validate_live_pr_files(manifest: dict[str, Any], files: list[dict[str, Any]]) -> None:
+    if len(files) != manifest["changed_file_count"]:
+        raise fatal(
+            FailureCode.STALE_ARTIFACT,
+            "live changed-file count does not match manifest",
+            "github_pr_files",
+        )
+    unreviewable_files = sorted(
+        str(file_info.get("filename", ""))
+        for file_info in files
+        if not isinstance(file_info.get("patch"), str)
+    )
+    manifest_omitted = sorted(str(path) for path in manifest["binary_files_omitted"])
+    if manifest["binary_file_count"] != len(unreviewable_files):
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            "manifest binary_file_count does not match live unreviewable files",
+            "github_pr_files",
+        )
+    if manifest_omitted != unreviewable_files:
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            "manifest binary_files_omitted does not match live unreviewable files",
+            "github_pr_files",
+        )
+    if unreviewable_files:
+        raise fatal(
+            FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "pull request contains files without reviewable text patches",
+            "github_pr_files",
+        )
+
+
 def validate_workflow_run_identity() -> None:
     if required_env("WORKFLOW_RUN_NAME") != required_env("EXPECTED_COLLECTOR_WORKFLOW"):
         raise fatal(
@@ -927,6 +974,17 @@ def command_validate_review_input(_: argparse.Namespace) -> int:
             print("Skipping pull request from author without write-level association.")
             github_output(outputs_for_skip(manifest))
             return 0
+        live_files = run_with_retry(
+            "github_pr_files",
+            lambda: list(
+                iter_live_pr_files(
+                    repo,
+                    manifest["pull_request_number"],
+                    token,
+                )
+            ),
+        ).value
+        validate_live_pr_files(manifest, live_files)
         run_with_retry(
             "github_pr_diff",
             lambda: refresh_review_diff_from_github(
