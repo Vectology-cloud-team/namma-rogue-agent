@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import io
 import json
 import os
@@ -50,6 +51,7 @@ EXPECTED_MANIFEST_KEYS = (
 ALLOWED_AUTHOR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 COMMENT_MARKER = "<!-- namma-ai-architect-review -->"
+POLICY_VERSION = "architect-review-policy-v1"
 
 
 class FailureClass(str, Enum):
@@ -105,6 +107,25 @@ class RetryExhausted(Exception):
 class RetrySuccess:
     value: Any
     attempts: int
+
+
+@dataclass(frozen=True)
+class ReviewPolicy:
+    model: str
+    effort: str
+    max_changed_files: int
+    max_diff_bytes: int
+    max_prompt_bytes: int
+    max_artifact_bytes: int
+    exclude: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ReviewInputBudget:
+    total_files: int
+    reviewed_files: int
+    excluded_files: int
+    diff_bytes: int
 
 
 def retryable(code: FailureCode, message: str, operation: str) -> ReviewFailure:
@@ -303,6 +324,216 @@ def write_job_summary(text: str) -> None:
     print(text)
 
 
+def parse_size(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise fatal(
+            FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            f"review policy {field_name} must be a positive integer",
+            "review_policy",
+        )
+    return value
+
+
+def policy_int(limits: dict[str, Any], key: str, default: int | None = None) -> int:
+    raw_value = limits.get(key, default)
+    if isinstance(raw_value, bool) or raw_value is None:
+        return parse_size(raw_value, f"limits.{key}")
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as error:
+        raise fatal(
+            FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            f"review policy limits.{key} must be a positive integer",
+            "review_policy",
+        ) from error
+    return parse_size(value, f"limits.{key}")
+
+
+def clean_yaml_value(value: str) -> str:
+    value = value.strip()
+    if value.startswith(("'", '"')) and value.endswith(("'", '"')) and len(value) >= 2:
+        return value[1:-1]
+    return value
+
+
+def parse_review_policy_text(text: str) -> ReviewPolicy:
+    top: dict[str, Any] = {}
+    section = ""
+    for raw_line in text.splitlines():
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        line = raw_line.strip()
+        if indent == 0:
+            if line.endswith(":"):
+                section = line[:-1]
+                top.setdefault(section, [] if section == "exclude" else {})
+                continue
+            key, separator, value = line.partition(":")
+            if not separator:
+                raise fatal(
+                    FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+                    f"invalid review policy line: {raw_line}",
+                    "review_policy",
+                )
+            section = ""
+            top[key.strip()] = clean_yaml_value(value)
+            continue
+        if section == "exclude":
+            if not line.startswith("- "):
+                raise fatal(
+                    FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+                    f"invalid review policy exclude entry: {raw_line}",
+                    "review_policy",
+                )
+            top.setdefault("exclude", []).append(clean_yaml_value(line[2:]))
+            continue
+        key, separator, value = line.partition(":")
+        if not section or not separator:
+            raise fatal(
+                FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+                f"invalid review policy nested line: {raw_line}",
+                "review_policy",
+            )
+        nested = top.setdefault(section, {})
+        if not isinstance(nested, dict):
+            raise fatal(
+                FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+                f"invalid review policy section: {section}",
+                "review_policy",
+            )
+        nested[key.strip()] = clean_yaml_value(value)
+
+    model = str(top.get("model", "")).strip()
+    reasoning = top.get("reasoning", {})
+    limits = top.get("limits", {})
+    exclude = top.get("exclude", [])
+    if not model:
+        raise fatal(
+            FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            "review policy model is required",
+            "review_policy",
+        )
+    if not isinstance(reasoning, dict) or not str(reasoning.get("effort", "")).strip():
+        raise fatal(
+            FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            "review policy reasoning.effort is required",
+            "review_policy",
+        )
+    if not isinstance(limits, dict):
+        raise fatal(
+            FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            "review policy limits section is required",
+            "review_policy",
+        )
+    if not isinstance(exclude, list) or not all(isinstance(item, str) for item in exclude):
+        raise fatal(
+            FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            "review policy exclude must be a list of strings",
+            "review_policy",
+        )
+    max_diff_bytes = policy_int(limits, "max_diff_bytes")
+    default_artifact_bytes = max(max_diff_bytes + 50000, 250000)
+    return ReviewPolicy(
+        model=model,
+        effort=str(reasoning["effort"]).strip(),
+        max_changed_files=policy_int(limits, "max_changed_files"),
+        max_diff_bytes=max_diff_bytes,
+        max_prompt_bytes=policy_int(limits, "max_prompt_bytes"),
+        max_artifact_bytes=policy_int(limits, "max_artifact_bytes", default_artifact_bytes),
+        exclude=tuple(item.strip() for item in exclude if item.strip()),
+    )
+
+
+def load_review_policy(path: Path) -> ReviewPolicy:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        raise fatal(
+            FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            "trusted review policy is missing",
+            "review_policy",
+        ) from error
+    return parse_review_policy_text(text)
+
+
+def review_policy_from_env() -> ReviewPolicy:
+    return ReviewPolicy(
+        model=required_env("REVIEW_MODEL"),
+        effort=required_env("REVIEW_EFFORT"),
+        max_changed_files=int(required_env("MAX_CHANGED_FILES")),
+        max_diff_bytes=int(required_env("MAX_DIFF_BYTES")),
+        max_prompt_bytes=int(required_env("MAX_PROMPT_BYTES")),
+        max_artifact_bytes=int(required_env("MAX_ARTIFACT_BYTES")),
+        exclude=tuple(json.loads(required_env("POLICY_EXCLUDE_JSON"))),
+    )
+
+
+def format_bytes(byte_count: int) -> str:
+    if byte_count < 1024:
+        return f"{byte_count} B"
+    return f"{byte_count / 1024:.1f} KB"
+
+
+def policy_summary(policy: ReviewPolicy) -> str:
+    exclude_text = ", ".join(policy.exclude) if policy.exclude else "None"
+    return "\n".join(
+        [
+            "## Review Policy",
+            "",
+            f"- Policy: `{POLICY_VERSION}`",
+            f"- Model: `{policy.model}`",
+            f"- Reasoning: `{policy.effort}`",
+            f"- Max changed files: `{policy.max_changed_files}`",
+            f"- Max diff: `{format_bytes(policy.max_diff_bytes)}`",
+            f"- Max prompt: `{format_bytes(policy.max_prompt_bytes)}`",
+            f"- Exclude: `{exclude_text}`",
+            "",
+        ]
+    )
+
+
+def review_input_summary(policy: ReviewPolicy, budget: ReviewInputBudget) -> str:
+    return "\n".join(
+        [
+            "## Review Input",
+            "",
+            f"- Files: `{budget.reviewed_files}` reviewed / `{budget.total_files}` changed",
+            f"- Excluded files: `{budget.excluded_files}`",
+            f"- Diff: `{format_bytes(budget.diff_bytes)}`",
+            f"- Model: `{policy.model}`",
+            f"- Reasoning: `{policy.effort}`",
+            "",
+        ]
+    )
+
+
+def skipped_review_message(reason: str, detail: str) -> str:
+    return "\n".join(
+        [
+            "VERDICT: HUMAN_DECISION_REQUIRED",
+            "",
+            "SUMMARY",
+            "Review skipped by trusted Reviewer policy.",
+            "",
+            "BLOCKING FINDINGS",
+            "None.",
+            "",
+            "NON-BLOCKING FINDINGS",
+            "None.",
+            "",
+            "REQUIRED TESTS",
+            "None.",
+            "",
+            "SCOPE VIOLATIONS",
+            "None.",
+            "",
+            "HUMAN DECISIONS",
+            f"{reason}: {detail}",
+        ]
+    )
+
+
 def fail_command(error: BaseException, *, pr_number: str = "", head_sha: str = "") -> int:
     if isinstance(error, RetryExhausted):
         failure = error.failure
@@ -440,6 +671,27 @@ def http_request_with_safe_redirects(
                 redirects_remaining=redirects_remaining - 1,
             )
         raise
+
+
+def command_load_policy(_: argparse.Namespace) -> int:
+    try:
+        policy = load_review_policy(Path(required_env("REVIEW_POLICY")))
+        write_job_summary(policy_summary(policy))
+        github_output(
+            {
+                "policy_version": POLICY_VERSION,
+                "model": policy.model,
+                "effort": policy.effort,
+                "max_changed_files": str(policy.max_changed_files),
+                "max_diff_bytes": str(policy.max_diff_bytes),
+                "max_prompt_bytes": str(policy.max_prompt_bytes),
+                "max_artifact_bytes": str(policy.max_artifact_bytes),
+                "exclude_json": json.dumps(list(policy.exclude), separators=(",", ":")),
+            }
+        )
+        return 0
+    except BaseException as error:
+        return fail_command(error)
 
 
 def github_json(
@@ -726,12 +978,6 @@ def validate_manifest_shape(
             "manifest changed_file_count must be a non-negative integer",
             "review_input_validation",
         )
-    if manifest["changed_file_count"] > int(required_env("MAX_CHANGED_FILES")):
-        raise fatal(
-            FailureCode.INVALID_MANIFEST,
-            "manifest changed_file_count exceeds configured maximum",
-            "review_input_validation",
-        )
     diff_bytes = diff_path.stat().st_size
     manifest_bytes = manifest_path.stat().st_size
     if not is_non_negative_int(manifest["diff_bytes"]):
@@ -744,12 +990,6 @@ def validate_manifest_shape(
         raise fatal(
             FailureCode.INVALID_MANIFEST,
             "manifest diff_bytes does not match review.diff",
-            "review_input_validation",
-        )
-    if diff_bytes > int(required_env("MAX_DIFF_BYTES")):
-        raise fatal(
-            FailureCode.INVALID_MANIFEST,
-            "review.diff exceeds configured maximum size",
             "review_input_validation",
         )
     if diff_bytes + manifest_bytes > int(required_env("MAX_ARTIFACT_BYTES")):
@@ -790,17 +1030,6 @@ def validate_manifest_shape(
                 f"manifest limits.{key} must be a non-negative integer",
                 "review_input_validation",
             )
-    expected_limits = {
-        "max_diff_bytes": int(required_env("MAX_DIFF_BYTES")),
-        "max_changed_files": int(required_env("MAX_CHANGED_FILES")),
-        "max_artifact_bytes": int(required_env("MAX_ARTIFACT_BYTES")),
-    }
-    if limits != expected_limits:
-        raise fatal(
-            FailureCode.INVALID_MANIFEST,
-            "manifest limits do not match reviewer limits",
-            "review_input_validation",
-        )
 
 
 def validate_live_pull_request(manifest: dict[str, Any], pull: dict[str, Any]) -> None:
@@ -844,22 +1073,16 @@ def refresh_review_diff_from_github(
     pull_request_number: int,
     token: str,
     diff_path: Path,
-    max_diff_bytes: int,
+    max_response_bytes: int,
 ) -> None:
     data, _ = github_api_request(
         "GET",
         f"/repos/{repo}/pulls/{pull_request_number}",
         token=token,
         accept="application/vnd.github.v3.diff",
-        max_response_bytes=max_diff_bytes,
+        max_response_bytes=max_response_bytes,
         operation="github_pr_diff",
     )
-    if len(data) > max_diff_bytes:
-        raise fatal(
-            FailureCode.INVALID_MANIFEST,
-            "live pull request diff exceeds configured maximum size",
-            "review_input_validation",
-        )
     diff_path.write_bytes(data)
 
 
@@ -877,7 +1100,24 @@ def iter_live_pr_files(repo: str, pull_request_number: int, token: str) -> Itera
         next_path = parse_next_link(headers.get("Link", ""))
 
 
-def validate_live_pr_files(manifest: dict[str, Any], files: list[dict[str, Any]]) -> None:
+def normalized_repo_path(path: str) -> str:
+    return path.replace("\\", "/").lstrip("/")
+
+
+def path_matches_exclude(path: str, patterns: tuple[str, ...]) -> bool:
+    normalized = normalized_repo_path(path)
+    return any(fnmatch.fnmatchcase(normalized, pattern) for pattern in patterns)
+
+
+def file_is_excluded(file_info: dict[str, Any], policy: ReviewPolicy) -> bool:
+    return path_matches_exclude(str(file_info.get("filename", "")), policy.exclude)
+
+
+def validate_live_pr_files(
+    manifest: dict[str, Any],
+    files: list[dict[str, Any]],
+    policy: ReviewPolicy,
+) -> None:
     if len(files) != manifest["changed_file_count"]:
         raise fatal(
             FailureCode.STALE_ARTIFACT,
@@ -902,12 +1142,72 @@ def validate_live_pr_files(manifest: dict[str, Any], files: list[dict[str, Any]]
             "manifest binary_files_omitted does not match live unreviewable files",
             "github_pr_files",
         )
-    if unreviewable_files:
+    unreviewable_not_excluded = [
+        path
+        for path in unreviewable_files
+        if not path_matches_exclude(path, policy.exclude)
+    ]
+    if unreviewable_not_excluded:
         raise fatal(
             FailureCode.TRUST_BOUNDARY_VIOLATION,
-            "pull request contains files without reviewable text patches",
+            "pull request contains non-excluded files without reviewable text patches",
             "github_pr_files",
         )
+
+
+def diff_section_paths(section: list[str]) -> set[str]:
+    paths: set[str] = set()
+    for line in section:
+        if line.startswith("diff --git "):
+            parts = line.strip().split()
+            for raw_path in parts[2:4]:
+                if raw_path.startswith(("a/", "b/")):
+                    paths.add(normalized_repo_path(raw_path[2:]))
+        elif line.startswith(("--- ", "+++ ")):
+            raw_path = line[4:].strip().split("\t", 1)[0]
+            if raw_path == "/dev/null":
+                continue
+            if raw_path.startswith(("a/", "b/")):
+                paths.add(normalized_repo_path(raw_path[2:]))
+    return paths
+
+
+def split_diff_sections(diff_text: str) -> list[list[str]]:
+    sections: list[list[str]] = []
+    current: list[str] = []
+    for line in diff_text.splitlines(keepends=True):
+        if line.startswith("diff --git ") and current:
+            sections.append(current)
+            current = []
+        current.append(line)
+    if current:
+        sections.append(current)
+    return sections
+
+
+def filter_unified_diff(diff_bytes: bytes, policy: ReviewPolicy) -> bytes:
+    diff_text = diff_bytes.decode("utf-8", errors="replace")
+    kept_sections: list[str] = []
+    for section in split_diff_sections(diff_text):
+        paths = diff_section_paths(section)
+        if paths and all(path_matches_exclude(path, policy.exclude) for path in paths):
+            continue
+        kept_sections.append("".join(section))
+    return "".join(kept_sections).encode("utf-8")
+
+
+def review_input_budget(
+    files: list[dict[str, Any]],
+    filtered_diff_bytes: bytes,
+    policy: ReviewPolicy,
+) -> ReviewInputBudget:
+    excluded_files = [file_info for file_info in files if file_is_excluded(file_info, policy)]
+    return ReviewInputBudget(
+        total_files=len(files),
+        reviewed_files=len(files) - len(excluded_files),
+        excluded_files=len(excluded_files),
+        diff_bytes=len(filtered_diff_bytes),
+    )
 
 
 def validate_workflow_run_identity() -> None:
@@ -941,6 +1241,7 @@ def command_validate_review_input(_: argparse.Namespace) -> int:
     root = Path(required_env("REVIEW_INPUT_DIR")).resolve()
     token = required_env("GITHUB_TOKEN")
     repo = required_env("GITHUB_REPOSITORY")
+    policy = review_policy_from_env()
     manifest: dict[str, Any] | None = None
     try:
         validate_workflow_run_identity()
@@ -984,7 +1285,7 @@ def command_validate_review_input(_: argparse.Namespace) -> int:
                 )
             ),
         ).value
-        validate_live_pr_files(manifest, live_files)
+        validate_live_pr_files(manifest, live_files, policy)
         run_with_retry(
             "github_pr_diff",
             lambda: refresh_review_diff_from_github(
@@ -992,17 +1293,70 @@ def command_validate_review_input(_: argparse.Namespace) -> int:
                 pull_request_number=manifest["pull_request_number"],
                 token=token,
                 diff_path=diff_path,
-                max_diff_bytes=int(required_env("MAX_DIFF_BYTES")),
+                max_response_bytes=policy.max_artifact_bytes,
             ),
         )
+        filtered_diff = filter_unified_diff(diff_path.read_bytes(), policy)
+        diff_path.write_bytes(filtered_diff)
+        budget = review_input_budget(live_files, filtered_diff, policy)
+        write_job_summary(review_input_summary(policy, budget))
         pull_after_diff = run_with_retry("github_pr_revalidate", fetch_pr).value
         validate_live_pull_request(manifest, pull_after_diff)
+        if budget.reviewed_files == 0:
+            detail = "all changed files were excluded by trusted review policy"
+            github_output(
+                outputs_for_budget_skip(
+                    manifest,
+                    pull_after_diff,
+                    budget,
+                    "Review input excluded",
+                    detail,
+                )
+            )
+            return 0
+        if budget.reviewed_files > policy.max_changed_files:
+            detail = (
+                f"{budget.reviewed_files} reviewable files exceeds "
+                f"{policy.max_changed_files}"
+            )
+            github_output(
+                outputs_for_budget_skip(
+                    manifest,
+                    pull_after_diff,
+                    budget,
+                    "Diff budget exceeded",
+                    detail,
+                )
+            )
+            return 0
+        if budget.diff_bytes > policy.max_diff_bytes:
+            detail = (
+                f"{budget.diff_bytes} review diff bytes exceeds "
+                f"{policy.max_diff_bytes}"
+            )
+            github_output(
+                outputs_for_budget_skip(
+                    manifest,
+                    pull_after_diff,
+                    budget,
+                    "Diff budget exceeded",
+                    detail,
+                )
+            )
+            return 0
         github_output(
             {
                 "should_review": "true",
+                "should_comment": "true",
                 "pr_number": str(manifest["pull_request_number"]),
                 "head_sha": pull_after_diff["head"]["sha"],
                 "base_sha": pull_after_diff["base"]["sha"],
+                "review_status": "pending_codex",
+                "final_message": "",
+                "total_files": str(budget.total_files),
+                "reviewed_files": str(budget.reviewed_files),
+                "excluded_files": str(budget.excluded_files),
+                "diff_bytes": str(budget.diff_bytes),
             }
         )
         return 0
@@ -1015,9 +1369,38 @@ def command_validate_review_input(_: argparse.Namespace) -> int:
 def outputs_for_skip(manifest: dict[str, Any]) -> dict[str, str]:
     return {
         "should_review": "false",
+        "should_comment": "false",
         "pr_number": str(manifest["pull_request_number"]),
         "head_sha": str(manifest["head_sha"]),
         "base_sha": str(manifest["base_sha"]),
+        "review_status": "skipped",
+        "final_message": "",
+        "total_files": str(manifest["changed_file_count"]),
+        "reviewed_files": "0",
+        "excluded_files": "0",
+        "diff_bytes": "0",
+    }
+
+
+def outputs_for_budget_skip(
+    manifest: dict[str, Any],
+    pull: dict[str, Any],
+    budget: ReviewInputBudget,
+    reason: str,
+    detail: str,
+) -> dict[str, str]:
+    return {
+        "should_review": "false",
+        "should_comment": "true",
+        "pr_number": str(manifest["pull_request_number"]),
+        "head_sha": str(pull["head"]["sha"]),
+        "base_sha": str(pull["base"]["sha"]),
+        "review_status": "skipped",
+        "final_message": skipped_review_message(reason, detail),
+        "total_files": str(budget.total_files),
+        "reviewed_files": str(budget.reviewed_files),
+        "excluded_files": str(budget.excluded_files),
+        "diff_bytes": str(budget.diff_bytes),
     }
 
 
@@ -1030,6 +1413,45 @@ def command_verify_prompt(_: argparse.Namespace) -> int:
                 "trusted architect-review prompt is missing from the base SHA",
                 "trusted_prompt",
             )
+        prompt_bytes = prompt_path.stat().st_size
+        max_prompt_bytes = int(required_env("MAX_PROMPT_BYTES"))
+        write_job_summary(
+            "\n".join(
+                [
+                    "## Review Prompt",
+                    "",
+                    f"- Prompt: `{format_bytes(prompt_bytes)}`",
+                    f"- Max prompt: `{format_bytes(max_prompt_bytes)}`",
+                    "",
+                ]
+            )
+        )
+        if prompt_bytes > max_prompt_bytes:
+            github_output(
+                {
+                    "prompt_ok": "false",
+                    "prompt_bytes": str(prompt_bytes),
+                    "should_comment": "true",
+                    "review_status": "skipped",
+                    "final_message": skipped_review_message(
+                        "Prompt budget exceeded",
+                        (
+                            f"trusted prompt size {prompt_bytes} bytes exceeds "
+                            f"{max_prompt_bytes} bytes; Prompt truncated/skipped"
+                        ),
+                    ),
+                }
+            )
+            return 0
+        github_output(
+            {
+                "prompt_ok": "true",
+                "prompt_bytes": str(prompt_bytes),
+                "should_comment": "false",
+                "review_status": "prompt_ok",
+                "final_message": "",
+            }
+        )
         return 0
     except BaseException as error:
         return fail_command(
@@ -1139,6 +1561,7 @@ def command_finalize_codex(_: argparse.Namespace) -> int:
                     "final_message": final_message,
                     "success_code": success_code.value,
                     "attempts": str(index + 1),
+                    "review_status": "completed",
                 }
             )
             return 0
@@ -1159,10 +1582,21 @@ def build_comment_body(
     final_message: str,
     reviewed_sha: str,
     prompt_version: str,
+    policy_version: str,
+    model: str,
+    effort: str,
+    review_status: str,
+    total_files: str,
+    reviewed_files: str,
+    excluded_files: str,
+    diff_bytes: str,
+    prompt_bytes: str,
     workflow_run_id: str,
     repo: str,
 ) -> str:
     success_code = normalize_success_code(final_message)
+    diff_display = format_bytes(int(diff_bytes or "0"))
+    prompt_display = format_bytes(int(prompt_bytes or "0"))
     return "\n".join(
         [
             COMMENT_MARKER,
@@ -1175,6 +1609,17 @@ def build_comment_body(
             f"- Workflow run: [{workflow_run_id}](https://github.com/{repo}/actions/runs/{workflow_run_id})",
             f"- Prompt version: `{prompt_version}`",
             f"- Verdict: `VERDICT: {success_code.value}`",
+            "",
+            "### Review Policy",
+            "",
+            f"- Policy: `{policy_version}`",
+            f"- Model: `{model}`",
+            f"- Reasoning: `{effort}`",
+            f"- Files: `{reviewed_files}` reviewed / `{total_files}` changed",
+            f"- Excluded files: `{excluded_files}`",
+            f"- Diff: `{diff_display}`",
+            f"- Prompt: `{prompt_display}`",
+            f"- Review: `{review_status}`",
             "",
             final_message,
         ]
@@ -1206,12 +1651,30 @@ def command_post_comment(_: argparse.Namespace) -> int:
     issue_number = required_env("PR_NUMBER")
     reviewed_sha = required_env("REVIEWED_SHA")
     prompt_version = required_env("PROMPT_VERSION")
+    policy_version = required_env("POLICY_VERSION")
+    model = required_env("REVIEW_MODEL")
+    effort = required_env("REVIEW_EFFORT")
+    review_status = required_env("REVIEW_STATUS")
+    total_files = required_env("TOTAL_FILES")
+    reviewed_files = required_env("REVIEWED_FILES")
+    excluded_files = required_env("EXCLUDED_FILES")
+    diff_bytes = required_env("DIFF_BYTES")
+    prompt_bytes = required_env("PROMPT_BYTES")
     workflow_run_id = required_env("WORKFLOW_RUN_ID")
     final_message = os.environ.get("FINAL_MESSAGE") or "VERDICT: HUMAN_DECISION_REQUIRED"
     body = build_comment_body(
         final_message=final_message,
         reviewed_sha=reviewed_sha,
         prompt_version=prompt_version,
+        policy_version=policy_version,
+        model=model,
+        effort=effort,
+        review_status=review_status,
+        total_files=total_files,
+        reviewed_files=reviewed_files,
+        excluded_files=excluded_files,
+        diff_bytes=diff_bytes,
+        prompt_bytes=prompt_bytes,
         workflow_run_id=workflow_run_id,
         repo=repo,
     )
@@ -1251,6 +1714,7 @@ def command_post_comment(_: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("load-policy").set_defaults(func=command_load_policy)
     subparsers.add_parser("download-artifact").set_defaults(func=command_download_artifact)
     subparsers.add_parser("validate-review-input").set_defaults(
         func=command_validate_review_input

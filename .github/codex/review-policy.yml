@@ -1,0 +1,18 @@
+model: gpt-5.5
+
+reasoning:
+  effort: medium
+
+limits:
+  max_changed_files: 50
+  max_diff_bytes: 200000
+  max_prompt_bytes: 200000
+  max_artifact_bytes: 250000
+
+exclude:
+  - "*.png"
+  - "*.jpg"
+  - "*.jpeg"
+  - "*.pdf"
+  - "vendor/**"
+  - "third_party/**"

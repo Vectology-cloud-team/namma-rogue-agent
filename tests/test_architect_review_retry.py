@@ -38,6 +38,175 @@ class ArchitectReviewRetryTests(unittest.TestCase):
             "test_operation",
         )
 
+    def review_policy(self, **overrides):
+        values = {
+            "model": "gpt-5.5",
+            "effort": "medium",
+            "max_changed_files": 50,
+            "max_diff_bytes": 200000,
+            "max_prompt_bytes": 200000,
+            "max_artifact_bytes": 250000,
+            "exclude": ("*.png", "vendor/**"),
+        }
+        values.update(overrides)
+        return architect_review_retry.ReviewPolicy(**values)
+
+    def policy_text(self):
+        return "\n".join(
+            [
+                "model: gpt-5.5",
+                "",
+                "reasoning:",
+                "  effort: medium",
+                "",
+                "limits:",
+                "  max_changed_files: 50",
+                "  max_diff_bytes: 200000",
+                "  max_prompt_bytes: 200000",
+                "  max_artifact_bytes: 250000",
+                "",
+                "exclude:",
+                "  - \"*.png\"",
+                "  - \"vendor/**\"",
+                "",
+            ]
+        )
+
+    def test_review_policy_file_parses_required_settings(self):
+        policy = architect_review_retry.parse_review_policy_text(self.policy_text())
+        self.assertEqual("gpt-5.5", policy.model)
+        self.assertEqual("medium", policy.effort)
+        self.assertEqual(50, policy.max_changed_files)
+        self.assertEqual(200000, policy.max_diff_bytes)
+        self.assertEqual(200000, policy.max_prompt_bytes)
+        self.assertIn("vendor/**", policy.exclude)
+
+    def test_review_policy_model_is_required(self):
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.parse_review_policy_text(
+                self.policy_text().replace("model: gpt-5.5\n", "")
+            )
+        self.assertEqual(
+            architect_review_retry.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            raised.exception.code,
+        )
+
+    def test_review_policy_effort_is_required(self):
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.parse_review_policy_text(
+                self.policy_text().replace("  effort: medium\n", "")
+            )
+        self.assertEqual(
+            architect_review_retry.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            raised.exception.code,
+        )
+
+    def test_review_policy_exclude_matches_paths(self):
+        policy = self.review_policy()
+        self.assertTrue(architect_review_retry.path_matches_exclude("logo.png", policy.exclude))
+        self.assertTrue(
+            architect_review_retry.path_matches_exclude(
+                "vendor/library/file.c",
+                policy.exclude,
+            )
+        )
+        self.assertFalse(architect_review_retry.path_matches_exclude("src/main.py", policy.exclude))
+
+    def test_filter_unified_diff_removes_excluded_sections(self):
+        diff = (
+            "diff --git a/src/main.py b/src/main.py\n"
+            "--- a/src/main.py\n"
+            "+++ b/src/main.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+            "diff --git a/vendor/lib.c b/vendor/lib.c\n"
+            "--- a/vendor/lib.c\n"
+            "+++ b/vendor/lib.c\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        ).encode("utf-8")
+        filtered = architect_review_retry.filter_unified_diff(diff, self.review_policy())
+        self.assertIn(b"src/main.py", filtered)
+        self.assertNotIn(b"vendor/lib.c", filtered)
+
+    def test_review_input_budget_counts_excluded_files(self):
+        files = [
+            {"filename": "src/main.py", "patch": "patch"},
+            {"filename": "vendor/lib.c", "patch": "patch"},
+        ]
+        budget = architect_review_retry.review_input_budget(
+            files,
+            b"diff",
+            self.review_policy(),
+        )
+        self.assertEqual(2, budget.total_files)
+        self.assertEqual(1, budget.reviewed_files)
+        self.assertEqual(1, budget.excluded_files)
+        self.assertEqual(4, budget.diff_bytes)
+
+    def test_policy_summary_includes_model_effort_and_budgets(self):
+        summary = architect_review_retry.policy_summary(self.review_policy())
+        self.assertIn("gpt-5.5", summary)
+        self.assertIn("medium", summary)
+        self.assertIn("Max changed files", summary)
+
+    def test_skipped_review_message_reports_budget_reason(self):
+        message = architect_review_retry.skipped_review_message(
+            "Diff budget exceeded",
+            "100 files exceeds 50",
+        )
+        self.assertIn("VERDICT: HUMAN_DECISION_REQUIRED", message)
+        self.assertIn("Review skipped", message)
+        self.assertIn("Diff budget exceeded", message)
+
+    def test_verify_prompt_outputs_skip_when_prompt_budget_exceeded(self):
+        saved = os.environ.copy()
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                prompt = root / "prompt.md"
+                output = root / "github-output.txt"
+                prompt.write_text("x" * 20, encoding="utf-8")
+                os.environ.update(
+                    {
+                        "TRUSTED_PROMPT": str(prompt),
+                        "MAX_PROMPT_BYTES": "10",
+                        "GITHUB_OUTPUT": str(output),
+                    }
+                )
+                self.assertEqual(0, architect_review_retry.command_verify_prompt(None))
+                output_text = output.read_text(encoding="utf-8")
+                self.assertIn("prompt_ok=false", output_text)
+                self.assertIn("Prompt budget exceeded", output_text)
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+    def test_verify_prompt_outputs_ok_when_within_budget(self):
+        saved = os.environ.copy()
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                prompt = root / "prompt.md"
+                output = root / "github-output.txt"
+                prompt.write_text("short", encoding="utf-8")
+                os.environ.update(
+                    {
+                        "TRUSTED_PROMPT": str(prompt),
+                        "MAX_PROMPT_BYTES": "10",
+                        "GITHUB_OUTPUT": str(output),
+                    }
+                )
+                self.assertEqual(0, architect_review_retry.command_verify_prompt(None))
+                output_text = output.read_text(encoding="utf-8")
+                self.assertIn("prompt_ok=true", output_text)
+                self.assertIn("prompt_bytes=5", output_text)
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
     def test_retryable_first_failure_second_success(self):
         attempts = []
         sleeps = []
@@ -522,7 +691,7 @@ class ArchitectReviewRetryTests(unittest.TestCase):
                     pull_request_number=13,
                     token="token",
                     diff_path=diff_path,
-                    max_diff_bytes=1000,
+                    max_response_bytes=1000,
                 )
                 self.assertEqual(b"trusted live diff", diff_path.read_bytes())
         finally:
@@ -548,19 +717,30 @@ class ArchitectReviewRetryTests(unittest.TestCase):
             {"filename": "two.txt", "patch": "@@ -1 +1 @@\n-old\n+new"},
         ]
         with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
-            architect_review_retry.validate_live_pr_files(manifest, files)
+            architect_review_retry.validate_live_pr_files(manifest, files, self.review_policy())
         self.assertEqual(
             architect_review_retry.FailureCode.STALE_ARTIFACT,
             raised.exception.code,
         )
 
-    def test_live_pr_files_unreviewable_file_fails_closed(self):
+    def test_live_pr_files_excluded_binary_is_allowed(self):
         manifest = self.base_manifest(4)
         manifest["binary_file_count"] = 1
         manifest["binary_files_omitted"] = ["image.png"]
         files = [{"filename": "image.png"}]
+        architect_review_retry.validate_live_pr_files(manifest, files, self.review_policy())
+
+    def test_live_pr_files_unexcluded_binary_fails_closed(self):
+        manifest = self.base_manifest(4)
+        manifest["binary_file_count"] = 1
+        manifest["binary_files_omitted"] = ["secret.bin"]
+        files = [{"filename": "secret.bin"}]
         with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
-            architect_review_retry.validate_live_pr_files(manifest, files)
+            architect_review_retry.validate_live_pr_files(
+                manifest,
+                files,
+                self.review_policy(),
+            )
         self.assertEqual(
             architect_review_retry.FailureCode.TRUST_BOUNDARY_VIOLATION,
             raised.exception.code,
@@ -572,7 +752,7 @@ class ArchitectReviewRetryTests(unittest.TestCase):
         manifest["binary_files_omitted"] = ["wrong.png"]
         files = [{"filename": "image.png"}]
         with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
-            architect_review_retry.validate_live_pr_files(manifest, files)
+            architect_review_retry.validate_live_pr_files(manifest, files, self.review_policy())
         self.assertEqual(
             architect_review_retry.FailureCode.INVALID_MANIFEST,
             raised.exception.code,
@@ -666,12 +846,24 @@ class ArchitectReviewRetryTests(unittest.TestCase):
             final_message="VERDICT: CHANGES_REQUESTED\n\nSUMMARY\nNeeds work.",
             reviewed_sha="b" * 40,
             prompt_version="architect-review-v1",
+            policy_version="architect-review-policy-v1",
+            model="gpt-5.5",
+            effort="medium",
+            review_status="completed",
+            total_files="18",
+            reviewed_files="17",
+            excluded_files="1",
+            diff_bytes="4096",
+            prompt_bytes="2048",
             workflow_run_id="123",
             repo="Vectology-cloud-team/namma-rogue-agent",
         )
         self.assertIn("<!-- namma-ai-architect-review -->", body)
         self.assertIn("Reviewed commit", body)
         self.assertIn("VERDICT: CHANGES_REQUESTED", body)
+        self.assertIn("Review Policy", body)
+        self.assertIn("gpt-5.5", body)
+        self.assertIn("17` reviewed / `18", body)
 
 
 if __name__ == "__main__":

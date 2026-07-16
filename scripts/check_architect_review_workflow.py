@@ -16,6 +16,7 @@ COLLECTOR_WORKFLOW_PATH = (
 REVIEWER_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "architect-review.yml"
 WORKFLOW_PATH = REVIEWER_WORKFLOW_PATH
 PROMPT_PATH = REPO_ROOT / ".github" / "codex" / "prompts" / "architect-review.md"
+POLICY_PATH = REPO_ROOT / ".github" / "codex" / "review-policy.yml"
 DOC_PATH = REPO_ROOT / "docs" / "ai-development-loop.md"
 
 EXPECTED_REPOSITORY = "Vectology-cloud-team/namma-rogue-agent"
@@ -197,6 +198,8 @@ def check_reviewer_text(text: str) -> list[CheckResult]:
     _add(results, "reviewer can read contents", "contents: read" in review_job)
     _add(results, "reviewer can read pull requests", "pull-requests: read" in review_job)
     _add(results, "reviewer checks out trusted control plane", "path: reviewer-control" in review_job)
+    _add(results, "reviewer loads trusted review policy", "architect_review_retry.py load-policy" in review_job)
+    _add(results, "reviewer reads policy from reviewer control plane", "reviewer-control/.github/codex/review-policy.yml" in review_job)
     _add(results, "reviewer downloads collector artifact", "architect_review_retry.py download-artifact" in review_job)
     _add(results, "reviewer validates manifest schema", "EXPECTED_MANIFEST_KEYS" in retry_script_text and "schema_version" in retry_script_text)
     _add(results, "reviewer validates repository identity", "REPOSITORY_MISMATCH" in retry_script_text)
@@ -211,7 +214,11 @@ def check_reviewer_text(text: str) -> list[CheckResult]:
     _add(results, "reviewer fails stale artifact without comment", "STALE_ARTIFACT" in retry_script_text)
     _add(results, "reviewer validates artifact paths", "PATH_TRAVERSAL" in retry_script_text)
     _add(results, "reviewer validates artifact size", "MAX_ARTIFACT_BYTES" in retry_script_text)
-    _add(results, "reviewer validates diff size", "MAX_DIFF_BYTES" in retry_script_text)
+    _add(results, "reviewer enforces policy diff budget", "budget.diff_bytes > policy.max_diff_bytes" in retry_script_text)
+    _add(results, "reviewer enforces policy file budget", "budget.reviewed_files > policy.max_changed_files" in retry_script_text)
+    _add(results, "reviewer enforces prompt budget", "prompt_bytes > max_prompt_bytes" in retry_script_text)
+    _add(results, "reviewer applies exclude policy", "filter_unified_diff" in retry_script_text and "path_matches_exclude" in retry_script_text)
+    _add(results, "reviewer writes policy job summary", "policy_summary" in retry_script_text and "review_input_summary" in retry_script_text)
     _add(
         results,
         "github-script does not redeclare injected identifiers",
@@ -232,14 +239,14 @@ def check_reviewer_text(text: str) -> list[CheckResult]:
     _add(results, "Codex result is finalized", "architect_review_retry.py finalize-codex" in review_job)
     _add(results, "uses official Codex action", "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1" in review_job)
     _add(results, "uses trusted base prompt file", "prompt-file: ${{ github.workspace }}/trusted-base/.github/codex/prompts/architect-review.md" in review_job)
-    _add(results, "does not set explicit model", "model:" not in review_job)
-    _add(results, "does not set explicit effort", "effort:" not in review_job)
+    _add(results, "sets Codex model from policy", "model: ${{ steps.policy.outputs.model }}" in review_job)
+    _add(results, "sets Codex effort from policy", "effort: ${{ steps.policy.outputs.effort }}" in review_job)
     _add(results, "uses read-only permission profile", 'permission-profile: ":read-only"' in review_job)
     _add(results, "uses drop-sudo safety strategy", "safety-strategy: drop-sudo" in review_job)
     _add(results, "post_feedback checks out trusted control plane", "path: reviewer-control" in post_job)
     _add(results, "post_feedback has no OpenAI API key", "OPENAI_API_KEY" not in post_job)
     _add(results, "post_feedback only runs after successful review job", "needs.review.result == 'success'" in post_job)
-    _add(results, "post_feedback only runs when should_review true", "needs.review.outputs.should_review == 'true'" in post_job)
+    _add(results, "post_feedback runs for review or policy skip comments", "needs.review.outputs.should_comment == 'true'" in post_job)
     _add(results, "post_feedback can write PR comments", _regex(post_job, r"permissions:\n\s+issues: write\n\s+pull-requests: write"))
     _add(results, "post_feedback uses retry helper", "architect_review_retry.py post-comment" in post_job)
     _add(results, "comment marker exists", "<!-- namma-ai-architect-review -->" in retry_script_text)
@@ -249,6 +256,7 @@ def check_reviewer_text(text: str) -> list[CheckResult]:
     _add(results, "comment links workflow run", "actions/runs/{workflow_run_id}" in retry_script_text)
     _add(results, "comment includes prompt version", "Prompt version:" in retry_script_text)
     _add(results, "comment includes verdict", "Verdict:" in retry_script_text)
+    _add(results, "comment includes policy metadata", "### Review Policy" in retry_script_text and "Review:" in retry_script_text)
     _add(results, "deduplicates by marker", "COMMENT_MARKER in comment" in retry_script_text)
     _add(results, "sticky comment ignores reviewed SHA for matching", "reviewedSha" not in existing_block)
     return results
@@ -280,6 +288,16 @@ def check_prompt_text(text: str) -> list[CheckResult]:
     return results
 
 
+def check_policy_text(text: str) -> list[CheckResult]:
+    results: list[CheckResult] = []
+    _add(results, "policy sets model", _regex(text, r"(?m)^model:\s*\S+"))
+    _add(results, "policy sets reasoning effort", _regex(text, r"(?m)^\s+effort:\s*\S+"))
+    for key in ("max_changed_files", "max_diff_bytes", "max_prompt_bytes"):
+        _add(results, f"policy sets {key}", _regex(text, rf"(?m)^\s+{key}:\s*[1-9][0-9]*"))
+    _add(results, "policy defines exclude list", "exclude:" in text and "- " in text)
+    return results
+
+
 def check_doc_text(text: str) -> list[CheckResult]:
     results: list[CheckResult] = []
     _add(results, "docs describe Stage 1", "Stage 1: Automated Architect Review" in text)
@@ -293,6 +311,9 @@ def check_doc_text(text: str) -> list[CheckResult]:
     _add(results, "docs explain fail-closed prompt behavior", "fails closed" in text)
     _add(results, "docs explain sticky comment", "deduplicates comments by marker only" in text)
     _add(results, "docs mention full SHA action policy", "full commit SHAs" in text)
+    _add(results, "docs describe review policy", "Stage 1.1-B: Reviewer Policy And Budget Control" in text)
+    _add(results, "docs state policy is not Stage 2", "Policy retry and budget control are not Stage 2 automation" in text)
+    _add(results, "docs describe budget skip", "Diff budget exceeded" in text and "Prompt budget exceeded" in text)
     return results
 
 
@@ -302,12 +323,19 @@ def load_text(path: Path) -> str:
 
 def run_checks() -> list[CheckResult]:
     results: list[CheckResult] = []
-    paths = (COLLECTOR_WORKFLOW_PATH, REVIEWER_WORKFLOW_PATH, PROMPT_PATH, DOC_PATH)
+    paths = (
+        COLLECTOR_WORKFLOW_PATH,
+        REVIEWER_WORKFLOW_PATH,
+        PROMPT_PATH,
+        POLICY_PATH,
+        DOC_PATH,
+    )
     for path in paths:
         _add(results, f"{path.relative_to(REPO_ROOT)} exists", path.exists())
     collector_text = load_text(COLLECTOR_WORKFLOW_PATH) if COLLECTOR_WORKFLOW_PATH.exists() else ""
     reviewer_text = load_text(REVIEWER_WORKFLOW_PATH) if REVIEWER_WORKFLOW_PATH.exists() else ""
     prompt_text = load_text(PROMPT_PATH) if PROMPT_PATH.exists() else ""
+    policy_text = load_text(POLICY_PATH) if POLICY_PATH.exists() else ""
     doc_text = load_text(DOC_PATH) if DOC_PATH.exists() else ""
 
     combined_workflow_text = all_workflow_text(collector_text, reviewer_text)
@@ -320,6 +348,8 @@ def run_checks() -> list[CheckResult]:
         results.extend(check_reviewer_text(reviewer_text))
     if prompt_text:
         results.extend(check_prompt_text(prompt_text))
+    if policy_text:
+        results.extend(check_policy_text(policy_text))
     if doc_text:
         results.extend(check_doc_text(doc_text))
     return results

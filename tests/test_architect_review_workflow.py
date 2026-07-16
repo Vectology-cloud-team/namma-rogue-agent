@@ -151,7 +151,7 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
             check_architect_review_workflow.check_reviewer_text(reviewer)
         )
         self.assertNotIn("reviewer skips stale artifact without comment", labels)
-        self.assertIn("needs.review.outputs.should_review == 'true'", reviewer)
+        self.assertIn("needs.review.outputs.should_comment == 'true'", reviewer)
         self.assertIn("needs.review.result == 'success'", reviewer)
 
     def test_artifact_size_limit_exists(self):
@@ -254,6 +254,50 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("prompt treats review input as untrusted", labels)
         self.assertNotIn("prompt forbids executing PR content", labels)
+
+    def test_policy_file_is_required_by_static_checks(self):
+        self.assertTrue(check_architect_review_workflow.POLICY_PATH.exists())
+        policy = check_architect_review_workflow.POLICY_PATH.read_text(
+            encoding="utf-8"
+        )
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_policy_text(policy)
+        )
+        self.assertEqual(set(), labels)
+
+    def test_policy_missing_model_is_rejected(self):
+        policy = check_architect_review_workflow.POLICY_PATH.read_text(
+            encoding="utf-8"
+        ).replace("model: gpt-5.5\n", "")
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_policy_text(policy)
+        )
+        self.assertIn("policy sets model", labels)
+
+    def test_policy_missing_effort_is_rejected(self):
+        policy = check_architect_review_workflow.POLICY_PATH.read_text(
+            encoding="utf-8"
+        ).replace("  effort: medium\n", "")
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_policy_text(policy)
+        )
+        self.assertIn("policy sets reasoning effort", labels)
+
+    def test_reviewer_sets_model_and_effort_from_policy(self):
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(self.reviewer_text())
+        )
+        self.assertNotIn("sets Codex model from policy", labels)
+        self.assertNotIn("sets Codex effort from policy", labels)
+
+    def test_reviewer_comment_contains_policy_metadata(self):
+        script = check_architect_review_workflow.load_text(
+            check_architect_review_workflow.REPO_ROOT
+            / "scripts"
+            / "architect_review_retry.py"
+        )
+        self.assertIn("### Review Policy", script)
+        self.assertIn("Model:", script)
 
 
 if __name__ == "__main__":

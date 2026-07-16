@@ -26,11 +26,20 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      final_message: ${{ steps.finalize_codex.outputs.final_message }}
+      final_message: ${{ steps.finalize_codex.outputs.final_message || steps.verify_prompt.outputs.final_message || steps.validate.outputs.final_message }}
       pr_number: ${{ steps.validate.outputs.pr_number }}
       reviewed_sha: ${{ steps.validate.outputs.head_sha }}
-      should_review: ${{ steps.validate.outputs.should_review }}
+      should_comment: ${{ steps.validate.outputs.should_comment || steps.verify_prompt.outputs.should_comment || steps.validate.outputs.should_review }}
       prompt_version: architect-review-v1
+      policy_version: ${{ steps.policy.outputs.policy_version }}
+      review_model: ${{ steps.policy.outputs.model }}
+      review_effort: ${{ steps.policy.outputs.effort }}
+      review_status: ${{ steps.finalize_codex.outputs.review_status || steps.verify_prompt.outputs.review_status || steps.validate.outputs.review_status }}
+      total_files: ${{ steps.validate.outputs.total_files }}
+      reviewed_files: ${{ steps.validate.outputs.reviewed_files }}
+      excluded_files: ${{ steps.validate.outputs.excluded_files }}
+      diff_bytes: ${{ steps.validate.outputs.diff_bytes }}
+      prompt_bytes: ${{ steps.verify_prompt.outputs.prompt_bytes || '0' }}
     steps:
       - name: Checkout reviewer control plane
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -40,6 +49,13 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Load review policy
+        id: policy
+        env:
+          REVIEW_POLICY: ${{ github.workspace }}/reviewer-control/.github/codex/review-policy.yml
+        run: |
+          python3 reviewer-control/scripts/architect_review_retry.py load-policy
+
       - name: Download collector artifact
         id: download_artifact
         env:
@@ -48,7 +64,7 @@ jobs:
           COLLECTOR_RUN_ID: ${{ github.event.workflow_run.id }}
           ARTIFACT_NAME: architect-review-input-${{ github.event.workflow_run.id }}
           REVIEW_INPUT_DIR: ${{ github.workspace }}/review-input
-          MAX_ARTIFACT_BYTES: "250000"
+          MAX_ARTIFACT_BYTES: ${{ steps.policy.outputs.max_artifact_bytes }}
         run: |
           python3 reviewer-control/scripts/architect_review_retry.py download-artifact
 
@@ -64,9 +80,13 @@ jobs:
           WORKFLOW_RUN_EVENT: ${{ github.event.workflow_run.event }}
           WORKFLOW_RUN_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
-          MAX_DIFF_BYTES: "200000"
-          MAX_CHANGED_FILES: "200"
-          MAX_ARTIFACT_BYTES: "250000"
+          REVIEW_MODEL: ${{ steps.policy.outputs.model }}
+          REVIEW_EFFORT: ${{ steps.policy.outputs.effort }}
+          MAX_DIFF_BYTES: ${{ steps.policy.outputs.max_diff_bytes }}
+          MAX_CHANGED_FILES: ${{ steps.policy.outputs.max_changed_files }}
+          MAX_PROMPT_BYTES: ${{ steps.policy.outputs.max_prompt_bytes }}
+          MAX_ARTIFACT_BYTES: ${{ steps.policy.outputs.max_artifact_bytes }}
+          POLICY_EXCLUDE_JSON: ${{ steps.policy.outputs.exclude_json }}
         run: |
           python3 reviewer-control/scripts/architect_review_retry.py validate-review-input
 
@@ -80,21 +100,25 @@ jobs:
           persist-credentials: false
 
       - name: Verify trusted prompt
+        id: verify_prompt
         if: steps.validate.outputs.should_review == 'true'
         env:
           TRUSTED_PROMPT: ${{ github.workspace }}/trusted-base/.github/codex/prompts/architect-review.md
+          MAX_PROMPT_BYTES: ${{ steps.policy.outputs.max_prompt_bytes }}
+          PR_NUMBER: ${{ steps.validate.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.validate.outputs.head_sha }}
         run: |
           python3 reviewer-control/scripts/architect_review_retry.py verify-prompt
 
       - name: Check API key availability
-        if: steps.validate.outputs.should_review == 'true'
+        if: steps.validate.outputs.should_review == 'true' && steps.verify_prompt.outputs.prompt_ok == 'true'
         env:
           HAS_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY != '' }}
         run: |
           python3 reviewer-control/scripts/architect_review_retry.py check-api-key
 
       - name: Run Codex attempt 1
-        if: steps.validate.outputs.should_review == 'true'
+        if: steps.validate.outputs.should_review == 'true' && steps.verify_prompt.outputs.prompt_ok == 'true'
         id: codex_attempt_1
         continue-on-error: true
         uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
@@ -110,10 +134,12 @@ jobs:
           prompt-file: ${{ github.workspace }}/trusted-base/.github/codex/prompts/architect-review.md
           working-directory: ${{ github.workspace }}
           permission-profile: ":read-only"
+          model: ${{ steps.policy.outputs.model }}
+          effort: ${{ steps.policy.outputs.effort }}
           safety-strategy: drop-sudo
 
       - name: Classify Codex attempt 1 failure
-        if: steps.validate.outputs.should_review == 'true' && steps.codex_attempt_1.outcome == 'failure'
+        if: steps.validate.outputs.should_review == 'true' && steps.verify_prompt.outputs.prompt_ok == 'true' && steps.codex_attempt_1.outcome == 'failure'
         id: codex_classify_1
         env:
           PR_NUMBER: ${{ steps.validate.outputs.pr_number }}
@@ -146,6 +172,8 @@ jobs:
           prompt-file: ${{ github.workspace }}/trusted-base/.github/codex/prompts/architect-review.md
           working-directory: ${{ github.workspace }}
           permission-profile: ":read-only"
+          model: ${{ steps.policy.outputs.model }}
+          effort: ${{ steps.policy.outputs.effort }}
           safety-strategy: drop-sudo
 
       - name: Classify Codex attempt 2 failure
@@ -182,6 +210,8 @@ jobs:
           prompt-file: ${{ github.workspace }}/trusted-base/.github/codex/prompts/architect-review.md
           working-directory: ${{ github.workspace }}
           permission-profile: ":read-only"
+          model: ${{ steps.policy.outputs.model }}
+          effort: ${{ steps.policy.outputs.effort }}
           safety-strategy: drop-sudo
 
       - name: Classify Codex attempt 3 failure
@@ -197,7 +227,7 @@ jobs:
           python3 reviewer-control/scripts/architect_review_retry.py classify-codex-attempt
 
       - name: Finalize Codex review result
-        if: steps.validate.outputs.should_review == 'true'
+        if: steps.validate.outputs.should_review == 'true' && steps.verify_prompt.outputs.prompt_ok == 'true'
         id: finalize_codex
         env:
           PR_NUMBER: ${{ steps.validate.outputs.pr_number }}
@@ -214,7 +244,7 @@ jobs:
   post_feedback:
     name: Post architect review comment
     needs: review
-    if: needs.review.result == 'success' && needs.review.outputs.should_review == 'true'
+    if: needs.review.result == 'success' && needs.review.outputs.should_comment == 'true'
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -236,6 +266,15 @@ jobs:
           PR_NUMBER: ${{ needs.review.outputs.pr_number }}
           REVIEWED_SHA: ${{ needs.review.outputs.reviewed_sha }}
           PROMPT_VERSION: ${{ needs.review.outputs.prompt_version }}
+          POLICY_VERSION: ${{ needs.review.outputs.policy_version }}
+          REVIEW_MODEL: ${{ needs.review.outputs.review_model }}
+          REVIEW_EFFORT: ${{ needs.review.outputs.review_effort }}
+          REVIEW_STATUS: ${{ needs.review.outputs.review_status }}
+          TOTAL_FILES: ${{ needs.review.outputs.total_files }}
+          REVIEWED_FILES: ${{ needs.review.outputs.reviewed_files }}
+          EXCLUDED_FILES: ${{ needs.review.outputs.excluded_files }}
+          DIFF_BYTES: ${{ needs.review.outputs.diff_bytes }}
+          PROMPT_BYTES: ${{ needs.review.outputs.prompt_bytes }}
           WORKFLOW_RUN_ID: ${{ github.run_id }}
         run: |
           python3 reviewer-control/scripts/architect_review_retry.py post-comment
