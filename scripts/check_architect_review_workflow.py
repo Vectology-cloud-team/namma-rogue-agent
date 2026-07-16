@@ -247,6 +247,7 @@ def check_reviewer_text(text: str) -> list[CheckResult]:
     _add(results, "post_feedback has no OpenAI API key", "OPENAI_API_KEY" not in post_job)
     _add(results, "post_feedback only runs after successful review job", "needs.review.result == 'success'" in post_job)
     _add(results, "post_feedback runs for review or policy skip comments", "needs.review.outputs.should_comment == 'true'" in post_job)
+    _add(results, "review output checks should_comment explicitly", "steps.finalize_codex.outputs.should_comment == 'true'" in review_job and "steps.verify_prompt.outputs.should_comment == 'true'" in review_job and "steps.validate.outputs.should_comment == 'true'" in review_job)
     _add(results, "post_feedback can write PR comments", _regex(post_job, r"permissions:\n\s+issues: write\n\s+pull-requests: write"))
     _add(results, "post_feedback uses retry helper", "architect_review_retry.py post-comment" in post_job)
     _add(results, "post_feedback validates live head before comment", "validate_comment_target" in retry_script_text and "pull request head changed before comment publication" in retry_script_text)

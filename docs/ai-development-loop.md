@@ -265,6 +265,12 @@ the sticky comment records that the review was skipped with the reason
 `Diff budget exceeded`. If all changed files are excluded by policy, the
 review is also skipped and reported in the sticky comment.
 
+The collector still has transport safety caps for artifact creation. If
+an input is too large for the collector to safely package, the collector
+may fail before the privileged reviewer can post a policy-skip comment.
+The policy skip behavior applies after the reviewer has successfully
+downloaded and validated the collector artifact.
+
 If the trusted prompt exceeds `limits.max_prompt_bytes`, the reviewer
 does not truncate trust-boundary instructions and does not fall back to
 the PR copy. It skips the AI review and reports `Prompt budget exceeded`

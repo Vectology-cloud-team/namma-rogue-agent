@@ -29,7 +29,12 @@ jobs:
       final_message: ${{ steps.finalize_codex.outputs.final_message || steps.verify_prompt.outputs.final_message || steps.validate.outputs.final_message }}
       pr_number: ${{ steps.validate.outputs.pr_number }}
       reviewed_sha: ${{ steps.validate.outputs.head_sha }}
-      should_comment: ${{ steps.validate.outputs.should_comment || steps.verify_prompt.outputs.should_comment || steps.validate.outputs.should_review }}
+      should_comment: >-
+        ${{
+          steps.finalize_codex.outputs.should_comment == 'true' ||
+          steps.verify_prompt.outputs.should_comment == 'true' ||
+          steps.validate.outputs.should_comment == 'true'
+        }}
       prompt_version: architect-review-v1
       policy_version: ${{ steps.policy.outputs.policy_version }}
       review_model: ${{ steps.policy.outputs.model }}

@@ -299,6 +299,16 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
         self.assertIn("### Review Policy", script)
         self.assertIn("Model:", script)
 
+    def test_reviewer_uses_explicit_should_comment_boolean_checks(self):
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(self.reviewer_text())
+        )
+        self.assertNotIn("review output checks should_comment explicitly", labels)
+        self.assertIn(
+            "steps.finalize_codex.outputs.should_comment == 'true'",
+            self.reviewer_text(),
+        )
+
     def test_post_feedback_validates_live_head_before_comment(self):
         labels = self.failed_labels(
             check_architect_review_workflow.check_reviewer_text(self.reviewer_text())

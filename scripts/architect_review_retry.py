@@ -1562,6 +1562,7 @@ def command_finalize_codex(_: argparse.Namespace) -> int:
                     "success_code": success_code.value,
                     "attempts": str(index + 1),
                     "review_status": "completed",
+                    "should_comment": "true",
                 }
             )
             return 0
