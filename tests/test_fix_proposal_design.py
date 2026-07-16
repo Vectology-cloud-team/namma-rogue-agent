@@ -288,6 +288,57 @@ class FixProposalDesignTests(unittest.TestCase):
                 proposal["changes"] = [change]
                 self.assert_rejects(proposal, "FORBIDDEN_PATCH_KIND")
 
+    def test_quoted_diff_headers_are_rejected(self):
+        cases = [
+            (
+                "src/example.py",
+                (
+                    'diff --git "a/src/example.py" "b/src/example.py"\n'
+                    "--- a/src/example.py\n"
+                    "+++ b/src/example.py\n"
+                    "@@ -1 +1 @@\n"
+                    "-old\n"
+                    "+new\n"
+                ),
+            ),
+            (
+                "src/example.py",
+                (
+                    "diff --git a/src/example.py b/src/example.py\n"
+                    "--- a/src/example.py\n"
+                    "+++ b/src/example.py\n"
+                    "@@ -1 +1 @@\n"
+                    "-old\n"
+                    "+new\n"
+                    'diff --git "a/.github/workflows/build.yml" '
+                    '"b/.github/workflows/build.yml"\n'
+                    "--- a/.github/workflows/build.yml\n"
+                    "+++ b/.github/workflows/build.yml\n"
+                    "@@ -1 +1 @@\n"
+                    "-old\n"
+                    "+new\n"
+                ),
+            ),
+            (
+                "src/example.py",
+                (
+                    "diff --git a/src/example.py b/src/example.py\n"
+                    '--- "a/src/example.py"\n'
+                    "+++ b/src/example.py\n"
+                    "@@ -1 +1 @@\n"
+                    "-old\n"
+                    "+new\n"
+                ),
+            ),
+        ]
+        for path, patch in cases:
+            with self.subTest(path=path, patch=patch.splitlines()[0]):
+                proposal = self.valid_proposal()
+                change = self.valid_change(path)
+                change["patch"] = patch
+                proposal["changes"] = [change]
+                self.assert_rejects(proposal, "PATCH_PATH_MISMATCH")
+
     def test_operation_create_is_rejected(self):
         proposal = self.valid_proposal()
         change = self.valid_change()
@@ -367,6 +418,23 @@ class FixProposalDesignTests(unittest.TestCase):
             ("tests_recommended", [123]),
             ("risks", "risk text"),
             ("risks", [123]),
+        ]
+        for field_name, value in cases:
+            with self.subTest(field_name=field_name, value=value):
+                proposal = self.valid_proposal()
+                proposal[field_name] = value
+                self.assert_rejects(proposal, "INVALID_PROPOSAL")
+
+    def test_python_validator_matches_key_schema_constraints(self):
+        cases = [
+            ("proposal_id", "short"),
+            ("proposal_id", "x" * 129),
+            ("pull_request_number", 0),
+            ("pull_request_number", True),
+            ("review_comment_id", 0),
+            ("review_comment_id", False),
+            ("reviewed_at", "2026-07-16"),
+            ("reviewed_at", "2026-07-16T00:00:00"),
         ]
         for field_name, value in cases:
             with self.subTest(field_name=field_name, value=value):

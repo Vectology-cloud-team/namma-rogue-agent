@@ -30,6 +30,10 @@ FIX_SCHEMA_PATH = (
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 EXPECTED_REPOSITORY = "Vectology-cloud-team/namma-rogue-agent"
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+DATE_TIME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+    r"(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+)
 PROPOSAL_MARKER = "<!-- namma-ai-fix-proposal -->"
 STAGE2_LABEL = "ai-fix-proposal"
 STAGE2_APPROVAL_LABEL = "ai-fix-approved"
@@ -310,6 +314,15 @@ def require_string(value: Any, field_name: str) -> str:
     return value
 
 
+def require_positive_int(value: Any, field_name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ProposalValidationError(
+            "INVALID_PROPOSAL",
+            f"{field_name} must be a positive integer",
+        )
+    return value
+
+
 def proposal_content_hash(proposal: dict[str, Any]) -> str:
     encoded = json.dumps(
         proposal,
@@ -324,12 +337,27 @@ def parse_patch_paths(patch: str) -> set[str]:
     paths: set[str] = set()
     for line in patch.splitlines():
         if line.startswith("diff --git "):
+            if '"' in line:
+                raise ProposalValidationError(
+                    "PATCH_PATH_MISMATCH",
+                    "quoted diff paths are forbidden",
+                )
             parts = line.split()
+            if len(parts) != 4:
+                raise ProposalValidationError(
+                    "PATCH_PATH_MISMATCH",
+                    "diff header must contain exactly two paths",
+                )
             for raw in parts[2:4]:
                 if raw.startswith(("a/", "b/")):
                     paths.add(normalize_repo_path(raw[2:]))
         elif line.startswith(("--- ", "+++ ")):
             raw = line[4:].strip().split("\t", 1)[0]
+            if raw.startswith('"'):
+                raise ProposalValidationError(
+                    "PATCH_PATH_MISMATCH",
+                    "quoted patch paths are forbidden",
+                )
             if raw == "/dev/null":
                 continue
             if raw.startswith(("a/", "b/")):
@@ -383,32 +411,29 @@ def validate_fix_proposal(
     reject_unexpected_keys(proposal, PROPOSAL_KEYS, "proposal")
     if proposal.get("schema_version") != "1.0":
         raise ProposalValidationError("INVALID_PROPOSAL", "schema_version must be 1.0")
-    require_string(proposal.get("proposal_id"), "proposal_id")
     if proposal.get("repository") != expected_repository:
         raise ProposalValidationError("REPOSITORY_MISMATCH", "repository mismatch")
-    if not isinstance(proposal.get("pull_request_number"), int):
+    proposal_id = require_string(proposal.get("proposal_id"), "proposal_id")
+    if not 8 <= len(proposal_id) <= 128:
         raise ProposalValidationError(
             "INVALID_PROPOSAL",
-            "pull_request_number must be an integer",
+            "proposal_id must be 8 to 128 characters",
         )
+    require_positive_int(proposal.get("pull_request_number"), "pull_request_number")
     require_full_sha(proposal.get("base_sha"), "base_sha")
     require_full_sha(proposal.get("head_sha"), "head_sha")
     if current_head_sha is not None and proposal["head_sha"] != current_head_sha:
         raise ProposalValidationError("STALE_HEAD_SHA", "proposal head SHA is stale")
-    if not proposal.get("proposal_id"):
-        raise ProposalValidationError("INVALID_PROPOSAL", "proposal_id is required")
     if proposal.get("human_approval_required") is not True:
         raise ProposalValidationError(
             "HUMAN_APPROVAL_REQUIRED",
             "human_approval_required must be true",
         )
-    if not isinstance(proposal.get("review_comment_id"), int):
-        raise ProposalValidationError(
-            "INVALID_PROPOSAL",
-            "review_comment_id must be an integer",
-        )
+    require_positive_int(proposal.get("review_comment_id"), "review_comment_id")
     try:
         reviewed_at = require_string(proposal.get("reviewed_at"), "reviewed_at")
+        if not DATE_TIME_RE.fullmatch(reviewed_at):
+            raise ValueError("reviewed_at is not RFC3339 date-time")
         dt.datetime.fromisoformat(reviewed_at.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ProposalValidationError(
