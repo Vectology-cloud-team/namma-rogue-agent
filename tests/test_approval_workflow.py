@@ -79,6 +79,13 @@ class ApprovalWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("record job has no write permission", labels)
 
+    def test_record_job_uses_trusted_workflow_actor(self):
+        labels = self.failed_labels(
+            check_approval_workflow.check_recorder(self.recorder_text())
+        )
+        self.assertNotIn("record job binds approval actor from workflow_run", labels)
+        self.assertNotIn("approval rejects manifest actor spoofing", labels)
+
     def test_post_job_has_comment_permission_only(self):
         labels = self.failed_labels(
             check_approval_workflow.check_recorder(self.recorder_text())

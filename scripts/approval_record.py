@@ -321,6 +321,7 @@ def validate_approval_gate(
     live_pull: dict[str, Any],
     live_issue: dict[str, Any],
     policy: fix.FixProposalPolicy,
+    approval_actor: str,
     approval_actor_association: str,
 ) -> None:
     validate_request_manifest_shape(manifest)
@@ -328,6 +329,12 @@ def validate_approval_gate(
     approval_label = policy.proposal_policy.approval_label
     request_labels = labels_from_request(manifest)
     live_labels = labels_from_pull_or_issue(live_issue)
+    if approval_actor != str(manifest["actor"]):
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "approval actor mismatch between trusted workflow_run data and request artifact",
+            "approval_gate",
+        )
     if manifest.get("event_action") != "labeled":
         raise fatal(
             fix.FailureCode.LABEL_MISSING,
@@ -573,6 +580,7 @@ def build_approval_record(
     manifest: dict[str, Any],
     proposal: dict[str, Any],
     metadata: dict[str, Any],
+    approved_by: str | None = None,
     approved_at: str | None = None,
 ) -> dict[str, Any]:
     if approved_at is None:
@@ -586,7 +594,7 @@ def build_approval_record(
         "pull_request_number": int(metadata["pull_request_number"]),
         "base_sha": str(metadata["base_sha"]),
         "head_sha": str(metadata["head_sha"]),
-        "approved_by": str(manifest["actor"]),
+        "approved_by": str(approved_by or manifest["actor"]),
         "approved_at": approved_at,
         "approval_source": APPROVAL_SOURCE_LABEL,
         "policy_hash": str(metadata["policy_hash"]),
@@ -944,9 +952,10 @@ def command_record_approval(_: argparse.Namespace) -> int:
             pr_number=int(manifest["pull_request_number"]),
             token=token,
         )
+        approval_actor = required_env("APPROVAL_ACTOR")
         actor_association = approval_actor_association(
             repo=repo,
-            actor=str(manifest["actor"]),
+            actor=approval_actor,
             token=token,
         )
         validate_approval_gate(
@@ -954,6 +963,7 @@ def command_record_approval(_: argparse.Namespace) -> int:
             live_pull=live_pull,
             live_issue=live_issue,
             policy=policy,
+            approval_actor=approval_actor,
             approval_actor_association=actor_association,
         )
         proposal, metadata, proposal_artifact_id = fix.run_with_retry(
@@ -971,6 +981,7 @@ def command_record_approval(_: argparse.Namespace) -> int:
             manifest=manifest,
             proposal=proposal,
             metadata=metadata,
+            approved_by=approval_actor,
         )
         write_approval_artifact(output_dir=record_dir, record=record)
         github_output(

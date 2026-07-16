@@ -69,6 +69,7 @@ jobs:
           APPROVAL_REQUEST_DIR: ${{ github.workspace }}/fix-approval-request
           PROPOSAL_ARTIFACT_DIR: ${{ github.workspace }}/fix-proposal
           APPROVAL_RECORD_DIR: ${{ runner.temp }}/fix-approval-record
+          APPROVAL_ACTOR: ${{ github.event.workflow_run.actor.login }}
           FIX_POLICY: ${{ github.workspace }}/approval-control/.github/codex/fix-policy.yml
           APPROVAL_RECORD_SCHEMA: ${{ github.workspace }}/approval-control/.github/codex/schemas/approval-record.schema.json
           MAX_ARTIFACT_BYTES: "100000"

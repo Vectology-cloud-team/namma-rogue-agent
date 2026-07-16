@@ -250,6 +250,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_pull=self.live_pull(),
             live_issue=self.live_issue(),
             policy=policy,
+            approval_actor="shinoda",
             approval_actor_association="MEMBER",
         )
         approval_record.validate_proposal_for_approval(
@@ -289,6 +290,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_pull=self.live_pull(head_sha="1" * 40),
             live_issue=self.live_issue(),
             policy=self.policy(),
+            approval_actor="shinoda",
             approval_actor_association="MEMBER",
         )
 
@@ -310,6 +312,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_pull=self.live_pull(),
             live_issue=self.live_issue(labels=[]),
             policy=self.policy(),
+            approval_actor="shinoda",
             approval_actor_association="MEMBER",
         )
 
@@ -321,6 +324,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_pull=self.live_pull(),
             live_issue=self.live_issue(labels=["ai-fix-approved"]),
             policy=self.policy(),
+            approval_actor="shinoda",
             approval_actor_association="MEMBER",
         )
 
@@ -332,7 +336,22 @@ class ApprovalRecordTests(unittest.TestCase):
             live_pull=self.live_pull(),
             live_issue=self.live_issue(),
             policy=self.policy(),
+            approval_actor="shinoda",
             approval_actor_association="COLLABORATOR",
+        )
+
+    def test_spoofed_manifest_actor_is_rejected(self):
+        manifest = self.manifest()
+        manifest["actor"] = "organization-owner"
+        self.assert_failure_code(
+            approval_record.fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            approval_record.validate_approval_gate,
+            manifest=manifest,
+            live_pull=self.live_pull(),
+            live_issue=self.live_issue(),
+            policy=self.policy(),
+            approval_actor="labeler-member",
+            approval_actor_association="MEMBER",
         )
 
     def test_pr_author_association_is_not_used_as_label_actor_association(self):
@@ -343,8 +362,20 @@ class ApprovalRecordTests(unittest.TestCase):
             live_pull=self.live_pull(),
             live_issue=self.live_issue(),
             policy=self.policy(),
+            approval_actor="shinoda",
             approval_actor_association="MEMBER",
         )
+
+    def test_approval_record_uses_trusted_approval_actor(self):
+        manifest = self.manifest()
+        record = approval_record.build_approval_record(
+            manifest=manifest,
+            proposal=self.proposal(),
+            metadata=self.metadata(),
+            approved_by="trusted-labeler",
+            approved_at="2026-07-17T00:02:00Z",
+        )
+        self.assertEqual("trusted-labeler", record["approved_by"])
 
     def test_approval_label_alone_does_not_create_record_without_proposal_artifact(self):
         with mock.patch.object(
