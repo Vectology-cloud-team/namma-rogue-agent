@@ -652,6 +652,145 @@ class FixProposalGeneratorTests(unittest.TestCase):
             calls,
         )
 
+    def test_fix_proposal_comment_retry_revalidates_and_relists(self):
+        original_validate = fix_proposal_generator.stage1.validate_comment_target
+        original_iter = fix_proposal_generator.stage1.iter_issue_comments
+        original_github_json = fix_proposal_generator.stage1.github_json
+        validate_calls = []
+        list_calls = []
+        write_calls = []
+        list_responses = [
+            [],
+            [
+                {
+                    "id": 12345,
+                    "body": "<!-- namma-ai-fix-proposal -->\nold",
+                }
+            ],
+        ]
+
+        def fake_validate(repo, issue_number, head_sha, token):
+            validate_calls.append((repo, issue_number, head_sha, token))
+
+        def fake_iter(repo, issue_number, token):
+            list_calls.append((repo, issue_number, token))
+            return iter(list_responses.pop(0))
+
+        def fake_github_json(method, api_path, **kwargs):
+            write_calls.append((method, api_path, kwargs.get("body")))
+            if method == "POST":
+                raise fix_proposal_generator.retryable(
+                    fix_proposal_generator.FailureCode.NETWORK_ERROR,
+                    "temporary network error",
+                    "github_issue_comment_create",
+                )
+            return {}, {}
+
+        fix_proposal_generator.stage1.validate_comment_target = fake_validate
+        fix_proposal_generator.stage1.iter_issue_comments = fake_iter
+        fix_proposal_generator.stage1.github_json = fake_github_json
+        delays = []
+        try:
+            result = fix_proposal_generator.run_with_retry(
+                "github_fix_proposal_comment",
+                lambda: fix_proposal_generator.publish_fix_comment(
+                    repo="Vectology-cloud-team/namma-rogue-agent",
+                    issue_number="17",
+                    head_sha=FULL_SHA_B,
+                    token="token",
+                    body="<!-- namma-ai-fix-proposal -->\nnew",
+                ),
+                sleep_func=delays.append,
+            )
+        finally:
+            fix_proposal_generator.stage1.validate_comment_target = original_validate
+            fix_proposal_generator.stage1.iter_issue_comments = original_iter
+            fix_proposal_generator.stage1.github_json = original_github_json
+
+        self.assertEqual(2, result.attempts)
+        self.assertEqual([30], delays)
+        self.assertEqual(2, len(validate_calls))
+        self.assertEqual(2, len(list_calls))
+        self.assertEqual(
+            [
+                (
+                    "POST",
+                    "/repos/Vectology-cloud-team/namma-rogue-agent/issues/17/comments",
+                    {"body": "<!-- namma-ai-fix-proposal -->\nnew"},
+                ),
+                (
+                    "PATCH",
+                    "/repos/Vectology-cloud-team/namma-rogue-agent/issues/comments/12345",
+                    {"body": "<!-- namma-ai-fix-proposal -->\nnew"},
+                ),
+            ],
+            write_calls,
+        )
+
+    def test_fix_proposal_comment_retry_rechecks_stale_head_before_writing(self):
+        original_validate = fix_proposal_generator.stage1.validate_comment_target
+        original_iter = fix_proposal_generator.stage1.iter_issue_comments
+        original_github_json = fix_proposal_generator.stage1.github_json
+        validate_calls = []
+        list_calls = []
+        write_calls = []
+
+        def fake_validate(repo, issue_number, head_sha, token):
+            validate_calls.append((repo, issue_number, head_sha, token))
+            if len(validate_calls) == 2:
+                raise fix_proposal_generator.fatal(
+                    fix_proposal_generator.FailureCode.STALE_ARTIFACT,
+                    "pull request head changed before comment publication",
+                    "github_fix_comment_target",
+                )
+
+        def fake_iter(repo, issue_number, token):
+            list_calls.append((repo, issue_number, token))
+            return iter([])
+
+        def fake_github_json(method, api_path, **kwargs):
+            write_calls.append((method, api_path, kwargs.get("body")))
+            raise fix_proposal_generator.retryable(
+                fix_proposal_generator.FailureCode.NETWORK_ERROR,
+                "temporary network error",
+                "github_issue_comment_create",
+            )
+
+        fix_proposal_generator.stage1.validate_comment_target = fake_validate
+        fix_proposal_generator.stage1.iter_issue_comments = fake_iter
+        fix_proposal_generator.stage1.github_json = fake_github_json
+        delays = []
+        try:
+            with self.assertRaises(fix_proposal_generator.FixProposalFailure) as cm:
+                fix_proposal_generator.run_with_retry(
+                    "github_fix_proposal_comment",
+                    lambda: fix_proposal_generator.publish_fix_comment(
+                        repo="Vectology-cloud-team/namma-rogue-agent",
+                        issue_number="17",
+                        head_sha=FULL_SHA_B,
+                        token="token",
+                        body="<!-- namma-ai-fix-proposal -->\nnew",
+                    ),
+                    sleep_func=delays.append,
+                )
+        finally:
+            fix_proposal_generator.stage1.validate_comment_target = original_validate
+            fix_proposal_generator.stage1.iter_issue_comments = original_iter
+            fix_proposal_generator.stage1.github_json = original_github_json
+
+        self.assertEqual(
+            fix_proposal_generator.FailureClass.FATAL,
+            cm.exception.failure_class,
+        )
+        self.assertEqual(
+            fix_proposal_generator.FailureCode.STALE_ARTIFACT,
+            cm.exception.code,
+        )
+        self.assertEqual([30], delays)
+        self.assertEqual(2, len(validate_calls))
+        self.assertEqual(1, len(list_calls))
+        self.assertEqual(1, len(write_calls))
+
     def test_fix_proposal_comment_uses_no_pull_request_review_api(self):
         script = SCRIPT_PATH.read_text(encoding="utf-8")
         self.assertNotIn("/pulls/{issue_number}/comments", script)
