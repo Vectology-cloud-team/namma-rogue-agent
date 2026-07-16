@@ -1378,19 +1378,49 @@ def post_or_update_comment(
     comments = list(iter_fix_comments(repo, issue_number, token))
     existing = comments[0] if comments else None
     if existing:
-        stage1.github_json(
-            "PATCH",
-            f"/repos/{repo}/issues/comments/{existing['id']}",
+        update_issue_comment(
+            repo=repo,
+            comment_id=str(existing["id"]),
             token=token,
-            body={"body": body},
+            body=body,
         )
     else:
-        stage1.github_json(
-            "POST",
-            f"/repos/{repo}/issues/{issue_number}/comments",
+        create_issue_comment(
+            repo=repo,
+            issue_number=issue_number,
             token=token,
-            body={"body": body},
+            body=body,
         )
+
+
+def create_issue_comment(
+    *,
+    repo: str,
+    issue_number: str,
+    token: str,
+    body: str,
+) -> None:
+    stage1.github_json(
+        "POST",
+        f"/repos/{repo}/issues/{issue_number}/comments",
+        token=token,
+        body={"body": body},
+    )
+
+
+def update_issue_comment(
+    *,
+    repo: str,
+    comment_id: str,
+    token: str,
+    body: str,
+) -> None:
+    stage1.github_json(
+        "PATCH",
+        f"/repos/{repo}/issues/comments/{comment_id}",
+        token=token,
+        body={"body": body},
+    )
 
 
 def command_load_policy(_: argparse.Namespace) -> int:
@@ -1596,17 +1626,39 @@ def command_post_comment(_: argparse.Namespace) -> int:
                 repo=repo,
             )
         run_with_retry(
-            "github_fix_proposal_comment",
-            lambda: (
-                stage1.validate_comment_target(repo, issue_number, required_env("HEAD_SHA"), token),
-                post_or_update_comment(
+            "github_fix_comment_target",
+            lambda: stage1.validate_comment_target(
+                repo,
+                issue_number,
+                required_env("HEAD_SHA"),
+                token,
+            ),
+        )
+        comments = run_with_retry(
+            "github_issue_comments_list",
+            lambda: list(iter_fix_comments(repo, issue_number, token)),
+        ).value
+        existing = comments[0] if comments else None
+        if existing:
+            run_with_retry(
+                "github_issue_comment_update",
+                lambda: update_issue_comment(
+                    repo=repo,
+                    comment_id=str(existing["id"]),
+                    token=token,
+                    body=body,
+                ),
+            )
+        else:
+            run_with_retry(
+                "github_issue_comment_create",
+                lambda: create_issue_comment(
                     repo=repo,
                     issue_number=issue_number,
                     token=token,
                     body=body,
                 ),
-            ),
-        )
+            )
         return 0
     except BaseException as error:
         return fail_command(error)
