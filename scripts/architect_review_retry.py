@@ -329,6 +329,8 @@ def github_api_request(
     token: str,
     body: dict[str, Any] | None = None,
     accept: str = "application/vnd.github+json",
+    max_response_bytes: int | None = None,
+    operation: str = "github_api",
 ) -> tuple[bytes, dict[str, str]]:
     data = None
     headers = {
@@ -341,7 +343,39 @@ def github_api_request(
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
     url = f"https://api.github.com{api_path}"
-    return http_request_with_safe_redirects(url, headers=headers, method=method, data=data)
+    return http_request_with_safe_redirects(
+        url,
+        headers=headers,
+        method=method,
+        data=data,
+        max_response_bytes=max_response_bytes,
+        operation=operation,
+    )
+
+
+def read_limited_response(
+    response: Any,
+    *,
+    max_response_bytes: int | None,
+    operation: str,
+) -> bytes:
+    if max_response_bytes is None:
+        return response.read()
+    chunks: list[bytes] = []
+    total = 0
+    chunk_size = min(65536, max_response_bytes + 1)
+    while True:
+        chunk = response.read(chunk_size)
+        if not chunk:
+            return b"".join(chunks)
+        total += len(chunk)
+        if total > max_response_bytes:
+            raise fatal(
+                FailureCode.INVALID_MANIFEST,
+                "HTTP response exceeds configured maximum size",
+                operation,
+            )
+        chunks.append(chunk)
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -368,13 +402,20 @@ def http_request_with_safe_redirects(
     headers: dict[str, str],
     method: str,
     data: bytes | None,
+    max_response_bytes: int | None,
+    operation: str,
     redirects_remaining: int = 3,
 ) -> tuple[bytes, dict[str, str]]:
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     opener = urllib.request.build_opener(NoRedirectHandler)
     try:
         with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            return response.read(), dict(response.headers.items())
+            data = read_limited_response(
+                response,
+                max_response_bytes=max_response_bytes,
+                operation=operation,
+            )
+            return data, dict(response.headers.items())
     except urllib.error.HTTPError as error:
         location = error.headers.get("Location")
         if (
@@ -394,6 +435,8 @@ def http_request_with_safe_redirects(
                 headers=redirect_headers,
                 method=redirect_method,
                 data=redirect_data,
+                max_response_bytes=max_response_bytes,
+                operation=operation,
                 redirects_remaining=redirects_remaining - 1,
             )
         raise
@@ -549,6 +592,8 @@ def command_download_artifact(_: argparse.Namespace) -> int:
             "GET",
             f"/repos/{repo}/actions/artifacts/{artifact_id}/zip",
             token=token,
+            max_response_bytes=max_artifact_bytes,
+            operation="artifact_download",
         )
         safe_extract_zip(data, target_dir, max_bytes=max_artifact_bytes)
 
@@ -806,6 +851,8 @@ def refresh_review_diff_from_github(
         f"/repos/{repo}/pulls/{pull_request_number}",
         token=token,
         accept="application/vnd.github.v3.diff",
+        max_response_bytes=max_diff_bytes,
+        operation="github_pr_diff",
     )
     if len(data) > max_diff_bytes:
         raise fatal(

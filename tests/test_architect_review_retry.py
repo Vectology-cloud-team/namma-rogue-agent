@@ -178,6 +178,36 @@ class ArchitectReviewRetryTests(unittest.TestCase):
         )
         self.assertEqual("Bearer secret", redirected["Authorization"])
 
+    def test_limited_response_rejects_oversized_body_without_full_read(self):
+        class LargeResponse:
+            def __init__(self):
+                self.remaining = 1000
+                self.read_sizes = []
+
+            def read(self, size=-1):
+                self.read_sizes.append(size)
+                if self.remaining <= 0:
+                    return b""
+                if size < 0:
+                    size = self.remaining
+                count = min(size, self.remaining)
+                self.remaining -= count
+                return b"x" * count
+
+        response = LargeResponse()
+        with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+            architect_review_retry.read_limited_response(
+                response,
+                max_response_bytes=10,
+                operation="artifact_download",
+            )
+        self.assertEqual(
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+            raised.exception.code,
+        )
+        self.assertEqual([11], response.read_sizes)
+        self.assertEqual(989, response.remaining)
+
     def test_codex_rate_limit_is_retryable(self):
         failure = architect_review_retry.classify_codex_failure_message(
             "OpenAI API HTTP 429 rate limit"
