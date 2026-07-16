@@ -112,11 +112,20 @@ missing, ambiguous, stale, or has a mismatched hash, approval is invalid.
 
 ## Proposal Schema
 
-Fix proposals use JSON and are validated by:
+Fix proposals use JSON. The schema declares the proposal shape and the
+schema-expressible safety constraints:
 
 ```text
 .github/codex/schemas/fix-proposal.schema.json
 ```
+
+The schema is not sufficient as the trusted Stage 2 gate by itself. The
+normative validator is the policy-aware validation layer represented in
+this PR by `scripts/check_fix_proposal_design.py` and, in a future
+runtime, by equivalent trusted control-plane code. That validator must
+combine the schema, `.github/codex/fix-policy.yml`, patch parsing, target
+blob checks, proposal hash checks, approval binding checks, and live PR
+head checks before any sandbox apply attempt.
 
 Each proposal records:
 

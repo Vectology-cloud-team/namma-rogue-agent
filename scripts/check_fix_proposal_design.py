@@ -590,6 +590,37 @@ def validate_schema_file(path: Path = FIX_SCHEMA_PATH) -> dict[str, Any]:
     }
     if not expected.issubset(required):
         raise ProposalValidationError("INVALID_SCHEMA", "schema missing required keys")
+    changes = schema.get("properties", {}).get("changes", {})
+    if changes.get("maxItems") != 5:
+        raise ProposalValidationError("INVALID_SCHEMA", "schema must limit changes")
+    change_schema = changes.get("items", {})
+    path_pattern = (
+        change_schema
+        .get("properties", {})
+        .get("path", {})
+        .get("pattern", "")
+    )
+    if "(?!.*\\\\)" not in path_pattern:
+        raise ProposalValidationError(
+            "INVALID_SCHEMA",
+            "schema must reject backslash paths",
+        )
+    patch_schema = change_schema.get("properties", {}).get("patch", {})
+    if patch_schema.get("maxLength") != 20000:
+        raise ProposalValidationError(
+            "INVALID_SCHEMA",
+            "schema must limit per-file patch length",
+        )
+    forbidden_patterns = [
+        item.get("pattern", "")
+        for item in patch_schema.get("not", {}).get("anyOf", [])
+    ]
+    for required_pattern in ("GIT binary patch", "/dev/null", "diff --git"):
+        if not any(required_pattern in pattern for pattern in forbidden_patterns):
+            raise ProposalValidationError(
+                "INVALID_SCHEMA",
+                f"schema must reject {required_pattern}",
+            )
     return schema
 
 
@@ -605,6 +636,7 @@ def check_design_documents(policy: FixPolicy) -> list[CheckResult]:
         policy.approval_label,
         PROPOSAL_MARKER,
         "trusted approval record",
+        "normative validator",
         "PROPOSAL_READY -> repository commit is forbidden",
         "head SHA changes invalidate proposal and approval",
         "Threat Model",

@@ -138,6 +138,7 @@ class FixProposalDesignTests(unittest.TestCase):
         self.assertFalse(schema["additionalProperties"])
         self.assertIn("head_sha", schema["required"])
         self.assertIn("human_approval_required", schema["required"])
+        self.assertEqual(5, schema["properties"]["changes"]["maxItems"])
         change_schema = schema["properties"]["changes"]["items"]
         finding_schema = schema["properties"]["findings_addressed"]["items"]
         self.assertFalse(change_schema["additionalProperties"])
@@ -145,6 +146,17 @@ class FixProposalDesignTests(unittest.TestCase):
         self.assertIn("rationale", change_schema["required"])
         self.assertIn("finding_id", finding_schema["required"])
         self.assertEqual("modify", change_schema["properties"]["operation"]["const"])
+        path_pattern = change_schema["properties"]["path"]["pattern"]
+        self.assertIn("(?!.*\\\\)", path_pattern)
+        patch_schema = change_schema["properties"]["patch"]
+        self.assertEqual(20000, patch_schema["maxLength"])
+        forbidden_patch_patterns = [
+            item["pattern"]
+            for item in patch_schema["not"]["anyOf"]
+        ]
+        self.assertTrue(any("GIT binary patch" in item for item in forbidden_patch_patterns))
+        self.assertTrue(any("/dev/null" in item for item in forbidden_patch_patterns))
+        self.assertTrue(any("diff --git" in item for item in forbidden_patch_patterns))
         self.assertEqual(
             ["critical", "high", "medium", "low"],
             finding_schema["properties"]["severity"]["enum"],

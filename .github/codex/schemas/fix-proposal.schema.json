@@ -114,6 +114,7 @@
     "changes": {
       "type": "array",
       "minItems": 1,
+      "maxItems": 5,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -128,7 +129,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(^|/)\\.\\.(/|$)).+$"
+            "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(^|/)\\.\\.(/|$)).+$"
           },
           "operation": {
             "const": "modify"
@@ -138,7 +139,24 @@
           },
           "patch": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 20000,
+            "not": {
+              "anyOf": [
+                {
+                  "pattern": "GIT binary patch|Binary files |new file mode |deleted file mode |old mode |new mode |rename from |rename to |similarity index |dissimilarity index "
+                },
+                {
+                  "pattern": "(^|\\n)(--- |\\+\\+\\+ )/dev/null($|\\t|\\n)"
+                },
+                {
+                  "pattern": "(^|\\n)diff --git .*\\\""
+                },
+                {
+                  "pattern": "(^|\\n)(--- |\\+\\+\\+ )\\\""
+                }
+              ]
+            }
           },
           "rationale": {
             "type": "string",
