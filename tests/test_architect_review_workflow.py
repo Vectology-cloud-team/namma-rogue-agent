@@ -299,6 +299,12 @@ class ArchitectReviewWorkflowTests(unittest.TestCase):
         self.assertIn("### Review Policy", script)
         self.assertIn("Model:", script)
 
+    def test_post_feedback_validates_live_head_before_comment(self):
+        labels = self.failed_labels(
+            check_architect_review_workflow.check_reviewer_text(self.reviewer_text())
+        )
+        self.assertNotIn("post_feedback validates live head before comment", labels)
+
 
 if __name__ == "__main__":
     unittest.main()

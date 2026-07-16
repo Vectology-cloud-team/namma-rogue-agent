@@ -249,6 +249,7 @@ def check_reviewer_text(text: str) -> list[CheckResult]:
     _add(results, "post_feedback runs for review or policy skip comments", "needs.review.outputs.should_comment == 'true'" in post_job)
     _add(results, "post_feedback can write PR comments", _regex(post_job, r"permissions:\n\s+issues: write\n\s+pull-requests: write"))
     _add(results, "post_feedback uses retry helper", "architect_review_retry.py post-comment" in post_job)
+    _add(results, "post_feedback validates live head before comment", "validate_comment_target" in retry_script_text and "pull request head changed before comment publication" in retry_script_text)
     _add(results, "comment marker exists", "<!-- namma-ai-architect-review -->" in retry_script_text)
     _add(results, "comment heading exists", "## Automated Architect Review" in retry_script_text)
     _add(results, "comment states AI review is not merge judgment", "does not replace human merge judgment" in retry_script_text)

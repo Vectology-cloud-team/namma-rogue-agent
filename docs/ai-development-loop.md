@@ -204,7 +204,10 @@ failure rather than as a validated AI review result.
 `FATAL` failures stop immediately without retry. They do not post a
 misleading AI review comment. A stale artifact is treated as a fatal
 validation result for that run so an old review cannot update the sticky
-comment for a newer head SHA.
+comment for a newer head SHA. The comment-posting job also fetches the
+live pull request immediately before creating or updating the sticky
+comment and fails closed if the head SHA no longer matches the reviewed
+SHA.
 
 The privileged reviewer verifies the artifact metadata against the live
 pull request before checking out the trusted prompt. The base repository,

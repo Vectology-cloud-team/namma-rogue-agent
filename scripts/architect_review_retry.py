@@ -1645,6 +1645,27 @@ def parse_next_link(link_header: str) -> str:
     return ""
 
 
+def validate_comment_target(repo: str, issue_number: str, reviewed_sha: str, token: str) -> None:
+    data, _ = github_json(
+        "GET",
+        f"/repos/{repo}/pulls/{issue_number}",
+        token=token,
+    )
+    if not isinstance(data, dict):
+        raise fatal(
+            FailureCode.PR_MISMATCH,
+            "pull request lookup before commenting did not return an object",
+            "github_comment",
+        )
+    live_head_sha = str(data.get("head", {}).get("sha", ""))
+    if live_head_sha != reviewed_sha:
+        raise fatal(
+            FailureCode.STALE_ARTIFACT,
+            "pull request head changed before comment publication",
+            "github_comment",
+        )
+
+
 def command_post_comment(_: argparse.Namespace) -> int:
     token = required_env("GITHUB_TOKEN")
     repo = required_env("GITHUB_REPOSITORY")
@@ -1680,6 +1701,7 @@ def command_post_comment(_: argparse.Namespace) -> int:
     )
 
     def operation() -> None:
+        validate_comment_target(repo, issue_number, reviewed_sha, token)
         comments = list(iter_issue_comments(repo, issue_number, token))
         existing = next(
             (

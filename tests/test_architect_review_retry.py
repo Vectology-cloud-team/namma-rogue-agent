@@ -841,6 +841,43 @@ class ArchitectReviewRetryTests(unittest.TestCase):
         )
         self.assertNotIn("<!-- namma-ai-architect-review -->", summary)
 
+    def test_validate_comment_target_accepts_current_head(self):
+        original = architect_review_retry.github_json
+
+        def fake_github_json(method, api_path, **kwargs):
+            self.assertEqual("GET", method)
+            self.assertEqual("/repos/x/y/pulls/14", api_path)
+            self.assertEqual("token", kwargs["token"])
+            return ({"head": {"sha": "b" * 40}}, {})
+
+        architect_review_retry.github_json = fake_github_json
+        try:
+            architect_review_retry.validate_comment_target("x/y", "14", "b" * 40, "token")
+        finally:
+            architect_review_retry.github_json = original
+
+    def test_validate_comment_target_rejects_stale_head_before_write(self):
+        original = architect_review_retry.github_json
+
+        def fake_github_json(method, api_path, **kwargs):
+            return ({"head": {"sha": "c" * 40}}, {})
+
+        architect_review_retry.github_json = fake_github_json
+        try:
+            with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                architect_review_retry.validate_comment_target(
+                    "x/y",
+                    "14",
+                    "b" * 40,
+                    "token",
+                )
+            self.assertEqual(
+                architect_review_retry.FailureCode.STALE_ARTIFACT,
+                raised.exception.code,
+            )
+        finally:
+            architect_review_retry.github_json = original
+
     def test_comment_body_preserves_sticky_marker(self):
         body = architect_review_retry.build_comment_body(
             final_message="VERDICT: CHANGES_REQUESTED\n\nSUMMARY\nNeeds work.",
