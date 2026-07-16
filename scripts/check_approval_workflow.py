@@ -217,6 +217,7 @@ def check_schema_and_scripts() -> list[CheckResult]:
     add(results, "approval schema has approved status", '"APPROVED"' in schema)
     add(results, "approval schema has stale status", '"STALE"' in schema)
     add(results, "approval schema requires deterministic ID field", '"approval_id"' in schema)
+    add(results, "approval schema records approver association", '"approved_by_association"' in schema and '"OWNER"' in schema and '"MEMBER"' in schema)
     add(results, "proposal workflow cannot write approval record", "approval-record-" not in fix_workflow)
     add(results, "proposal workflow cannot write approval marker", "<!-- namma-ai-approval -->" not in fix_workflow)
     add(results, "approval script states no patch apply", "must never apply patches" in script)

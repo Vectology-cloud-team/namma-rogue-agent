@@ -14,6 +14,7 @@
     "base_sha",
     "head_sha",
     "approved_by",
+    "approved_by_association",
     "approved_at",
     "approval_source",
     "policy_hash",
@@ -54,6 +55,13 @@
     "approved_by": {
       "type": "string",
       "minLength": 1
+    },
+    "approved_by_association": {
+      "type": "string",
+      "enum": [
+        "OWNER",
+        "MEMBER"
+      ]
     },
     "approved_at": {
       "type": "string",

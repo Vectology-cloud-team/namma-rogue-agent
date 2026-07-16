@@ -100,6 +100,7 @@ class ApprovalWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("proposal workflow cannot write approval record", labels)
         self.assertNotIn("proposal workflow cannot write approval marker", labels)
+        self.assertNotIn("approval schema records approver association", labels)
 
     def test_all_actions_are_full_sha_pinned(self):
         combined = "\n".join(

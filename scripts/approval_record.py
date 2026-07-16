@@ -216,6 +216,7 @@ APPROVAL_RECORD_KEYS = {
     "base_sha",
     "head_sha",
     "approved_by",
+    "approved_by_association",
     "approved_at",
     "approval_source",
     "policy_hash",
@@ -261,6 +262,12 @@ def validate_approval_record_shape(record: dict[str, Any]) -> None:
     ensure_sha256(record["policy_hash"], "policy_hash")
     ensure_full_sha(record["base_sha"], "base_sha")
     ensure_full_sha(record["head_sha"], "head_sha")
+    if record["approved_by_association"] not in ALLOWED_APPROVER_ASSOCIATIONS:
+        raise fatal(
+            fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
+            "approved_by_association must be OWNER or MEMBER",
+            "approval_record_validation",
+        )
     if record["approval_source"] != APPROVAL_SOURCE_LABEL:
         raise fatal(
             fix.FailureCode.INVALID_PROPOSAL,
@@ -581,6 +588,7 @@ def build_approval_record(
     proposal: dict[str, Any],
     metadata: dict[str, Any],
     approved_by: str | None = None,
+    approved_by_association: str | None = None,
     approved_at: str | None = None,
 ) -> dict[str, Any]:
     if approved_at is None:
@@ -595,6 +603,7 @@ def build_approval_record(
         "base_sha": str(metadata["base_sha"]),
         "head_sha": str(metadata["head_sha"]),
         "approved_by": str(approved_by or manifest["actor"]),
+        "approved_by_association": str(approved_by_association or "UNVERIFIED"),
         "approved_at": approved_at,
         "approval_source": APPROVAL_SOURCE_LABEL,
         "policy_hash": str(metadata["policy_hash"]),
@@ -754,6 +763,7 @@ def approval_comment_body(
             f"- Proposal hash: `{record['proposal_hash']}`",
             f"- HEAD SHA: `{record['head_sha']}`",
             f"- Approved By: `{record['approved_by']}`",
+            f"- Approved By Association: `{record['approved_by_association']}`",
             f"- Approved At: `{record['approved_at']}`",
             f"- Workflow run: [{workflow_run_id}](https://github.com/{repo}/actions/runs/{workflow_run_id})",
             "",
@@ -982,6 +992,7 @@ def command_record_approval(_: argparse.Namespace) -> int:
             proposal=proposal,
             metadata=metadata,
             approved_by=approval_actor,
+            approved_by_association=actor_association,
         )
         write_approval_artifact(output_dir=record_dir, record=record)
         github_output(

@@ -263,11 +263,13 @@ class ApprovalRecordTests(unittest.TestCase):
             manifest=manifest,
             proposal=proposal,
             metadata=metadata,
+            approved_by_association="MEMBER",
             approved_at="2026-07-17T00:02:00Z",
         )
         self.assertEqual("APPROVED", record["status"])
         self.assertEqual(PROPOSAL_ID, record["proposal_id"])
         self.assertEqual(PROPOSAL_HASH, record["proposal_hash"])
+        self.assertEqual("MEMBER", record["approved_by_association"])
         approval_record.validate_approval_record_shape(record)
 
     def test_proposal_hash_mismatch_is_rejected(self):
@@ -373,9 +375,26 @@ class ApprovalRecordTests(unittest.TestCase):
             proposal=self.proposal(),
             metadata=self.metadata(),
             approved_by="trusted-labeler",
+            approved_by_association="OWNER",
             approved_at="2026-07-17T00:02:00Z",
         )
         self.assertEqual("trusted-labeler", record["approved_by"])
+        self.assertEqual("OWNER", record["approved_by_association"])
+
+    def test_approval_record_rejects_unverified_association(self):
+        record = approval_record.build_approval_record(
+            manifest=self.manifest(),
+            proposal=self.proposal(),
+            metadata=self.metadata(),
+            approved_by_association="MEMBER",
+            approved_at="2026-07-17T00:02:00Z",
+        )
+        record["approved_by_association"] = "COLLABORATOR"
+        self.assert_failure_code(
+            approval_record.fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
+            approval_record.validate_approval_record_shape,
+            record,
+        )
 
     def test_approval_label_alone_does_not_create_record_without_proposal_artifact(self):
         with mock.patch.object(
@@ -594,6 +613,7 @@ class ApprovalRecordTests(unittest.TestCase):
             "manifest": self.manifest(),
             "proposal": self.proposal(),
             "metadata": self.metadata(),
+            "approved_by_association": "MEMBER",
             "approved_at": "2026-07-17T00:02:00Z",
         }
         first = approval_record.build_approval_record(**kwargs)
@@ -617,6 +637,7 @@ class ApprovalRecordTests(unittest.TestCase):
             manifest=self.manifest(),
             proposal=self.proposal(),
             metadata=self.metadata(),
+            approved_by_association="MEMBER",
             approved_at="2026-07-17T00:02:00Z",
         )
         body = approval_record.approval_comment_body(
@@ -625,6 +646,7 @@ class ApprovalRecordTests(unittest.TestCase):
             repo=approval_record.EXPECTED_REPOSITORY,
         )
         self.assertIn("Human Approval Recorded", body)
+        self.assertIn("Approved By Association: `MEMBER`", body)
         self.assertIn("Repository変更なし", body)
         self.assertIn("Commitなし", body)
         self.assertIn("Pushなし", body)
