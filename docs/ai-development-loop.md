@@ -157,6 +157,48 @@ The workflow deduplicates comments by marker only. A later run for a new
 head SHA updates the same marker-owned comment instead of creating
 another one.
 
+## Stage 1.1: Failure Classification And Retry Control
+
+Stage 1.1 keeps the Stage 1 trust boundary intact and adds failure
+classification for the privileged reviewer. The collector remains
+unprivileged and unchanged.
+
+Reviewer failures are grouped into three classes:
+
+- `RETRYABLE`: temporary external failures that may recover on retry,
+  such as OpenAI timeouts, OpenAI rate limits, OpenAI 5xx responses,
+  GitHub API 429 or 5xx responses, transient network errors, transient
+  artifact download failures, and temporary service unavailability.
+- `FATAL`: configuration, validation, permission, or trust-boundary
+  failures that should not be retried, such as a missing trusted prompt,
+  invalid manifest data, repository or SHA mismatches, stale artifacts,
+  path traversal, permission errors, workflow configuration errors,
+  unapproved Actions, or Action SHA pinning violations.
+- `SUCCESS`: a completed AI review. `APPROVED`, `CHANGES_REQUESTED`,
+  and `NEEDS_HUMAN` are review outcomes, not GitHub Actions failures.
+
+Only `RETRYABLE` failures are retried automatically. The reviewer makes
+at most three attempts for retryable operations and waits between
+attempts using the configured schedule of 30 seconds, 60 seconds, and
+120 seconds. If all attempts fail, the workflow stops and writes a job
+summary with the failure class, failure code, operation, attempt count,
+reviewed pull request number, reviewed head SHA, and a sanitized error
+summary.
+
+`FATAL` failures stop immediately without retry. They do not post a
+misleading AI review comment. A stale artifact is treated as a fatal
+validation result for that run so an old review cannot update the sticky
+comment for a newer head SHA.
+
+Infrastructure failure reporting is kept separate from the AI review
+sticky comment. The reviewer does not overwrite an existing AI review
+comment with an infrastructure failure. Human follow-up should use the
+job summary and workflow logs.
+
+Retry is not an automatic repair loop. It does not edit files, commit,
+push, merge, approve, label, or make false-positive decisions. Model,
+reasoning effort, and cost controls remain outside Stage 1.1.
+
 ## Stage 2 Plan
 
 Stage 2 is intentionally not implemented yet. Candidate Stage 2 features
