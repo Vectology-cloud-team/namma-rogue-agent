@@ -131,6 +131,92 @@ class ArchitectReviewRetryTests(unittest.TestCase):
         self.assertIn(b"src/main.py", filtered)
         self.assertNotIn(b"vendor/lib.c", filtered)
 
+    def test_diff_section_paths_decodes_git_quoted_paths(self):
+        cases = [
+            (
+                '"a/assets/logo final.png"',
+                '"b/assets/logo final.png"',
+                "assets/logo final.png",
+            ),
+            (
+                '"a/assets/tab\\tname.png"',
+                '"b/assets/tab\\tname.png"',
+                "assets/tab\tname.png",
+            ),
+            (
+                '"a/assets/quote\\"name.png"',
+                '"b/assets/quote\\"name.png"',
+                'assets/quote"name.png',
+            ),
+            (
+                '"a/assets/back\\\\slash.png"',
+                '"b/assets/back\\\\slash.png"',
+                "assets/back/slash.png",
+            ),
+            (
+                '"a/assets/caf\\303\\251.png"',
+                '"b/assets/caf\\303\\251.png"',
+                "assets/café.png",
+            ),
+        ]
+        for old_path, new_path, expected in cases:
+            with self.subTest(expected=expected):
+                paths = architect_review_retry.diff_section_paths(
+                    [
+                        f"diff --git {old_path} {new_path}\n",
+                        f"--- {old_path}\n",
+                        f"+++ {new_path}\n",
+                    ]
+                )
+                self.assertEqual({expected}, paths)
+
+    def test_filter_unified_diff_removes_git_quoted_excluded_sections(self):
+        diff = (
+            'diff --git "a/assets/logo final.png" "b/assets/logo final.png"\n'
+            '--- "a/assets/logo final.png"\n'
+            '+++ "b/assets/logo final.png"\n'
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+excluded image text\n"
+            'diff --git "a/assets/tab\\tname.png" "b/assets/tab\\tname.png"\n'
+            '--- "a/assets/tab\\tname.png"\n'
+            '+++ "b/assets/tab\\tname.png"\n'
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+excluded tab text\n"
+            'diff --git "a/assets/quote\\"name.png" "b/assets/quote\\"name.png"\n'
+            '--- "a/assets/quote\\"name.png"\n'
+            '+++ "b/assets/quote\\"name.png"\n'
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+excluded quote text\n"
+            'diff --git "a/assets/back\\\\slash.png" "b/assets/back\\\\slash.png"\n'
+            '--- "a/assets/back\\\\slash.png"\n'
+            '+++ "b/assets/back\\\\slash.png"\n'
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+excluded backslash text\n"
+            'diff --git "a/assets/caf\\303\\251.png" "b/assets/caf\\303\\251.png"\n'
+            '--- "a/assets/caf\\303\\251.png"\n'
+            '+++ "b/assets/caf\\303\\251.png"\n'
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+excluded unicode text\n"
+            "diff --git a/src/main.py b/src/main.py\n"
+            "--- a/src/main.py\n"
+            "+++ b/src/main.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+included source text\n"
+        ).encode("utf-8")
+        filtered = architect_review_retry.filter_unified_diff(diff, self.review_policy())
+        self.assertIn(b"included source text", filtered)
+        self.assertNotIn(b"excluded image text", filtered)
+        self.assertNotIn(b"excluded tab text", filtered)
+        self.assertNotIn(b"excluded quote text", filtered)
+        self.assertNotIn(b"excluded backslash text", filtered)
+        self.assertNotIn(b"excluded unicode text", filtered)
+
     def test_review_input_budget_counts_excluded_files(self):
         files = [
             {"filename": "src/main.py", "patch": "patch"},

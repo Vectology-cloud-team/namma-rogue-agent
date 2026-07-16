@@ -1155,20 +1155,123 @@ def validate_live_pr_files(
         )
 
 
+GIT_QUOTE_ESCAPES = {
+    "a": b"\a",
+    "b": b"\b",
+    "f": b"\f",
+    "n": b"\n",
+    "r": b"\r",
+    "t": b"\t",
+    "v": b"\v",
+    "\\": b"\\",
+    '"': b'"',
+}
+
+
+def decode_git_quoted_path_token(token: str) -> str:
+    """Decode Git's C-style quoted path escapes."""
+    output = bytearray()
+    index = 0
+    while index < len(token):
+        character = token[index]
+        if character != "\\":
+            output.extend(character.encode("utf-8", errors="surrogateescape"))
+            index += 1
+            continue
+        index += 1
+        if index >= len(token):
+            output.extend(b"\\")
+            break
+        escaped = token[index]
+        if escaped in GIT_QUOTE_ESCAPES:
+            output.extend(GIT_QUOTE_ESCAPES[escaped])
+            index += 1
+            continue
+        if "0" <= escaped <= "7":
+            digits = [escaped]
+            index += 1
+            while (
+                index < len(token)
+                and len(digits) < 3
+                and "0" <= token[index] <= "7"
+            ):
+                digits.append(token[index])
+                index += 1
+            output.append(int("".join(digits), 8))
+            continue
+        output.extend(escaped.encode("utf-8", errors="surrogateescape"))
+        index += 1
+    return output.decode("utf-8", errors="surrogateescape")
+
+
+def normalize_git_prefixed_path(path: str) -> str | None:
+    if path.startswith(("a/", "b/")):
+        return normalized_repo_path(path[2:])
+    return None
+
+
+def parse_git_path_fields(text: str, *, max_fields: int) -> list[str]:
+    fields: list[str] = []
+    index = 0
+    while index < len(text) and len(fields) < max_fields:
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text):
+            break
+        if text[index] == '"':
+            index += 1
+            raw: list[str] = []
+            while index < len(text):
+                character = text[index]
+                if character == '"':
+                    index += 1
+                    break
+                if character == "\\" and index + 1 < len(text):
+                    raw.append(character)
+                    index += 1
+                    raw.append(text[index])
+                    index += 1
+                    continue
+                raw.append(character)
+                index += 1
+            fields.append(decode_git_quoted_path_token("".join(raw)))
+            continue
+        start = index
+        while index < len(text) and not text[index].isspace():
+            index += 1
+        fields.append(text[start:index])
+    return fields
+
+
+def parse_unified_path_field(raw_field: str) -> str | None:
+    field = raw_field.strip()
+    if not field or field == "/dev/null":
+        return None
+    tokens = parse_git_path_fields(field, max_fields=1)
+    if tokens:
+        parsed = normalize_git_prefixed_path(tokens[0])
+        if parsed is not None:
+            return parsed
+    unquoted = field.split("\t", 1)[0]
+    return normalize_git_prefixed_path(unquoted)
+
+
 def diff_section_paths(section: list[str]) -> set[str]:
     paths: set[str] = set()
     for line in section:
         if line.startswith("diff --git "):
-            parts = line.strip().split()
-            for raw_path in parts[2:4]:
-                if raw_path.startswith(("a/", "b/")):
-                    paths.add(normalized_repo_path(raw_path[2:]))
+            raw_paths = parse_git_path_fields(
+                line[len("diff --git ") :],
+                max_fields=2,
+            )
+            for raw_path in raw_paths:
+                parsed = normalize_git_prefixed_path(raw_path)
+                if parsed is not None:
+                    paths.add(parsed)
         elif line.startswith(("--- ", "+++ ")):
-            raw_path = line[4:].strip().split("\t", 1)[0]
-            if raw_path == "/dev/null":
-                continue
-            if raw_path.startswith(("a/", "b/")):
-                paths.add(normalized_repo_path(raw_path[2:]))
+            parsed = parse_unified_path_field(line[4:])
+            if parsed is not None:
+                paths.add(parsed)
     return paths
 
 
