@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
@@ -175,6 +176,11 @@ class ArchitectReviewRetryTests(unittest.TestCase):
             failure.code,
         )
 
+    def test_codex_empty_failure_details_are_retryable_after_preflight(self):
+        failure = architect_review_retry.classify_codex_failure_message("")
+        self.assertEqual(architect_review_retry.FailureClass.RETRYABLE, failure.failure_class)
+        self.assertEqual(architect_review_retry.FailureCode.NETWORK_ERROR, failure.code)
+
     def assert_fatal_without_retry(self, failure):
         sleeps = []
         attempts = []
@@ -306,6 +312,91 @@ class ArchitectReviewRetryTests(unittest.TestCase):
                 raised.exception.code,
             )
             self.assertFalse(target.exists())
+
+    def base_manifest(self, diff_bytes):
+        return {
+            "actor": "uchuu",
+            "author_association": "OWNER",
+            "base_repository": "Vectology-cloud-team/namma-rogue-agent",
+            "base_sha": "a" * 40,
+            "binary_file_count": 0,
+            "binary_files_omitted": [],
+            "changed_file_count": 1,
+            "collector_workflow_name": "Architect Review Collect",
+            "collector_workflow_run_id": 123,
+            "diff_bytes": diff_bytes,
+            "draft": False,
+            "head_repository": "Vectology-cloud-team/namma-rogue-agent",
+            "head_sha": "b" * 40,
+            "limits": {
+                "max_diff_bytes": 200000,
+                "max_changed_files": 200,
+                "max_artifact_bytes": 250000,
+            },
+            "merge_sha": "c" * 40,
+            "pull_request_number": 13,
+            "repository": "Vectology-cloud-team/namma-rogue-agent",
+            "schema_version": "architect-review-input-v1",
+        }
+
+    def with_manifest_validation_env(self, func):
+        saved = os.environ.copy()
+        os.environ.update(
+            {
+                "EXPECTED_REPOSITORY": "Vectology-cloud-team/namma-rogue-agent",
+                "EXPECTED_COLLECTOR_WORKFLOW": "Architect Review Collect",
+                "WORKFLOW_RUN_ID": "123",
+                "MAX_DIFF_BYTES": "200000",
+                "MAX_CHANGED_FILES": "200",
+                "MAX_ARTIFACT_BYTES": "250000",
+            }
+        )
+        try:
+            return func()
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+    def assert_manifest_field_rejected(self, field, value, expected_code):
+        def run_validation():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                diff_path = root / "review.diff"
+                manifest_path = root / "manifest.json"
+                diff_path.write_text("diff", encoding="utf-8")
+                manifest_path.write_text("{}", encoding="utf-8")
+                manifest = self.base_manifest(diff_path.stat().st_size)
+                manifest[field] = value
+                with self.assertRaises(architect_review_retry.ReviewFailure) as raised:
+                    architect_review_retry.validate_manifest_shape(
+                        manifest,
+                        diff_path=diff_path,
+                        manifest_path=manifest_path,
+                    )
+                self.assertEqual(expected_code, raised.exception.code)
+
+        self.with_manifest_validation_env(run_validation)
+
+    def test_manifest_pull_request_number_rejects_boolean(self):
+        self.assert_manifest_field_rejected(
+            "pull_request_number",
+            True,
+            architect_review_retry.FailureCode.PR_MISMATCH,
+        )
+
+    def test_manifest_changed_file_count_rejects_boolean(self):
+        self.assert_manifest_field_rejected(
+            "changed_file_count",
+            False,
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+        )
+
+    def test_manifest_diff_bytes_rejects_boolean(self):
+        self.assert_manifest_field_rejected(
+            "diff_bytes",
+            True,
+            architect_review_retry.FailureCode.INVALID_MANIFEST,
+        )
 
     def test_success_approved_does_not_fail_workflow(self):
         self.assertEqual(

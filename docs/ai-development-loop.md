@@ -185,6 +185,9 @@ backoff slot if a later policy increases the attempt count. If all
 attempts fail, the workflow stops and writes a job summary with the
 failure class, failure code, operation, attempt count, reviewed pull
 request number, reviewed head SHA, and a sanitized error summary.
+If the Codex Action fails after preflight validation but returns no
+failure details, the reviewer treats that as a retryable provider/action
+failure rather than as a validated AI review result.
 
 `FATAL` failures stop immediately without retry. They do not post a
 misleading AI review comment. A stale artifact is treated as a fatal

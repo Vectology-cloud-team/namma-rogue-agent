@@ -158,7 +158,13 @@ def classify_exception(error: BaseException, operation: str) -> ReviewFailure:
 
 
 def classify_codex_failure_message(message: str) -> ReviewFailure:
-    safe_message = sanitize_error(message or "Codex Action failed without details")
+    if not message:
+        return retryable(
+            FailureCode.NETWORK_ERROR,
+            "Codex Action failed without details after preflight validation",
+            "openai_codex_action",
+        )
+    safe_message = sanitize_error(message)
     lowered = safe_message.lower()
     if any(term in lowered for term in ("rate limit", "too many requests", " 429", "http 429")):
         return retryable(FailureCode.RATE_LIMIT, safe_message, "openai_codex_action")
@@ -510,6 +516,10 @@ def required_env(name: str) -> str:
     return value
 
 
+def is_plain_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def read_manifest(root: Path) -> tuple[dict[str, Any], Path, Path]:
     entries = sorted(path.name for path in root.iterdir())
     if entries != ["manifest.json", "review.diff"]:
@@ -576,13 +586,19 @@ def validate_manifest_shape(
             "manifest collector workflow name does not match",
             "review_input_validation",
         )
+    if not is_plain_int(manifest["collector_workflow_run_id"]):
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            "manifest collector_workflow_run_id must be an integer",
+            "review_input_validation",
+        )
     if manifest["collector_workflow_run_id"] != int(required_env("WORKFLOW_RUN_ID")):
         raise fatal(
             FailureCode.WORKFLOW_CONFIGURATION_ERROR,
             "manifest collector workflow run ID does not match",
             "review_input_validation",
         )
-    if not isinstance(manifest["pull_request_number"], int):
+    if not is_plain_int(manifest["pull_request_number"]):
         raise fatal(
             FailureCode.PR_MISMATCH,
             "manifest pull_request_number must be an integer",
@@ -595,7 +611,13 @@ def validate_manifest_shape(
                 f"manifest {key} must be a full commit SHA",
                 "review_input_validation",
             )
-    if not isinstance(manifest["changed_file_count"], int):
+    if not isinstance(manifest["draft"], bool):
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            "manifest draft must be a boolean",
+            "review_input_validation",
+        )
+    if not is_plain_int(manifest["changed_file_count"]):
         raise fatal(
             FailureCode.INVALID_MANIFEST,
             "manifest changed_file_count must be an integer",
@@ -609,6 +631,12 @@ def validate_manifest_shape(
         )
     diff_bytes = diff_path.stat().st_size
     manifest_bytes = manifest_path.stat().st_size
+    if not is_plain_int(manifest["diff_bytes"]):
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            "manifest diff_bytes must be an integer",
+            "review_input_validation",
+        )
     if manifest["diff_bytes"] != diff_bytes:
         raise fatal(
             FailureCode.INVALID_MANIFEST,
@@ -633,6 +661,12 @@ def validate_manifest_shape(
             "manifest binary_files_omitted must be an array",
             "review_input_validation",
         )
+    if not is_plain_int(manifest["binary_file_count"]):
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            "manifest binary_file_count must be an integer",
+            "review_input_validation",
+        )
     if manifest["binary_file_count"] != len(manifest["binary_files_omitted"]):
         raise fatal(
             FailureCode.INVALID_MANIFEST,
@@ -640,6 +674,19 @@ def validate_manifest_shape(
             "review_input_validation",
         )
     limits = manifest["limits"]
+    if not isinstance(limits, dict):
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            "manifest limits must be an object",
+            "review_input_validation",
+        )
+    for key in ("max_diff_bytes", "max_changed_files", "max_artifact_bytes"):
+        if not is_plain_int(limits.get(key)):
+            raise fatal(
+                FailureCode.INVALID_MANIFEST,
+                f"manifest limits.{key} must be an integer",
+                "review_input_validation",
+            )
     expected_limits = {
         "max_diff_bytes": int(required_env("MAX_DIFF_BYTES")),
         "max_changed_files": int(required_env("MAX_CHANGED_FILES")),
