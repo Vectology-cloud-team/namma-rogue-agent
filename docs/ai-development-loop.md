@@ -286,17 +286,36 @@ edit files, commit, push, merge, label, approve, or block merges.
 
 ## Stage 2 Plan
 
-Stage 2 is intentionally not implemented yet. Candidate Stage 2 features
-may include:
+Stage 2 is designed but not implemented as a runtime workflow. The
+design is recorded in:
 
-- optional label-gated fix suggestions,
-- separate human approval before any file write,
-- separate human approval before any commit or push,
-- stricter issue templates for AI review findings,
-- metrics for review latency and false positives.
+```text
+docs/stage2-fix-proposal-design.md
+```
 
-Stage 2 must not be added until Stage 1 has produced a real review on a
-pull request and the workflow behavior has been inspected.
+Stage 2 is split into:
+
+- `Stage 2A: Fix Proposal`, where AI may generate a structured proposal
+  without changing repository files,
+- `Stage 2B: Human Approval`, where a human explicitly approves a
+  proposal without commit or push,
+- `Stage 2C: Sandboxed Apply`, where an approved proposal may later be
+  applied in isolation, still without production branch commit or push.
+
+The trusted fix policy draft is `.github/codex/fix-policy.yml`, and the
+proposal contract is
+`.github/codex/schemas/fix-proposal.schema.json`.
+
+Stage 2 proposal generation is label-gated by `ai-fix-proposal`. That
+label permits only proposal generation. A separate `ai-fix-approved`
+label is required before any future sandbox apply, and even that label
+does not permit commit, push, merge, or production branch writes.
+
+The Stage 2 design does not add workflow runtime wiring, does not add
+new secret access, does not post GitHub code suggestions, and does not
+execute recommended tests. It only defines the guarded proposal contract,
+approval boundary, stale-SHA invalidation, protected paths, and threat
+model.
 
 ## Human Decisions
 
