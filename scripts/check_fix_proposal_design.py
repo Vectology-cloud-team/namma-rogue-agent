@@ -28,6 +28,7 @@ FIX_SCHEMA_PATH = (
     REPO_ROOT / ".github" / "codex" / "schemas" / "fix-proposal.schema.json"
 )
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
+FIX_PROPOSAL_RUNTIME_PATH = REPO_ROOT / "scripts" / "fix_proposal_generator.py"
 EXPECTED_REPOSITORY = "Vectology-cloud-team/namma-rogue-agent"
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DATE_TIME_RE = re.compile(
@@ -656,23 +657,49 @@ def check_design_documents(policy: FixPolicy) -> list[CheckResult]:
     return results
 
 
-def check_no_stage2_runtime_wiring() -> list[CheckResult]:
+def check_stage2a_runtime_boundary() -> list[CheckResult]:
     results: list[CheckResult] = []
     workflow_text = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in sorted(WORKFLOW_DIR.glob("*.yml"))
+        for path in sorted({*WORKFLOW_DIR.glob("*.yml"), *WORKFLOW_DIR.glob("*.yaml")})
     )
+    runtime_text = workflow_text
+    if FIX_PROPOSAL_RUNTIME_PATH.exists():
+        runtime_text += "\n" + FIX_PROPOSAL_RUNTIME_PATH.read_text(encoding="utf-8")
     results.append(
         CheckResult(
-            "workflows do not reference Stage 2 labels",
-            STAGE2_LABEL not in workflow_text
+            "workflows may request proposals but not approvals",
+            STAGE2_LABEL in runtime_text
             and STAGE2_APPROVAL_LABEL not in workflow_text,
         )
     )
     results.append(
         CheckResult(
-            "workflows do not post fix proposal comments",
-            PROPOSAL_MARKER not in workflow_text,
+            "workflows may post proposal comments",
+            PROPOSAL_MARKER in runtime_text,
+        )
+    )
+    forbidden_tokens = (
+        "git push",
+        "git merge",
+        "gh pr merge",
+        "gh pr create",
+        "contents: write",
+        "createCommitOnBranch",
+        "createPullRequest",
+        "createReviewComment",
+    )
+    for token in forbidden_tokens:
+        results.append(
+            CheckResult(
+                f"workflows do not contain {token}",
+                token not in workflow_text,
+            )
+        )
+    results.append(
+        CheckResult(
+            "workflows do not implement Stage 2B or Stage 2C",
+            "Stage 2B" not in workflow_text and "Stage 2C" not in workflow_text,
         )
     )
     results.append(
@@ -705,7 +732,7 @@ def run_checks() -> list[CheckResult]:
     except (json.JSONDecodeError, ProposalValidationError) as exc:
         results.append(CheckResult("fix proposal schema validates", False, str(exc)))
     results.extend(check_design_documents(policy))
-    results.extend(check_no_stage2_runtime_wiring())
+    results.extend(check_stage2a_runtime_boundary())
     return results
 
 

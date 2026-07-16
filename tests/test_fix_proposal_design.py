@@ -576,14 +576,27 @@ class FixProposalDesignTests(unittest.TestCase):
         failed = [result for result in results if not result.passed]
         self.assertEqual([], failed)
 
-    def test_stage2_design_has_no_runtime_workflow_wiring(self):
+    def test_stage2a_workflow_wiring_is_proposal_only(self):
         workflow_text = "\n".join(
             path.read_text(encoding="utf-8")
-            for path in sorted(check_fix_proposal_design.WORKFLOW_DIR.glob("*.yml"))
+            for path in sorted(
+                {
+                    *check_fix_proposal_design.WORKFLOW_DIR.glob("*.yml"),
+                    *check_fix_proposal_design.WORKFLOW_DIR.glob("*.yaml"),
+                }
+            )
         )
-        self.assertNotIn("ai-fix-proposal", workflow_text)
+        runtime_text = workflow_text + "\n" + (
+            check_fix_proposal_design.FIX_PROPOSAL_RUNTIME_PATH.read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertIn("ai-fix-proposal", runtime_text)
         self.assertNotIn("ai-fix-approved", workflow_text)
-        self.assertNotIn("namma-ai-fix-proposal", workflow_text)
+        self.assertIn("namma-ai-fix-proposal", runtime_text)
+        self.assertNotIn("contents: write", workflow_text)
+        self.assertNotIn("git push", workflow_text)
+        self.assertNotIn("git merge", workflow_text)
 
     def test_stage2_design_adds_no_secret_reference(self):
         new_files = [
@@ -600,8 +613,7 @@ class FixProposalDesignTests(unittest.TestCase):
         self.assertNotIn("subprocess", script)
         self.assertNotIn("urllib", script)
         self.assertNotIn("requests", script)
-        self.assertNotIn("git push", script)
-        self.assertNotIn("git merge", script)
+        self.assertNotIn("os.system", script)
 
 
 if __name__ == "__main__":
