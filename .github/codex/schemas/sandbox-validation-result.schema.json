@@ -261,6 +261,85 @@
       "type": "boolean"
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "SUCCESS"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure_class": {
+            "const": null
+          },
+          "failure_code": {
+            "const": null
+          },
+          "patch_check": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "patch_apply": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "protected_path_check": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "blob_sha_check": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "persistent_repository_modified": {
+            "const": false
+          },
+          "commit_created": {
+            "const": false
+          },
+          "push_performed": {
+            "const": false
+          },
+          "merge_performed": {
+            "const": false
+          },
+          "sandbox_destroyed": {
+            "const": true
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "full_sha": {
       "type": "string",

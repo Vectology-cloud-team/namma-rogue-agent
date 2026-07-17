@@ -254,6 +254,15 @@ runtime should forbid both.
 content can request test IDs only. Trusted policy maps those IDs to
 fixed command argv arrays.
 
+Existing Stage 2A proposal artifacts may still contain free-form
+`tests_recommended` strings. Stage 2C must treat those strings as
+display-only evidence until a trusted translator maps them to approved
+test IDs. The translator may only emit IDs present in trusted default-
+branch policy, and it must fail closed if a recommendation is ambiguous,
+contains shell syntax, names an unknown command, asks for network access,
+or cannot be represented by an approved test ID. Stage 2C must create
+`tests_requested` from the trusted ID set, not from raw proposal text.
+
 Example test IDs:
 
 - `unit`,
