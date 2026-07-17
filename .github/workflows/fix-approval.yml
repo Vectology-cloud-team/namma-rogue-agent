@@ -1,0 +1,123 @@
+name: Fix Approval Recorder
+
+on:
+  workflow_run:
+    workflows:
+      - Fix Approval Request Collect
+    types:
+      - completed
+
+concurrency:
+  group: fix-approval-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  record:
+    name: Record verified fix approval
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.name == 'Fix Approval Request Collect' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.repository.full_name == github.repository &&
+      github.repository == 'Vectology-cloud-team/namma-rogue-agent'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      approval_ready: ${{ steps.record_approval.outputs.approval_ready || 'false' }}
+      should_comment: ${{ steps.record_approval.outputs.approval_ready == 'true' }}
+      pr_number: ${{ steps.validate_request.outputs.pr_number }}
+      head_sha: ${{ steps.validate_request.outputs.head_sha }}
+      approval_id: ${{ steps.record_approval.outputs.approval_id }}
+      artifact_name: ${{ steps.record_approval.outputs.artifact_name }}
+    steps:
+      - name: Checkout trusted approval control plane
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ github.sha }}
+          path: approval-control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download approval request artifact
+        id: download_request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COLLECTOR_RUN_ID: ${{ github.event.workflow_run.id }}
+          ARTIFACT_NAME: fix-approval-request-${{ github.event.workflow_run.id }}
+          APPROVAL_REQUEST_DIR: ${{ github.workspace }}/fix-approval-request
+          MAX_ARTIFACT_BYTES: "50000"
+        run: |
+          python3 approval-control/scripts/approval_record.py download-request-artifact
+
+      - name: Validate approval request manifest
+        id: validate_request
+        env:
+          APPROVAL_REQUEST_DIR: ${{ github.workspace }}/fix-approval-request
+        run: |
+          python3 approval-control/scripts/approval_record.py validate-request
+
+      - name: Record approval without applying proposal
+        id: record_approval
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          APPROVAL_REQUEST_DIR: ${{ github.workspace }}/fix-approval-request
+          PROPOSAL_ARTIFACT_DIR: ${{ github.workspace }}/fix-proposal
+          APPROVAL_RECORD_DIR: ${{ runner.temp }}/fix-approval-record
+          APPROVAL_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          FIX_POLICY: ${{ github.workspace }}/approval-control/.github/codex/fix-policy.yml
+          APPROVAL_RECORD_SCHEMA: ${{ github.workspace }}/approval-control/.github/codex/schemas/approval-record.schema.json
+          MAX_ARTIFACT_BYTES: "100000"
+        run: |
+          python3 approval-control/scripts/approval_record.py record-approval
+
+      - name: Upload approval record artifact
+        if: steps.record_approval.outputs.approval_ready == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.record_approval.outputs.artifact_name }}
+          path: ${{ runner.temp }}/fix-approval-record
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: false
+
+  post_approval:
+    name: Post fix approval comment
+    needs: record
+    if: needs.record.result == 'success' && needs.record.outputs.should_comment == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout trusted approval control plane
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ github.sha }}
+          path: approval-control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download generated approval record artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.record.outputs.artifact_name }}
+          path: ${{ github.workspace }}/fix-approval-record
+
+      - name: Post or update fix approval comment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.record.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.record.outputs.head_sha }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          APPROVAL_RECORD_PATH: ${{ github.workspace }}/fix-approval-record/approval-record.json
+        run: |
+          python3 approval-control/scripts/approval_record.py post-comment

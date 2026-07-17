@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vectology-cloud-team/namma-rogue-agent/.github/codex/schemas/approval-record.schema.json",
+  "title": "NaMMA AI Fix Approval Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "approval_id",
+    "proposal_id",
+    "proposal_hash",
+    "repository",
+    "pull_request_number",
+    "base_sha",
+    "head_sha",
+    "approved_by",
+    "approved_by_association",
+    "approved_at",
+    "approval_source",
+    "policy_hash",
+    "generator_model",
+    "generator_effort",
+    "human_approval_required",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "approval-record-v1"
+    },
+    "approval_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "proposal_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "proposal_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "pull_request_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "base_sha": {
+      "$ref": "#/$defs/full_sha"
+    },
+    "head_sha": {
+      "$ref": "#/$defs/full_sha"
+    },
+    "approved_by": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approved_by_association": {
+      "type": "string",
+      "enum": [
+        "OWNER",
+        "MEMBER"
+      ]
+    },
+    "approved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "approval_source": {
+      "type": "string",
+      "enum": [
+        "ai-fix-approved-label"
+      ]
+    },
+    "policy_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "generator_model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generator_effort": {
+      "type": "string",
+      "minLength": 1
+    },
+    "human_approval_required": {
+      "const": true
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PENDING",
+        "APPROVED",
+        "STALE"
+      ]
+    }
+  },
+  "$defs": {
+    "full_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

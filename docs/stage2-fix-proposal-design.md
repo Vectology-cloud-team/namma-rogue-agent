@@ -1,9 +1,9 @@
 # Stage 2 Fix Proposal Design
 
 This document defines the Stage 2 guarded AI fix suggestion flow. PR #16
-implements Stage 2A proposal generation only. The repository still does
-not contain workflow code that applies proposals, commits, pushes, or
-merges AI fixes.
+implements Stage 2A proposal generation. PR #21 implements Stage 2B
+approval record creation. The repository still does not contain workflow
+code that applies proposals, commits, pushes, or merges AI fixes.
 
 Stage 2 must preserve the Stage 1 trust boundary: pull request content,
 review artifacts, proposal comments, and generated patches are
@@ -12,7 +12,7 @@ the default-branch control plane.
 
 ## Non-Goals
 
-PR #16 still does not implement:
+PR #21 still does not implement:
 
 - repository file modification by AI,
 - commits,
@@ -23,12 +23,15 @@ PR #16 still does not implement:
 - shell command execution,
 - test command execution,
 - GitHub code suggestion posting,
-- Stage 2B human approval processing,
 - Stage 2C sandbox apply.
 
 The Stage 2A runtime artifacts are limited to request collection,
 trusted proposal generation, proposal validation, artifact storage, and a
 proposal sticky comment.
+
+The Stage 2B runtime artifacts are limited to request collection,
+trusted approval validation, approval record artifact storage, and an
+approval sticky comment.
 
 ## Stage Split
 
@@ -100,8 +103,10 @@ only when all of these are true:
 - the approval record's hash matches the current proposal content,
 - the proposal ID is unique for the reviewed head SHA.
 
-`ai-fix-approved` only permits a future Stage 2C sandbox apply attempt.
-It does not permit commit, push, merge, or production branch writes.
+`ai-fix-approved` only permits approval record creation in Stage 2B. A
+future Stage 2C sandbox apply attempt must read the approval record and
+revalidate it. The label does not permit patch application, commit,
+push, merge, or production branch writes.
 
 The label alone is not the approval binding. It is only the human intent
 signal. A future verifier must bind that label event to a trusted
@@ -110,6 +115,26 @@ auditable proposal record or structured approval comment. That record
 must include the proposal ID, target head SHA, proposal content hash,
 approver identity, and approver association. If the binding record is
 missing, ambiguous, stale, or has a mismatched hash, approval is invalid.
+
+Stage 2B implements the approval record as a workflow artifact with this
+schema:
+
+```text
+.github/codex/schemas/approval-record.schema.json
+```
+
+The record includes `approval_id`, `proposal_id`, `proposal_hash`,
+repository identity, pull request number, base and head SHA, approver,
+approval timestamp, policy hash, generator model and effort, human
+approval requirement, and status. `approval_id` is a deterministic hash
+prefix derived from the proposal ID, proposal hash, head SHA, approver,
+approval timestamp, policy hash, and related approval metadata. It is
+not a random UUID.
+
+The approval actor is the label event sender, not the pull request
+author. The trusted recorder checks organization membership for that
+actor and fails closed unless the actor is verified as `OWNER` or
+`MEMBER`.
 
 ## Proposal Schema
 
@@ -273,6 +298,20 @@ The comment should display:
 Stage 2A implements proposal comment posting with this marker. The
 comment is a display artifact and never an approval or apply command.
 
+Stage 2B uses a separate sticky comment from the proposal comment.
+
+Marker:
+
+```html
+<!-- namma-ai-approval -->
+```
+
+The approval comment displays the approval ID, proposal ID, proposal
+hash, head SHA, approver, approval time, and status. It also states that
+no repository change, patch application, commit, push, or merge occurred.
+The comment is a display artifact. The approval record artifact remains
+the machine-readable binding.
+
 ## Threat Model
 
 | Threat | Mitigation |
@@ -295,9 +334,17 @@ comment is a display artifact and never an approval or apply command.
 
 `scripts/check_fix_proposal_design.py` validates the design artifacts and
 sample proposal objects. `scripts/check_fix_proposal_workflow.py`
-validates the Stage 2A workflow trust boundary. These checks are
-read-only and do not apply patches, commit, push, or merge.
+validates the Stage 2A workflow trust boundary.
+`scripts/check_approval_workflow.py` validates the Stage 2B approval
+workflow trust boundary. These checks are read-only and do not apply
+patches, commit, push, or merge.
 
 The tests in `tests/test_fix_proposal_design.py` verify the schema,
 policy, proposal validation rules, stale approval invalidation, and the
 proposal-only Stage 2A runtime boundary.
+
+The tests in `tests/test_approval_record.py` and
+`tests/test_approval_workflow.py` verify approval record generation,
+proposal binding, stale and mismatched proposal rejection, deterministic
+approval IDs, approval comment behavior, and the no-apply Stage 2B
+runtime boundary.
