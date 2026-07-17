@@ -26,6 +26,15 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
             "status": "PASS",
             "message": "ok",
         }
+        test_pass = {
+            "test_id": "unit",
+            "requested": True,
+            "executed": True,
+            "status": "PASS",
+            "exit_code": 0,
+            "duration_ms": 100,
+            "log_excerpt": "ok",
+        }
         artifact = {
             "artifact_id": 123,
             "artifact_name": "artifact",
@@ -69,18 +78,9 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
             "actual_changed_files": ["canary/example.py"],
             "protected_path_check": dict(check_pass),
             "blob_sha_check": dict(check_pass),
-            "tests_requested": ["unit"],
-            "tests_executed": ["unit"],
-            "requested_tests_executed": True,
-            "test_results": [
-                {
-                    "test_id": "unit",
-                    "status": "PASS",
-                    "exit_code": 0,
-                    "duration_ms": 100,
-                    "log_excerpt": "ok",
-                }
-            ],
+            "tests_requested": [dict(test_pass)],
+            "tests_executed": [dict(test_pass)],
+            "test_results": [dict(test_pass)],
             "changed_files_match_expected": True,
             "persistent_repository_modified": False,
             "sandbox_worktree_modified": True,
@@ -131,10 +131,18 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
                 errors.append("success has failure_class")
             if result["failure_code"] is not None:
                 errors.append("success has failure_code")
-            if not result["requested_tests_executed"]:
-                errors.append("requested tests were not executed")
-            if any(test["status"] != "PASS" for test in result["test_results"]):
-                errors.append("test result is not PASS")
+            for field_name in (
+                "tests_requested",
+                "tests_executed",
+                "test_results",
+            ):
+                for test in result[field_name]:
+                    if not test["requested"]:
+                        errors.append(f"{field_name} includes unrequested test")
+                    if not test["executed"]:
+                        errors.append(f"{field_name} includes unexecuted test")
+                    if test["status"] != "PASS":
+                        errors.append(f"{field_name} includes non-PASS result")
             if not result["changed_files_match_expected"]:
                 errors.append("changed files differ")
             if result["sandbox_destroyed"] is not True:
@@ -195,16 +203,14 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
 
     def test_success_requires_tests_and_changed_files_to_match(self):
         success_properties = self.success_condition()
-        self.assertEqual(
-            True,
-            success_properties["requested_tests_executed"]["const"],
-        )
-        self.assertEqual(
-            "PASS",
-            success_properties["test_results"]["items"]["properties"]["status"][
-                "const"
-            ],
-        )
+        for field_name in ("tests_requested", "tests_executed", "test_results"):
+            with self.subTest(field_name=field_name):
+                item_properties = success_properties[field_name]["items"][
+                    "properties"
+                ]
+                self.assertEqual(True, item_properties["requested"]["const"])
+                self.assertEqual(True, item_properties["executed"]["const"])
+                self.assertEqual("PASS", item_properties["status"]["const"])
         self.assertEqual(
             True,
             success_properties["changed_files_match_expected"]["const"],
@@ -229,12 +235,24 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
 
     def test_contract_rejects_invalid_success_results(self):
         invalid_cases = [
-            ("failed test", lambda result: result["test_results"][0].update(
-                {"status": "FAIL"}
-            )),
-            ("missing requested tests", lambda result: result.update(
-                {"requested_tests_executed": False}
-            )),
+            (
+                "failed requested test",
+                lambda result: result["tests_requested"][0].update(
+                    {"status": "FAIL"}
+                ),
+            ),
+            (
+                "requested test not executed",
+                lambda result: result["tests_requested"][0].update(
+                    {"executed": False}
+                ),
+            ),
+            (
+                "executed test lacks result evidence",
+                lambda result: result["test_results"][0].update(
+                    {"executed": False}
+                ),
+            ),
             ("changed files mismatch", lambda result: result.update(
                 {"changed_files_match_expected": False}
             )),
@@ -286,13 +304,33 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
         schema = self.schema()
         properties = schema["properties"]
         self.assertEqual(
-            "#/$defs/test_id",
-            properties["tests_requested"]["items"]["$ref"],
+            "#/$defs/test_evidence",
+            properties["tests_requested"]["items"]["allOf"][0]["$ref"],
         )
         self.assertEqual(
-            "#/$defs/test_id",
-            properties["tests_executed"]["items"]["$ref"],
+            "#/$defs/test_evidence",
+            properties["tests_executed"]["items"]["allOf"][0]["$ref"],
         )
+        self.assertEqual(
+            "#/$defs/test_evidence",
+            properties["test_results"]["items"]["$ref"],
+        )
+
+    def test_path_schema_rejects_control_and_bidi_characters(self):
+        pattern = self.schema()["$defs"]["repo_path"]["pattern"]
+        compiled = re.compile(pattern)
+        self.assertRegex("canary/stage2c_file.py", compiled)
+        for path in (
+            "canary/line\nbreak.py",
+            "canary/carriage\rreturn.py",
+            "canary/tab\tfile.py",
+            "canary/bidi\u202efile.py",
+            "canary/isolated\u2066file.py",
+            ".git/config",
+            "../escape.py",
+        ):
+            with self.subTest(path=path.encode("unicode_escape").decode()):
+                self.assertIsNone(compiled.fullmatch(path))
 
 
 if __name__ == "__main__":

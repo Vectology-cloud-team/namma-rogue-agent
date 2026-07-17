@@ -262,6 +262,11 @@ branch policy, and it must fail closed if a recommendation is ambiguous,
 contains shell syntax, names an unknown command, asks for network access,
 or cannot be represented by an approved test ID. Stage 2C must create
 `tests_requested` from the trusted ID set, not from raw proposal text.
+In the validation result schema, each requested test is represented as a
+test evidence record containing the trusted test ID, requested flag,
+executed flag, status, exit code, duration, and bounded log excerpt.
+This prevents a successful validation from relying only on a standalone
+boolean claim that requested tests were executed.
 
 Example test IDs:
 

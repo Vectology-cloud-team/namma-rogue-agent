@@ -36,7 +36,6 @@
     "blob_sha_check",
     "tests_requested",
     "tests_executed",
-    "requested_tests_executed",
     "test_results",
     "changed_files_match_expected",
     "persistent_repository_modified",
@@ -193,58 +192,41 @@
     "tests_requested": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/test_id"
+        "allOf": [
+          {
+            "$ref": "#/$defs/test_evidence"
+          },
+          {
+            "properties": {
+              "requested": {
+                "const": true
+              }
+            }
+          }
+        ]
       }
     },
     "tests_executed": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/test_id"
+        "allOf": [
+          {
+            "$ref": "#/$defs/test_evidence"
+          },
+          {
+            "properties": {
+              "executed": {
+                "const": true
+              }
+            }
+          }
+        ]
       }
-    },
-    "requested_tests_executed": {
-      "type": "boolean"
     },
     "test_results": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "test_id",
-          "status",
-          "exit_code",
-          "duration_ms",
-          "log_excerpt"
-        ],
-        "properties": {
-          "test_id": {
-            "$ref": "#/$defs/test_id"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "PASS",
-              "FAIL",
-              "SKIPPED",
-              "INFRA_ERROR"
-            ]
-          },
-          "exit_code": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "duration_ms": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "log_excerpt": {
-            "type": "string",
-            "maxLength": 4000
-          }
-        }
+        "$ref": "#/$defs/test_evidence"
       }
     },
     "changed_files_match_expected": {
@@ -329,17 +311,62 @@
               "status"
             ]
           },
-          "requested_tests_executed": {
-            "const": true
-          },
-          "test_results": {
+          "tests_requested": {
             "items": {
               "properties": {
+                "requested": {
+                  "const": true
+                },
+                "executed": {
+                  "const": true
+                },
                 "status": {
                   "const": "PASS"
                 }
               },
               "required": [
+                "requested",
+                "executed",
+                "status"
+              ]
+            }
+          },
+          "tests_executed": {
+            "items": {
+              "properties": {
+                "requested": {
+                  "const": true
+                },
+                "executed": {
+                  "const": true
+                },
+                "status": {
+                  "const": "PASS"
+                }
+              },
+              "required": [
+                "requested",
+                "executed",
+                "status"
+              ]
+            }
+          },
+          "test_results": {
+            "items": {
+              "properties": {
+                "requested": {
+                  "const": true
+                },
+                "executed": {
+                  "const": true
+                },
+                "status": {
+                  "const": "PASS"
+                }
+              },
+              "required": [
+                "requested",
+                "executed",
                 "status"
               ]
             }
@@ -493,7 +520,7 @@
     "repo_path": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(^|/)\\.\\.($|/))(?!.*(^|/)\\.git($|/))[^\\\\]+$"
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*[\\u0000-\\u001F\\u007F\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069])(?!.*(^|/)\\.\\.($|/))(?!.*(^|/)\\.git($|/))[^\\\\]+$"
     },
     "path_array": {
       "type": "array",
@@ -505,6 +532,53 @@
     "test_id": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "test_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test_id",
+        "requested",
+        "executed",
+        "status",
+        "exit_code",
+        "duration_ms",
+        "log_excerpt"
+      ],
+      "properties": {
+        "test_id": {
+          "$ref": "#/$defs/test_id"
+        },
+        "requested": {
+          "type": "boolean"
+        },
+        "executed": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "SKIPPED",
+            "INFRA_ERROR"
+          ]
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "log_excerpt": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      }
     },
     "check_result": {
       "type": "object",
