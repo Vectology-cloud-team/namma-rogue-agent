@@ -337,6 +337,43 @@ recommended tests, commit, push, create branches, open pull requests,
 merge, or use GitHub code suggestions. Stage 2C sandbox apply is still
 not implemented.
 
+PR #25 adds the Stage 2C sandbox validation design only. The design is:
+
+```text
+docs/stage2c-sandbox-validation-design.md
+```
+
+The result schema draft is:
+
+```text
+.github/codex/schemas/sandbox-validation-result.schema.json
+```
+
+Stage 2C will require a separate `ai-fix-validate` label in addition to
+the live `ai-fix-proposal` and `ai-fix-approved` labels. The approval
+label alone will not start sandbox validation. A future Stage 2C
+validator must re-check the live pull request HEAD, proposal hash,
+approval record hash, trusted policy hash, target blob SHAs, artifact
+provenance, protected paths, Stage 1 finding binding, and current
+approval actor repository permission before creating any sandbox.
+
+Stage 2C patch application is limited to a disposable sandbox checkout.
+The design still forbids persistent repository writes, commits, pushes,
+branch creation, pull request updates, merges, package publishing,
+deployments, and GitHub Contents API writes. Test recommendations remain
+data until mapped by trusted policy from test IDs to fixed command argv
+arrays. Proposal-provided shell text is not executable configuration.
+
+The Stage 2C sticky comment marker is:
+
+```html
+<!-- namma-ai-sandbox-validation -->
+```
+
+The comment and result artifact will report validation status while
+explicitly stating that no persistent repository modification, commit,
+push, or merge occurred.
+
 ## Human Decisions
 
 The following decisions remain human-owned:
