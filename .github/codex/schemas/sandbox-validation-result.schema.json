@@ -1,0 +1,349 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vectology-cloud-team/namma-rogue-agent/.github/codex/schemas/sandbox-validation-result.schema.json",
+  "title": "NaMMA AI Sandbox Validation Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "validation_id",
+    "repository",
+    "pull_request_number",
+    "base_sha",
+    "head_sha",
+    "proposal_id",
+    "proposal_hash",
+    "approval_id",
+    "approval_record_hash",
+    "approved_by",
+    "approved_by_repository_permission",
+    "approved_by_repository_role",
+    "proposal_artifact",
+    "approval_artifact",
+    "schema_versions",
+    "policy_hash",
+    "test_plan_hash",
+    "started_at",
+    "completed_at",
+    "status",
+    "failure_class",
+    "failure_code",
+    "patch_check",
+    "patch_apply",
+    "expected_files",
+    "actual_changed_files",
+    "protected_path_check",
+    "blob_sha_check",
+    "tests_requested",
+    "tests_executed",
+    "test_results",
+    "persistent_repository_modified",
+    "sandbox_worktree_modified",
+    "commit_created",
+    "push_performed",
+    "merge_performed",
+    "sandbox_destroyed"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "sandbox-validation-result-v1"
+    },
+    "validation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "pull_request_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "base_sha": {
+      "$ref": "#/$defs/full_sha"
+    },
+    "head_sha": {
+      "$ref": "#/$defs/full_sha"
+    },
+    "proposal_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "proposal_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "approval_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "approval_record_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "approved_by": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approved_by_repository_permission": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "maintain"
+      ]
+    },
+    "approved_by_repository_role": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "proposal_artifact": {
+      "$ref": "#/$defs/artifact_provenance"
+    },
+    "approval_artifact": {
+      "$ref": "#/$defs/artifact_provenance"
+    },
+    "schema_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposal",
+        "approval",
+        "validation_result"
+      ],
+      "properties": {
+        "proposal": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approval": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validation_result": {
+          "const": "sandbox-validation-result-v1"
+        }
+      }
+    },
+    "policy_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "test_plan_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "SUCCESS",
+        "PATCH_REJECTED",
+        "TEST_FAILED",
+        "STALE",
+        "FATAL",
+        "INFRA_ERROR"
+      ]
+    },
+    "failure_class": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "PATCH_REJECTED",
+        "TEST_FAILED",
+        "STALE",
+        "FATAL",
+        "INFRA_ERROR",
+        null
+      ]
+    },
+    "failure_code": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "patch_check": {
+      "$ref": "#/$defs/check_result"
+    },
+    "patch_apply": {
+      "$ref": "#/$defs/check_result"
+    },
+    "expected_files": {
+      "$ref": "#/$defs/path_array"
+    },
+    "actual_changed_files": {
+      "$ref": "#/$defs/path_array"
+    },
+    "protected_path_check": {
+      "$ref": "#/$defs/check_result"
+    },
+    "blob_sha_check": {
+      "$ref": "#/$defs/check_result"
+    },
+    "tests_requested": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/test_id"
+      }
+    },
+    "tests_executed": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/test_id"
+      }
+    },
+    "test_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "test_id",
+          "status",
+          "exit_code",
+          "duration_ms",
+          "log_excerpt"
+        ],
+        "properties": {
+          "test_id": {
+            "$ref": "#/$defs/test_id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "FAIL",
+              "SKIPPED",
+              "INFRA_ERROR"
+            ]
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "log_excerpt": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      }
+    },
+    "persistent_repository_modified": {
+      "const": false
+    },
+    "sandbox_worktree_modified": {
+      "type": "boolean"
+    },
+    "commit_created": {
+      "const": false
+    },
+    "push_performed": {
+      "const": false
+    },
+    "merge_performed": {
+      "const": false
+    },
+    "sandbox_destroyed": {
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "full_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "repo_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(^|/)\\.\\.($|/))(?!.*(^|/)\\.git($|/))[^\\\\]+$"
+    },
+    "path_array": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/repo_path"
+      },
+      "uniqueItems": true
+    },
+    "test_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "check_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "message"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "SKIPPED"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "artifact_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "artifact_name",
+        "workflow_run_id",
+        "workflow_name",
+        "repository",
+        "head_sha"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "artifact_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workflow_run_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "workflow_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "head_sha": {
+          "$ref": "#/$defs/full_sha"
+        }
+      }
+    }
+  }
+}

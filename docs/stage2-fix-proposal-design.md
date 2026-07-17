@@ -2,8 +2,9 @@
 
 This document defines the Stage 2 guarded AI fix suggestion flow. PR #16
 implements Stage 2A proposal generation. PR #21 implements Stage 2B
-approval record creation. The repository still does not contain workflow
-code that applies proposals, commits, pushes, or merges AI fixes.
+approval record creation. PR #25 adds the Stage 2C sandbox validation
+design only. The repository still does not contain workflow code that
+applies proposals, commits, pushes, or merges AI fixes.
 
 Stage 2 must preserve the Stage 1 trust boundary: pull request content,
 review artifacts, proposal comments, and generated patches are
@@ -12,7 +13,7 @@ the default-branch control plane.
 
 ## Non-Goals
 
-PR #21 still does not implement:
+Stage 2 still does not implement:
 
 - repository file modification by AI,
 - commits,
@@ -20,10 +21,11 @@ PR #21 still does not implement:
 - branch creation,
 - pull request creation,
 - merges,
-- shell command execution,
-- test command execution,
+- production working tree patch application,
+- trusted sandbox patch application runtime,
+- trusted sandbox test execution runtime,
 - GitHub code suggestion posting,
-- Stage 2C sandbox apply.
+- Stage 2C executable workflow.
 
 The Stage 2A runtime artifacts are limited to request collection,
 trusted proposal generation, proposal validation, artifact storage, and a
@@ -52,6 +54,18 @@ The production branch is not committed or pushed.
 Future commit or push behavior is out of Stage 2 scope. Any workflow
 that writes commits, pushes branches, or merges pull requests belongs to
 a later Stage 3 design.
+
+The Stage 2C design is specified in:
+
+```text
+docs/stage2c-sandbox-validation-design.md
+```
+
+The Stage 2C result schema draft is:
+
+```text
+.github/codex/schemas/sandbox-validation-result.schema.json
+```
 
 ## Label Gate
 
@@ -138,6 +152,36 @@ permission with GitHub's repository collaborator permission API and
 fails closed unless the actor has `admin` or `maintain`. Public
 organization membership is not an approval requirement and is not used
 as a fallback.
+
+## Sandbox Validation Gate
+
+Stage 2C must require a separate validation trigger label:
+
+```text
+ai-fix-validate
+```
+
+The live labels required for future sandbox validation are:
+
+- `ai-fix-proposal`,
+- `ai-fix-approved`,
+- `ai-fix-validate`.
+
+The `ai-fix-approved` label alone must not start sandbox validation.
+This separates human approval recording from human permission to run
+the proposal in an isolated validation environment.
+
+Before any sandbox is created, the future Stage 2C validator must
+revalidate the live pull request state, proposal artifact, approval
+record artifact, current head SHA, policy hash, schema versions,
+protected paths, target blob SHAs, artifact provenance, Stage 1 finding
+binding, and current approval actor repository permission. A failed gate
+must stop before checkout or patch application.
+
+Stage 2C may apply the patch only in a disposable sandbox checkout. It
+does not modify the main working tree, update the pull request branch,
+commit, push, merge, create branches, publish packages, deploy, or write
+through the GitHub Contents API.
 
 ## Proposal Schema
 
@@ -240,6 +284,14 @@ PROPOSAL_READY
     v
 APPROVED_FOR_SANDBOX
     |
+    | ai-fix-validate label + live proposal/approval revalidation
+    v
+SANDBOX_VALIDATION_REQUESTED
+    |
+    | sandbox patch and trusted tests complete
+    v
+SANDBOX_VALIDATED
+    |
     | head SHA changes
     v
 STALE
@@ -251,6 +303,9 @@ Forbidden transitions:
 PROPOSAL_READY -> repository commit is forbidden
 PROPOSAL_READY -> push is forbidden
 PROPOSAL_READY -> merge is forbidden
+SANDBOX_VALIDATED -> repository commit is forbidden in Stage 2
+SANDBOX_VALIDATED -> push is forbidden in Stage 2
+SANDBOX_VALIDATED -> merge is forbidden in Stage 2
 ```
 
 head SHA changes invalidate proposal and approval. A stale proposal must
@@ -272,6 +327,12 @@ approval unless the recomputed hash still matches the approval record.
 Recommended tests are informational strings. They are not shell commands
 to execute automatically. A future sandbox must validate any command
 policy separately before running tests.
+
+Stage 2C test execution must use trusted test IDs mapped by trusted
+policy to fixed command argv arrays. Proposal-provided free-form shell
+text, pipes, redirects, command substitution, `bash -c`, `eval`,
+network downloads, package installs, `sudo`, and secret access are
+forbidden.
 
 ## GitHub Display Design
 
@@ -315,6 +376,16 @@ no repository change, patch application, commit, push, or merge occurred.
 The comment is a display artifact. The approval record artifact remains
 the machine-readable binding.
 
+Stage 2C will use a third sticky comment marker:
+
+```html
+<!-- namma-ai-sandbox-validation -->
+```
+
+That comment will display validation ID, proposal ID, approval ID, head
+SHA, patch check, patch apply, tests, status, and explicit statements
+that no persistent repository change, commit, push, or merge occurred.
+
 ## Threat Model
 
 | Threat | Mitigation |
@@ -332,6 +403,9 @@ the machine-readable binding.
 | Recommended tests executed as shell without validation | Test recommendations are data only. Stage 2 design does not execute shell commands. |
 | Proposal comment command injection | Proposal comments are display artifacts and are never interpreted as commands. |
 | Fork or external contributor privilege escalation | Forks, bots, and untrusted author associations are ineligible for proposal generation. |
+| Sandbox path escape | Stage 2C must reject absolute paths, `..`, symlink target escape, `.git` paths, and protected paths before patch application. |
+| Sandbox test exfiltration | Stage 2C must run without secrets and must not pass proposal strings to a shell. |
+| Stale validation result | Stage 2C must re-check live HEAD before sandbox creation and before result posting. |
 
 ## Static Validation
 
@@ -341,6 +415,14 @@ validates the Stage 2A workflow trust boundary.
 `scripts/check_approval_workflow.py` validates the Stage 2B approval
 workflow trust boundary. These checks are read-only and do not apply
 patches, commit, push, or merge.
+
+Future Stage 2C static checks must verify that the sandbox workflow has
+no persistent write permission, no unrestricted shell execution, no
+PR-side workflow or policy fallback, no secrets, no model API
+credential, trusted test ID mapping, fork rejection, symlink and path
+traversal rejection, protected path rejection, artifact provenance
+validation, live proposal and approval gates, current HEAD
+revalidation, and no commit, push, or merge path.
 
 The tests in `tests/test_fix_proposal_design.py` verify the schema,
 policy, proposal validation rules, stale approval invalidation, and the
