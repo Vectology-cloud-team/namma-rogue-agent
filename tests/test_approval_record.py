@@ -868,6 +868,33 @@ class ApprovalRecordTests(unittest.TestCase):
             approval_record.approval_record_hash(first),
         )
 
+    def test_approval_record_schema_version_matches_trusted_schema(self):
+        schema_path = (
+            REPO_ROOT
+            / ".github"
+            / "codex"
+            / "schemas"
+            / "approval-record.schema.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            "approval-record-v3",
+            approval_record.APPROVAL_RECORD_SCHEMA_VERSION,
+        )
+        self.assertEqual(
+            approval_record.APPROVAL_RECORD_SCHEMA_VERSION,
+            schema["properties"]["schema_version"]["const"],
+        )
+        record = approval_record.build_approval_record(
+            manifest=self.manifest(),
+            proposal=self.proposal(),
+            metadata=self.metadata(),
+            approved_by_repository_permission="maintain",
+            approved_by_repository_role="maintain",
+            approved_at="2026-07-17T00:02:00Z",
+        )
+        self.assertEqual("approval-record-v3", record["schema_version"])
+
     def test_approval_record_hash_detects_tampering(self):
         record = approval_record.build_approval_record(
             manifest=self.manifest(),

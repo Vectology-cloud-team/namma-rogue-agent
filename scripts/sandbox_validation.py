@@ -50,6 +50,7 @@ DEFAULT_SANDBOX_TEST_IDS = (
 )
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+DIFF_GIT_RE = re.compile(r"^diff --git a/(.+) b/(.+)$")
 DATE_TIME_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
     r"(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
@@ -646,6 +647,94 @@ def validate_patch_path(path: str, policy: proposal_design.FixPolicy) -> str:
     return normalized
 
 
+def parse_patch_file_path(
+    *,
+    line: str,
+    prefix: str,
+    policy: proposal_design.FixPolicy,
+) -> str:
+    if not line.startswith(prefix):
+        raise PreflightStatus(
+            RESULT_STATUS_PATCH_REJECTED,
+            "PATCH_PATH_MISMATCH",
+            "patch file header must use repository-relative a/ or b/ paths",
+        )
+    raw_path = line[len(prefix) :].split("\t", 1)[0]
+    return validate_patch_path(raw_path, policy)
+
+
+def parse_declared_patch_targets(
+    *,
+    patch: str,
+    declared_path: str,
+    policy: proposal_design.FixPolicy,
+) -> set[str]:
+    parsed_paths: set[str] = set()
+    saw_diff_header = False
+    saw_old_header = False
+    saw_new_header = False
+    for line in patch.splitlines():
+        if line.startswith("diff --git "):
+            saw_diff_header = True
+            match = DIFF_GIT_RE.fullmatch(line)
+            if match is None:
+                raise PreflightStatus(
+                    RESULT_STATUS_PATCH_REJECTED,
+                    "PATCH_PATH_MISMATCH",
+                    "diff header must use matching a/ and b/ repository paths",
+                )
+            old_path = validate_patch_path(match.group(1), policy)
+            new_path = validate_patch_path(match.group(2), policy)
+            if old_path != declared_path or new_path != declared_path:
+                raise PreflightStatus(
+                    RESULT_STATUS_PATCH_REJECTED,
+                    "PATCH_PATH_MISMATCH",
+                    "patch diff header targets an undeclared file",
+                )
+            parsed_paths.update({old_path, new_path})
+        elif line.startswith("--- "):
+            saw_old_header = True
+            old_path = parse_patch_file_path(
+                line=line,
+                prefix="--- a/",
+                policy=policy,
+            )
+            if old_path != declared_path:
+                raise PreflightStatus(
+                    RESULT_STATUS_PATCH_REJECTED,
+                    "PATCH_PATH_MISMATCH",
+                    "patch old-file header targets an undeclared file",
+                )
+            parsed_paths.add(old_path)
+        elif line.startswith("+++ "):
+            saw_new_header = True
+            new_path = parse_patch_file_path(
+                line=line,
+                prefix="+++ b/",
+                policy=policy,
+            )
+            if new_path != declared_path:
+                raise PreflightStatus(
+                    RESULT_STATUS_PATCH_REJECTED,
+                    "PATCH_PATH_MISMATCH",
+                    "patch new-file header targets an undeclared file",
+                )
+            parsed_paths.add(new_path)
+    if not (saw_diff_header and saw_old_header and saw_new_header):
+        raise PreflightStatus(
+            RESULT_STATUS_PATCH_REJECTED,
+            "PATCH_PATH_MISMATCH",
+            "patch must contain diff, old-file, and new-file headers",
+        )
+    if parsed_paths != {declared_path}:
+        raise PreflightStatus(
+            RESULT_STATUS_PATCH_REJECTED,
+            "PATCH_PATH_MISMATCH",
+            "patch target set must match the proposal change path",
+        )
+    return parsed_paths
+
+
 def validate_patch_metadata(
     *,
     proposal: dict[str, Any],
@@ -665,6 +754,7 @@ def validate_patch_metadata(
             "proposal changes exceed trusted policy",
         )
     expected_files: list[str] = []
+    parsed_patch_files: set[str] = set()
     patch_bytes_total = 0
     for change in changes:
         if not isinstance(change, dict):
@@ -708,19 +798,20 @@ def validate_patch_metadata(
                     "UNSUPPORTED_PATCH_OPERATION",
                     f"patch contains unsupported marker: {marker.strip()}",
                 )
-        required_headers = (
-            f"diff --git a/{path} b/{path}",
-            f"--- a/{path}",
-            f"+++ b/{path}",
+        parsed_patch_files.update(
+            parse_declared_patch_targets(
+                patch=patch,
+                declared_path=path,
+                policy=policy,
+            )
         )
-        for header in required_headers:
-            if header not in patch:
-                raise PreflightStatus(
-                    RESULT_STATUS_PATCH_REJECTED,
-                    "PATCH_PATH_MISMATCH",
-                    "patch headers must match the proposal target path",
-                )
         expected_files.append(path)
+    if parsed_patch_files != set(expected_files):
+        raise PreflightStatus(
+            RESULT_STATUS_PATCH_REJECTED,
+            "PATCH_PATH_MISMATCH",
+            "parsed patch paths must exactly match proposal changes",
+        )
     if patch_bytes_total > policy.max_patch_bytes:
         raise PreflightStatus(
             RESULT_STATUS_PATCH_REJECTED,

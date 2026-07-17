@@ -27,7 +27,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "approval-record-v2"
+      "const": "approval-record-v3"
     },
     "approval_id": {
       "type": "string",

@@ -347,6 +347,48 @@ class SandboxValidationTests(unittest.TestCase):
             policy=self.policy().proposal_policy,
         )
 
+    def test_patch_metadata_rejects_extra_protected_diff_section(self):
+        proposal = self.proposal()
+        proposal["changes"][0]["patch"] += "\n".join(
+            [
+                "",
+                "diff --git a/.github/workflows/evil.yml b/.github/workflows/evil.yml",
+                "--- a/.github/workflows/evil.yml",
+                "+++ b/.github/workflows/evil.yml",
+                "@@ -1 +1 @@",
+                "-name: safe",
+                "+name: unsafe",
+            ]
+        )
+        self.assert_preflight_status(
+            "PATCH_REJECTED",
+            "PROTECTED_PATH",
+            sandbox_validation.validate_patch_metadata,
+            proposal=proposal,
+            policy=self.policy().proposal_policy,
+        )
+
+    def test_patch_metadata_rejects_extra_undeclared_diff_section(self):
+        proposal = self.proposal()
+        proposal["changes"][0]["patch"] += "\n".join(
+            [
+                "",
+                "diff --git a/canary/other.py b/canary/other.py",
+                "--- a/canary/other.py",
+                "+++ b/canary/other.py",
+                "@@ -1 +1 @@",
+                "-return False",
+                "+return True",
+            ]
+        )
+        self.assert_preflight_status(
+            "PATCH_REJECTED",
+            "PATCH_PATH_MISMATCH",
+            sandbox_validation.validate_patch_metadata,
+            proposal=proposal,
+            policy=self.policy().proposal_policy,
+        )
+
     def test_target_blob_sha_matches_current_tree(self):
         checks = sandbox_validation.validate_target_blob_shas(
             proposal=self.proposal(),
