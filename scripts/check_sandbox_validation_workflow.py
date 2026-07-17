@@ -167,6 +167,7 @@ def check_validator(text: str) -> list[CheckResult]:
     add(results, "sandbox script verifies target blob metadata", "fetch_tree_entries" in script and "validate_target_blob_shas" in script)
     add(results, "sandbox script validates patch metadata only", "validate_patch_metadata" in script)
     add(results, "sandbox script validates trusted test IDs", "normalize_test_ids" in script and "sandbox_test_ids" in script)
+    add(results, "sandbox script validates result schema before artifact", "validate_result_against_schema" in script and "SANDBOX_RESULT_SCHEMA" in preflight_job)
     add(results, "sandbox marker is implemented", "<!-- namma-ai-sandbox-validation -->" in script)
     add(results, "sandbox comment uses issue comment list endpoint", "iter_issue_comments" in script)
     add(results, "sandbox comment uses issue comment create endpoint", "/issues/{issue_number}/comments" in script)

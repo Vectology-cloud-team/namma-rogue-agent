@@ -467,6 +467,104 @@ class SandboxValidationTests(unittest.TestCase):
         self.assertFalse(first["commit_created"])
         self.assertFalse(first["push_performed"])
         self.assertFalse(first["merge_performed"])
+        sandbox_validation.validate_result_against_schema(
+            first,
+            REPO_ROOT
+            / ".github"
+            / "codex"
+            / "schemas"
+            / "sandbox-validation-result.schema.json",
+        )
+
+    def test_result_schema_validation_rejects_malformed_result_before_upload(self):
+        proposal_bundle = self.proposal_bundle()
+        approval_bundle = self.approval_bundle(proposal_bundle)
+        patch_metadata = sandbox_validation.validate_patch_metadata(
+            proposal=proposal_bundle.data,
+            policy=self.policy().proposal_policy,
+        )
+        target_blob_checks = sandbox_validation.validate_target_blob_shas(
+            proposal=proposal_bundle.data,
+            tree_entries={
+                "canary/example.py": {
+                    "type": "blob",
+                    "mode": "100644",
+                    "sha": ORIGINAL_BLOB_SHA,
+                    "size": 42,
+                }
+            },
+            policy=self.policy().proposal_policy,
+        )
+        result = sandbox_validation.build_precheck_result(
+            manifest=self.manifest(),
+            proposal_bundle=proposal_bundle,
+            approval_bundle=approval_bundle,
+            validation_actor="validator",
+            validation_actor_permission="maintain",
+            validation_actor_role="maintain",
+            live_labels={"ai-fix-proposal", "ai-fix-approved", "ai-fix-validate"},
+            target_blob_checks=target_blob_checks,
+            patch_metadata_check=patch_metadata,
+            test_ids=("unit",),
+            completed_at="2026-07-17T00:03:00Z",
+        )
+        del result["validation_id"]
+        with self.assertRaises(sandbox_validation.fix.FixProposalFailure) as caught:
+            sandbox_validation.validate_result_against_schema(
+                result,
+                REPO_ROOT
+                / ".github"
+                / "codex"
+                / "schemas"
+                / "sandbox-validation-result.schema.json",
+            )
+        self.assertEqual(
+            sandbox_validation.fix.FailureCode.INVALID_PROPOSAL,
+            caught.exception.code,
+        )
+
+    def test_result_schema_validation_rejects_precheck_patch_application(self):
+        proposal_bundle = self.proposal_bundle()
+        approval_bundle = self.approval_bundle(proposal_bundle)
+        patch_metadata = sandbox_validation.validate_patch_metadata(
+            proposal=proposal_bundle.data,
+            policy=self.policy().proposal_policy,
+        )
+        target_blob_checks = sandbox_validation.validate_target_blob_shas(
+            proposal=proposal_bundle.data,
+            tree_entries={
+                "canary/example.py": {
+                    "type": "blob",
+                    "mode": "100644",
+                    "sha": ORIGINAL_BLOB_SHA,
+                    "size": 42,
+                }
+            },
+            policy=self.policy().proposal_policy,
+        )
+        result = sandbox_validation.build_precheck_result(
+            manifest=self.manifest(),
+            proposal_bundle=proposal_bundle,
+            approval_bundle=approval_bundle,
+            validation_actor="validator",
+            validation_actor_permission="maintain",
+            validation_actor_role="maintain",
+            live_labels={"ai-fix-proposal", "ai-fix-approved", "ai-fix-validate"},
+            target_blob_checks=target_blob_checks,
+            patch_metadata_check=patch_metadata,
+            test_ids=("unit",),
+            completed_at="2026-07-17T00:03:00Z",
+        )
+        result["patch_applied"] = True
+        with self.assertRaises(sandbox_validation.fix.FixProposalFailure):
+            sandbox_validation.validate_result_against_schema(
+                result,
+                REPO_ROOT
+                / ".github"
+                / "codex"
+                / "schemas"
+                / "sandbox-validation-result.schema.json",
+            )
 
     def test_sandbox_script_has_no_repository_mutation_runtime(self):
         script = SCRIPT_PATH.read_text(encoding="utf-8").lower()

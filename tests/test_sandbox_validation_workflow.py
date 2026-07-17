@@ -77,6 +77,7 @@ class SandboxValidationWorkflowTests(unittest.TestCase):
         self.assertNotIn("sandbox script verifies target blob metadata", labels)
         self.assertNotIn("sandbox script validates patch metadata only", labels)
         self.assertNotIn("sandbox script validates trusted test IDs", labels)
+        self.assertNotIn("sandbox script validates result schema before artifact", labels)
 
     def test_post_job_is_the_only_comment_writer(self):
         labels = self.failed_labels(

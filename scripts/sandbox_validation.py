@@ -874,6 +874,139 @@ def check_result(status: str, message: str) -> dict[str, str]:
     }
 
 
+def schema_property_names(schema: dict[str, Any]) -> set[str]:
+    properties = schema.get("properties", {})
+    if not isinstance(properties, dict):
+        raise fatal(
+            fix.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            "sandbox result schema must declare top-level properties",
+            "sandbox_result_schema",
+        )
+    return set(properties)
+
+
+def validate_result_against_schema(result: dict[str, Any], schema_path: Path) -> None:
+    schema = read_json_file(schema_path)
+    if not isinstance(schema, dict):
+        raise fatal(
+            fix.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            "sandbox result schema must be a JSON object",
+            "sandbox_result_schema",
+        )
+    required = schema.get("required")
+    if not isinstance(required, list):
+        raise fatal(
+            fix.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
+            "sandbox result schema must declare required fields",
+            "sandbox_result_schema",
+        )
+    missing = sorted(set(str(item) for item in required).difference(result))
+    extra = sorted(set(result).difference(schema_property_names(schema)))
+    if missing or extra:
+        raise fatal(
+            fix.FailureCode.INVALID_PROPOSAL,
+            f"sandbox result shape mismatch missing={missing} extra={extra}",
+            "sandbox_result_schema",
+        )
+    if result.get("schema_version") != RESULT_SCHEMA_VERSION:
+        raise fatal(
+            fix.FailureCode.INVALID_PROPOSAL,
+            "sandbox result schema_version mismatch",
+            "sandbox_result_schema",
+        )
+    status = result.get("status")
+    if status not in {
+        RESULT_STATUS_PRECHECK_PASSED,
+        "SUCCESS",
+        RESULT_STATUS_PATCH_REJECTED,
+        "TEST_FAILED",
+        RESULT_STATUS_STALE,
+        RESULT_STATUS_FATAL,
+        RESULT_STATUS_INFRA_ERROR,
+    }:
+        raise fatal(
+            fix.FailureCode.INVALID_PROPOSAL,
+            "sandbox result status is not allowed",
+            "sandbox_result_schema",
+        )
+    for flag in (
+        "persistent_repository_modified",
+        "commit_created",
+        "push_performed",
+        "merge_performed",
+    ):
+        if result.get(flag) is not False:
+            raise fatal(
+                fix.FailureCode.INVALID_PROPOSAL,
+                f"sandbox result must keep {flag}=false",
+                "sandbox_result_schema",
+            )
+    if status == RESULT_STATUS_PRECHECK_PASSED:
+        precheck_expectations = {
+            "phase": RESULT_PHASE_PREFLIGHT,
+            "failure_class": None,
+            "failure_code": None,
+            "sandbox_worktree_modified": False,
+            "sandbox_checkout_performed": False,
+            "patch_check_performed": False,
+            "patch_applied": False,
+            "test_execution_performed": False,
+            "sandbox_destroyed": True,
+        }
+        for key, expected in precheck_expectations.items():
+            if result.get(key) != expected:
+                raise fatal(
+                    fix.FailureCode.INVALID_PROPOSAL,
+                    f"PRECHECK_PASSED requires {key}={expected!r}",
+                    "sandbox_result_schema",
+                )
+        for check_name, expected_status in (
+            ("patch_check", "SKIPPED"),
+            ("patch_apply", "SKIPPED"),
+            ("protected_path_check", "PASS"),
+            ("blob_sha_check", "PASS"),
+            ("patch_metadata_check", "PASS"),
+        ):
+            check = result.get(check_name)
+            if not isinstance(check, dict) or check.get("status") != expected_status:
+                raise fatal(
+                    fix.FailureCode.INVALID_PROPOSAL,
+                    f"PRECHECK_PASSED requires {check_name}.{expected_status}",
+                    "sandbox_result_schema",
+                )
+        for test in result.get("tests_requested", []):
+            if (
+                not isinstance(test, dict)
+                or test.get("requested") is not True
+                or test.get("executed") is not False
+                or test.get("status") != "SKIPPED"
+            ):
+                raise fatal(
+                    fix.FailureCode.INVALID_PROPOSAL,
+                    "PRECHECK_PASSED requires requested tests to be skipped",
+                    "sandbox_result_schema",
+                )
+        if result.get("tests_executed") or result.get("test_results"):
+            raise fatal(
+                fix.FailureCode.INVALID_PROPOSAL,
+                "PRECHECK_PASSED must not contain executed tests",
+                "sandbox_result_schema",
+            )
+        return
+    if result.get("failure_class") != status:
+        raise fatal(
+            fix.FailureCode.INVALID_PROPOSAL,
+            "non-success sandbox result must bind failure_class to status",
+            "sandbox_result_schema",
+        )
+    if not result.get("failure_code"):
+        raise fatal(
+            fix.FailureCode.INVALID_PROPOSAL,
+            "non-success sandbox result must include failure_code",
+            "sandbox_result_schema",
+        )
+
+
 def validation_id_for(
     *,
     repository: str,
@@ -1227,6 +1360,7 @@ def command_preflight(_: argparse.Namespace) -> int:
         approval_dir = Path(required_env("APPROVAL_ARTIFACT_DIR"))
         output_dir = Path(required_env("PREFLIGHT_RESULT_DIR"))
         policy_path = Path(required_env("FIX_POLICY"))
+        result_schema_path = Path(required_env("SANDBOX_RESULT_SCHEMA"))
         max_bytes = int(os.environ.get("MAX_ARTIFACT_BYTES", str(MAX_ARTIFACT_BYTES)))
         validation_actor = required_env("VALIDATION_ACTOR")
         manifest = read_json_file(request_dir / "manifest.json")
@@ -1361,6 +1495,7 @@ def command_preflight(_: argparse.Namespace) -> int:
             result["blob_sha_check"] = check_result("FAIL", failure_code)
         if failure_code == "PROTECTED_PATH":
             result["protected_path_check"] = check_result("FAIL", failure_code)
+        validate_result_against_schema(result, result_schema_path)
         write_preflight_artifact(
             output_dir=output_dir,
             result=result,
@@ -1418,6 +1553,9 @@ def command_post_comment(_: argparse.Namespace) -> int:
                 "sandbox validation result must be a JSON object",
                 "sandbox_comment",
             )
+        schema_path = os.environ.get("SANDBOX_RESULT_SCHEMA")
+        if schema_path:
+            validate_result_against_schema(result, Path(schema_path))
         stage1.validate_comment_target(repo, pr_number, head_sha, token)
         body = sandbox_comment_body(
             result=result,

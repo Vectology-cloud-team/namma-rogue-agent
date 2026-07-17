@@ -170,6 +170,7 @@ jobs:
               "scripts/approval_record.py",
               "scripts/architect_review_retry.py",
               "scripts/check_fix_proposal_design.py",
+              ".github/codex/schemas/sandbox-validation-result.schema.json",
           ]
           for path in paths:
               quoted = urllib.parse.quote(path, safe="/")
@@ -207,5 +208,6 @@ jobs:
           HEAD_SHA: ${{ needs.preflight.outputs.head_sha }}
           WORKFLOW_RUN_ID: ${{ github.run_id }}
           SANDBOX_RESULT_PATH: ${{ github.workspace }}/sandbox-validation-preflight/sandbox-validation-result.json
+          SANDBOX_RESULT_SCHEMA: ${{ github.workspace }}/sandbox-control/.github/codex/schemas/sandbox-validation-result.schema.json
         run: |
           python3 sandbox-control/scripts/sandbox_validation.py post-comment
