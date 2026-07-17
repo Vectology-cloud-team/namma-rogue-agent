@@ -551,17 +551,14 @@ def find_latest_approval_artifact(
                     "approval artifact must contain a JSON object",
                     "sandbox_approval_lookup",
                 )
+            if not approval_record_targets_preflight_request(
+                record=record,
+                manifest=manifest,
+                proposal=proposal,
+                metadata=metadata,
+            ):
+                continue
             approval.validate_approval_record_shape(record)
-            if record.get("repository") != manifest["repository"]:
-                continue
-            if record.get("pull_request_number") != manifest["pull_request_number"]:
-                continue
-            if record.get("proposal_id") != proposal.get("proposal_id"):
-                continue
-            if record.get("proposal_hash") != metadata.get("proposal_hash"):
-                continue
-            if record.get("head_sha") != manifest["head_sha"]:
-                continue
             if record.get("policy_hash") != policy_hash:
                 raise fatal(
                     fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
@@ -586,6 +583,29 @@ def find_latest_approval_artifact(
             "sandbox_approval_lookup",
         )
     return max(candidates, key=lambda candidate: str(candidate.record["approved_at"]))
+
+
+def approval_record_targets_preflight_request(
+    *,
+    record: dict[str, Any],
+    manifest: dict[str, Any],
+    proposal: dict[str, Any],
+    metadata: dict[str, Any],
+) -> bool:
+    """Return whether a raw approval record is a candidate for this preflight.
+
+    Unrelated approval artifacts from older PRs or schema versions can remain
+    downloadable in the repository. They are skipped before strict schema
+    validation. Once these identity fields match, malformed schema, hash, or
+    provenance data must fail closed instead of falling back.
+    """
+    return (
+        record.get("repository") == manifest["repository"]
+        and record.get("pull_request_number") == manifest["pull_request_number"]
+        and record.get("proposal_id") == proposal.get("proposal_id")
+        and record.get("proposal_hash") == metadata.get("proposal_hash")
+        and record.get("head_sha") == manifest["head_sha"]
+    )
 
 
 def repo_path_has_forbidden_chars(path: str) -> bool:

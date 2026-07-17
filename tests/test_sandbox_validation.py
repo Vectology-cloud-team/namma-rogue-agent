@@ -440,6 +440,46 @@ class SandboxValidationTests(unittest.TestCase):
                     policy=self.policy().proposal_policy,
                 )
 
+    def test_unrelated_old_approval_record_is_not_a_preflight_candidate(self):
+        proposal = self.proposal()
+        metadata = self.metadata(proposal)
+        old_record = {
+            "schema_version": "approval-record-v2",
+            "repository": sandbox_validation.EXPECTED_REPOSITORY,
+            "pull_request_number": 23,
+            "proposal_id": "old-proposal",
+            "proposal_hash": "a" * 64,
+            "head_sha": "c" * 40,
+        }
+        self.assertFalse(
+            sandbox_validation.approval_record_targets_preflight_request(
+                record=old_record,
+                manifest=self.manifest(),
+                proposal=proposal,
+                metadata=metadata,
+            )
+        )
+
+    def test_matching_malformed_approval_record_is_a_preflight_candidate(self):
+        proposal = self.proposal()
+        metadata = self.metadata(proposal)
+        malformed_record = {
+            "schema_version": "approval-record-v2",
+            "repository": sandbox_validation.EXPECTED_REPOSITORY,
+            "pull_request_number": 26,
+            "proposal_id": proposal["proposal_id"],
+            "proposal_hash": metadata["proposal_hash"],
+            "head_sha": HEAD_SHA,
+        }
+        self.assertTrue(
+            sandbox_validation.approval_record_targets_preflight_request(
+                record=malformed_record,
+                manifest=self.manifest(),
+                proposal=proposal,
+                metadata=metadata,
+            )
+        )
+
     def test_allowed_test_ids_are_normalized_without_execution(self):
         self.assertEqual(
             ("unit", "compileall"),
