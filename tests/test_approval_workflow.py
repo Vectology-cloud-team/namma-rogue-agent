@@ -100,7 +100,8 @@ class ApprovalWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("proposal workflow cannot write approval record", labels)
         self.assertNotIn("proposal workflow cannot write approval marker", labels)
-        self.assertNotIn("approval schema records approver association", labels)
+        self.assertNotIn("approval schema records repository permission", labels)
+        self.assertNotIn("approval schema records repository role", labels)
 
     def test_all_actions_are_full_sha_pinned(self):
         combined = "\n".join(
@@ -148,7 +149,9 @@ class ApprovalWorkflowTests(unittest.TestCase):
         self.assertNotIn("approval uses issue comment create endpoint", labels)
         self.assertNotIn("approval uses issue comment update endpoint", labels)
         self.assertNotIn("approval does not use PR review API", labels)
-        self.assertNotIn("approval validates actor membership", labels)
+        self.assertNotIn("approval validates repository permission", labels)
+        self.assertNotIn("approval uses repository permission API", labels)
+        self.assertNotIn("approval does not require public org membership", labels)
 
     def test_validated_artifact_is_downloaded_before_comment(self):
         labels = self.failed_labels(

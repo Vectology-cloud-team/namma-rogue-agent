@@ -214,6 +214,30 @@ class ApprovalRecordTests(unittest.TestCase):
             func(*args, **kwargs)
         self.assertEqual(expected_code, caught.exception.code)
 
+    def permission_response(
+        self,
+        *,
+        permission="admin",
+        role_name="admin",
+        login="shinoda",
+    ):
+        return {
+            "permission": permission,
+            "role_name": role_name,
+            "user": {
+                "login": login,
+            },
+        }
+
+    def http_error(self, code):
+        return urllib.error.HTTPError(
+            url="https://api.github.com/repository-permission",
+            code=code,
+            msg="HTTP error",
+            hdrs={},
+            fp=None,
+        )
+
     def write_candidate_artifact(
         self,
         output_dir,
@@ -290,7 +314,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_issue=self.live_issue(),
             policy=policy,
             approval_actor="shinoda",
-            approval_actor_association="MEMBER",
+            approval_actor_repository_permission="maintain",
         )
         approval_record.validate_proposal_for_approval(
             manifest=manifest,
@@ -302,7 +326,8 @@ class ApprovalRecordTests(unittest.TestCase):
             manifest=manifest,
             proposal=proposal,
             metadata=metadata,
-            approved_by_association="MEMBER",
+            approved_by_repository_permission="maintain",
+            approved_by_repository_role="maintain",
             approved_at="2026-07-17T00:02:00Z",
         )
         self.assertEqual("APPROVED", record["status"])
@@ -315,8 +340,143 @@ class ApprovalRecordTests(unittest.TestCase):
                 metadata=metadata,
             ),
         )
-        self.assertEqual("MEMBER", record["approved_by_association"])
+        self.assertEqual("maintain", record["approved_by_repository_permission"])
+        self.assertEqual("maintain", record["approved_by_repository_role"])
         approval_record.validate_approval_record_shape(record)
+
+    def test_repository_permission_admin_authorizes_approval_actor(self):
+        with mock.patch.object(
+            approval_record.stage1,
+            "github_json",
+            return_value=(self.permission_response(permission="admin"), {}),
+        ) as github_json:
+            result = approval_record.approval_actor_repository_permission(
+                repo=approval_record.EXPECTED_REPOSITORY,
+                actor="shinoda",
+                token="token",
+            )
+        self.assertEqual("admin", result["permission"])
+        self.assertEqual("admin", result["role_name"])
+        github_json.assert_called_once()
+        self.assertIn("/collaborators/shinoda/permission", github_json.call_args.args[1])
+
+    def test_repository_permission_maintain_authorizes_approval_actor(self):
+        with mock.patch.object(
+            approval_record.stage1,
+            "github_json",
+            return_value=(self.permission_response(permission="maintain"), {}),
+        ):
+            result = approval_record.approval_actor_repository_permission(
+                repo=approval_record.EXPECTED_REPOSITORY,
+                actor="shinoda",
+                token="token",
+            )
+        approval_record.validate_approval_gate(
+            manifest=self.manifest(),
+            live_pull=self.live_pull(),
+            live_issue=self.live_issue(),
+            policy=self.policy(),
+            approval_actor="shinoda",
+            approval_actor_repository_permission=str(result["permission"]),
+        )
+
+    def test_private_org_membership_is_irrelevant_when_repository_admin(self):
+        observed_paths = []
+
+        def github_json(method, path, token):
+            del method, token
+            observed_paths.append(path)
+            return self.permission_response(permission="admin"), {}
+
+        with mock.patch.object(
+            approval_record.stage1,
+            "github_json",
+            side_effect=github_json,
+        ):
+            result = approval_record.approval_actor_repository_permission(
+                repo=approval_record.EXPECTED_REPOSITORY,
+                actor="shinoda",
+                token="token",
+            )
+        self.assertEqual("admin", result["permission"])
+        self.assertTrue(all("/orgs/" not in path for path in observed_paths))
+
+    def test_repository_write_triage_read_none_and_unknown_permissions_are_rejected(self):
+        for permission in ("write", "triage", "read", "none", "unknown"):
+            with self.subTest(permission=permission):
+                self.assert_failure_code(
+                    approval_record.fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
+                    approval_record.validate_approval_gate,
+                    manifest=self.manifest(),
+                    live_pull=self.live_pull(),
+                    live_issue=self.live_issue(),
+                    policy=self.policy(),
+                    approval_actor="shinoda",
+                    approval_actor_repository_permission=permission,
+                )
+
+    def test_repository_permission_missing_field_is_rejected(self):
+        with mock.patch.object(
+            approval_record.stage1,
+            "github_json",
+            return_value=({"user": {"login": "shinoda"}}, {}),
+        ):
+            self.assert_failure_code(
+                approval_record.fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
+                approval_record.approval_actor_repository_permission,
+                repo=approval_record.EXPECTED_REPOSITORY,
+                actor="shinoda",
+                token="token",
+            )
+
+    def test_repository_permission_malformed_response_is_rejected(self):
+        with mock.patch.object(
+            approval_record.stage1,
+            "github_json",
+            return_value=(["not", "an", "object"], {}),
+        ):
+            self.assert_failure_code(
+                approval_record.fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
+                approval_record.approval_actor_repository_permission,
+                repo=approval_record.EXPECTED_REPOSITORY,
+                actor="shinoda",
+                token="token",
+            )
+
+    def test_repository_permission_api_401_403_404_fail_closed(self):
+        expected = {
+            401: approval_record.fix.FailureCode.PERMISSION_ERROR,
+            403: approval_record.fix.FailureCode.PERMISSION_ERROR,
+            404: approval_record.fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
+        }
+        for status, code in expected.items():
+            with self.subTest(status=status):
+                with mock.patch.object(
+                    approval_record.stage1,
+                    "github_json",
+                    side_effect=self.http_error(status),
+                ):
+                    self.assert_failure_code(
+                        code,
+                        approval_record.approval_actor_repository_permission,
+                        repo=approval_record.EXPECTED_REPOSITORY,
+                        actor="shinoda",
+                        token="token",
+                    )
+
+    def test_repository_permission_actor_mismatch_is_rejected(self):
+        with mock.patch.object(
+            approval_record.stage1,
+            "github_json",
+            return_value=(self.permission_response(login="other-user"), {}),
+        ):
+            self.assert_failure_code(
+                approval_record.fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+                approval_record.approval_actor_repository_permission,
+                repo=approval_record.EXPECTED_REPOSITORY,
+                actor="shinoda",
+                token="token",
+            )
 
     def test_proposal_hash_mismatch_is_rejected(self):
         proposal = self.proposal()
@@ -352,7 +512,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_issue=self.live_issue(),
             policy=self.policy(),
             approval_actor="shinoda",
-            approval_actor_association="MEMBER",
+            approval_actor_repository_permission="maintain",
         )
 
     def test_stale_proposal_is_rejected(self):
@@ -374,7 +534,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_issue=self.live_issue(labels=[]),
             policy=self.policy(),
             approval_actor="shinoda",
-            approval_actor_association="MEMBER",
+            approval_actor_repository_permission="maintain",
         )
 
     def test_proposal_label_missing_is_rejected(self):
@@ -386,10 +546,10 @@ class ApprovalRecordTests(unittest.TestCase):
             live_issue=self.live_issue(labels=["ai-fix-approved"]),
             policy=self.policy(),
             approval_actor="shinoda",
-            approval_actor_association="MEMBER",
+            approval_actor_repository_permission="maintain",
         )
 
-    def test_collaborator_approval_actor_is_rejected(self):
+    def test_write_approval_actor_permission_is_rejected(self):
         self.assert_failure_code(
             approval_record.fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
             approval_record.validate_approval_gate,
@@ -398,7 +558,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_issue=self.live_issue(),
             policy=self.policy(),
             approval_actor="shinoda",
-            approval_actor_association="COLLABORATOR",
+            approval_actor_repository_permission="write",
         )
 
     def test_spoofed_manifest_actor_is_rejected(self):
@@ -412,10 +572,10 @@ class ApprovalRecordTests(unittest.TestCase):
             live_issue=self.live_issue(),
             policy=self.policy(),
             approval_actor="labeler-member",
-            approval_actor_association="MEMBER",
+            approval_actor_repository_permission="maintain",
         )
 
-    def test_pr_author_association_is_not_used_as_label_actor_association(self):
+    def test_pr_author_association_is_not_used_as_label_actor_authority(self):
         manifest = self.manifest()
         manifest["author_association"] = "COLLABORATOR"
         approval_record.validate_approval_gate(
@@ -424,7 +584,7 @@ class ApprovalRecordTests(unittest.TestCase):
             live_issue=self.live_issue(),
             policy=self.policy(),
             approval_actor="shinoda",
-            approval_actor_association="MEMBER",
+            approval_actor_repository_permission="maintain",
         )
 
     def test_approval_record_uses_trusted_approval_actor(self):
@@ -434,21 +594,24 @@ class ApprovalRecordTests(unittest.TestCase):
             proposal=self.proposal(),
             metadata=self.metadata(),
             approved_by="trusted-labeler",
-            approved_by_association="OWNER",
+            approved_by_repository_permission="admin",
+            approved_by_repository_role="admin",
             approved_at="2026-07-17T00:02:00Z",
         )
         self.assertEqual("trusted-labeler", record["approved_by"])
-        self.assertEqual("OWNER", record["approved_by_association"])
+        self.assertEqual("admin", record["approved_by_repository_permission"])
+        self.assertEqual("admin", record["approved_by_repository_role"])
 
-    def test_approval_record_rejects_unverified_association(self):
+    def test_approval_record_rejects_write_permission(self):
         record = approval_record.build_approval_record(
             manifest=self.manifest(),
             proposal=self.proposal(),
             metadata=self.metadata(),
-            approved_by_association="MEMBER",
+            approved_by_repository_permission="maintain",
+            approved_by_repository_role="maintain",
             approved_at="2026-07-17T00:02:00Z",
         )
-        record["approved_by_association"] = "COLLABORATOR"
+        record["approved_by_repository_permission"] = "write"
         self.assert_failure_code(
             approval_record.fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
             approval_record.validate_approval_record_shape,
@@ -687,7 +850,8 @@ class ApprovalRecordTests(unittest.TestCase):
             "manifest": self.manifest(),
             "proposal": self.proposal(),
             "metadata": self.metadata(),
-            "approved_by_association": "MEMBER",
+            "approved_by_repository_permission": "maintain",
+            "approved_by_repository_role": "maintain",
             "approved_at": "2026-07-17T00:02:00Z",
         }
         first = approval_record.build_approval_record(**kwargs)
@@ -711,7 +875,8 @@ class ApprovalRecordTests(unittest.TestCase):
             manifest=self.manifest(),
             proposal=self.proposal(),
             metadata=self.metadata(),
-            approved_by_association="MEMBER",
+            approved_by_repository_permission="maintain",
+            approved_by_repository_role="maintain",
             approved_at="2026-07-17T00:02:00Z",
         )
         body = approval_record.approval_comment_body(
@@ -720,7 +885,8 @@ class ApprovalRecordTests(unittest.TestCase):
             repo=approval_record.EXPECTED_REPOSITORY,
         )
         self.assertIn("Human Approval Recorded", body)
-        self.assertIn("Approved By Association: `MEMBER`", body)
+        self.assertIn("Approved Repository Permission: `maintain`", body)
+        self.assertIn("Approved Repository Role: `maintain`", body)
         self.assertIn("Repository変更なし", body)
         self.assertIn("Commitなし", body)
         self.assertIn("Pushなし", body)
