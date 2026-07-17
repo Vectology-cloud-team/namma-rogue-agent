@@ -342,6 +342,10 @@ class ApprovalRecordTests(unittest.TestCase):
         )
         self.assertEqual("maintain", record["approved_by_repository_permission"])
         self.assertEqual("maintain", record["approved_by_repository_role"])
+        self.assertEqual(
+            record["approval_record_hash"],
+            approval_record.approval_record_hash(record),
+        )
         approval_record.validate_approval_record_shape(record)
 
     def test_repository_permission_admin_authorizes_approval_actor(self):
@@ -612,6 +616,7 @@ class ApprovalRecordTests(unittest.TestCase):
             approved_at="2026-07-17T00:02:00Z",
         )
         record["approved_by_repository_permission"] = "write"
+        record["approval_record_hash"] = approval_record.approval_record_hash(record)
         self.assert_failure_code(
             approval_record.fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
             approval_record.validate_approval_record_shape,
@@ -857,6 +862,27 @@ class ApprovalRecordTests(unittest.TestCase):
         first = approval_record.build_approval_record(**kwargs)
         second = approval_record.build_approval_record(**kwargs)
         self.assertEqual(first["approval_id"], second["approval_id"])
+        self.assertEqual(first["approval_record_hash"], second["approval_record_hash"])
+        self.assertEqual(
+            first["approval_record_hash"],
+            approval_record.approval_record_hash(first),
+        )
+
+    def test_approval_record_hash_detects_tampering(self):
+        record = approval_record.build_approval_record(
+            manifest=self.manifest(),
+            proposal=self.proposal(),
+            metadata=self.metadata(),
+            approved_by_repository_permission="maintain",
+            approved_by_repository_role="maintain",
+            approved_at="2026-07-17T00:02:00Z",
+        )
+        record["approved_by"] = "different-maintainer"
+        self.assert_failure_code(
+            approval_record.fix.FailureCode.INVALID_PROPOSAL,
+            approval_record.validate_approval_record_shape,
+            record,
+        )
 
     def test_repository_change_automation_is_absent(self):
         script = SCRIPT_PATH.read_text(encoding="utf-8").lower()

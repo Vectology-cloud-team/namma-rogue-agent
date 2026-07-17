@@ -155,3 +155,35 @@ Next command:
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
+
+## PR #26 Stage 2C-A Preflight Runtime
+
+PR #25 was merged to `main` as merge commit
+`db9711f9e2c08dea9866de55474f25669ce2b160`.
+
+PR #26 branch:
+
+```text
+feature/stage2c-preflight-runtime
+```
+
+Scope:
+
+- Implement Stage 2C-A preflight gate only.
+- Add request collector, trusted workflow-run validator, result artifact, and
+  sticky comment path.
+- Do not create a sandbox checkout.
+- Do not run patch applicability checks.
+- Do not apply proposal patches.
+- Do not run proposal-recommended tests.
+- Do not commit, push, merge, or update pull request contents.
+
+Implementation notes:
+
+- Approval records now include `approval_record_hash` for Stage 2C input
+  binding.
+- Stage 2C-A result status is `PRECHECK_PASSED`, distinct from future
+  Stage 2C-B `SUCCESS`.
+- The preflight validator re-checks live labels, current HEAD, proposal and
+  approval artifacts, actor repository permissions, target blob metadata,
+  patch metadata, trusted test IDs, and final HEAD before writing a result.

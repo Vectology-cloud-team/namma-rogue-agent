@@ -47,6 +47,7 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
         return {
             "schema_version": "sandbox-validation-result-v1",
             "validation_id": "1" * 32,
+            "phase": "SANDBOX",
             "repository": "Vectology-cloud-team/namma-rogue-agent",
             "pull_request_number": 25,
             "base_sha": "a" * 40,
@@ -58,6 +59,14 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
             "approved_by": "maintainer",
             "approved_by_repository_permission": "maintain",
             "approved_by_repository_role": "maintain",
+            "validation_request_actor": "validator",
+            "validation_request_actor_repository_permission": "admin",
+            "validation_request_actor_repository_role": "admin",
+            "live_labels": [
+                "ai-fix-proposal",
+                "ai-fix-approved",
+                "ai-fix-validate",
+            ],
             "proposal_artifact": dict(artifact),
             "approval_artifact": dict(artifact),
             "schema_versions": {
@@ -78,12 +87,32 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
             "actual_changed_files": ["canary/example.py"],
             "protected_path_check": dict(check_pass),
             "blob_sha_check": dict(check_pass),
+            "target_blob_checks": [
+                {
+                    "path": "canary/example.py",
+                    "expected_blob_sha": "8" * 40,
+                    "actual_blob_sha": "8" * 40,
+                    "file_type": "blob",
+                    "mode": "100644",
+                    "size": 120,
+                    "status": "PASS",
+                }
+            ],
+            "patch_metadata_check": {
+                "status": "PASS",
+                "message": "metadata ok",
+                "patch_bytes": 100,
+            },
             "tests_requested": [dict(test_pass)],
             "tests_executed": [dict(test_pass)],
             "test_results": [dict(test_pass)],
             "changed_files_match_expected": True,
             "persistent_repository_modified": False,
             "sandbox_worktree_modified": True,
+            "sandbox_checkout_performed": True,
+            "patch_check_performed": True,
+            "patch_applied": True,
+            "test_execution_performed": True,
             "commit_created": False,
             "push_performed": False,
             "merge_performed": False,
@@ -102,6 +131,54 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
             if status == "SUCCESS":
                 return condition["then"]["properties"]
         self.fail("sandbox validation result schema lacks SUCCESS condition")
+
+    def precheck_condition(self):
+        schema = self.schema()
+        for condition in schema.get("allOf", []):
+            status = (
+                condition.get("if", {})
+                .get("properties", {})
+                .get("status", {})
+                .get("const")
+            )
+            if status == "PRECHECK_PASSED":
+                return condition["then"]["properties"]
+        self.fail("sandbox validation result schema lacks PRECHECK_PASSED condition")
+
+    def valid_precheck_result(self):
+        result = self.valid_result()
+        skipped_test = {
+            "test_id": "unit",
+            "requested": True,
+            "executed": False,
+            "status": "SKIPPED",
+            "exit_code": None,
+            "duration_ms": 0,
+            "log_excerpt": "not executed during preflight",
+        }
+        result.update(
+            {
+                "phase": "PREFLIGHT",
+                "status": "PRECHECK_PASSED",
+                "patch_check": {
+                    "status": "SKIPPED",
+                    "message": "not performed in preflight",
+                },
+                "patch_apply": {
+                    "status": "SKIPPED",
+                    "message": "not performed in preflight",
+                },
+                "tests_requested": [skipped_test],
+                "tests_executed": [],
+                "test_results": [],
+                "sandbox_worktree_modified": False,
+                "sandbox_checkout_performed": False,
+                "patch_check_performed": False,
+                "patch_applied": False,
+                "test_execution_performed": False,
+            }
+        )
+        return result
 
     def condition_for(self, wanted_status):
         schema = self.schema()
@@ -147,6 +224,29 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
                 errors.append("changed files differ")
             if result["sandbox_destroyed"] is not True:
                 errors.append("sandbox was not destroyed")
+        elif result["status"] == "PRECHECK_PASSED":
+            if result["phase"] != "PREFLIGHT":
+                errors.append("precheck phase mismatch")
+            if result["failure_class"] is not None:
+                errors.append("precheck has failure_class")
+            if result["failure_code"] is not None:
+                errors.append("precheck has failure_code")
+            if result["patch_check"]["status"] != "SKIPPED":
+                errors.append("precheck performed patch check")
+            if result["patch_apply"]["status"] != "SKIPPED":
+                errors.append("precheck applied patch")
+            if result["sandbox_checkout_performed"]:
+                errors.append("precheck performed sandbox checkout")
+            if result["patch_check_performed"]:
+                errors.append("precheck performed patch check flag")
+            if result["patch_applied"]:
+                errors.append("precheck patch_applied flag")
+            if result["test_execution_performed"]:
+                errors.append("precheck executed tests")
+            if result["tests_executed"]:
+                errors.append("precheck has executed tests")
+            if result["test_results"]:
+                errors.append("precheck has test results")
         else:
             if result["failure_class"] != result["status"]:
                 errors.append("failure_class does not match status")
@@ -233,6 +333,19 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
                 )
                 self.assertEqual(1, condition["failure_code"]["minLength"])
 
+    def test_precheck_requires_no_sandbox_or_patch_execution(self):
+        properties = self.precheck_condition()
+        self.assertEqual("PREFLIGHT", properties["phase"]["const"])
+        self.assertEqual("SKIPPED", properties["patch_check"]["properties"]["status"]["const"])
+        self.assertEqual("SKIPPED", properties["patch_apply"]["properties"]["status"]["const"])
+        self.assertEqual(False, properties["sandbox_worktree_modified"]["const"])
+        self.assertEqual(False, properties["sandbox_checkout_performed"]["const"])
+        self.assertEqual(False, properties["patch_check_performed"]["const"])
+        self.assertEqual(False, properties["patch_applied"]["const"])
+        self.assertEqual(False, properties["test_execution_performed"]["const"])
+        self.assertEqual(0, properties["tests_executed"]["maxItems"])
+        self.assertEqual(0, properties["test_results"]["maxItems"])
+
     def test_contract_rejects_invalid_success_results(self):
         invalid_cases = [
             (
@@ -264,6 +377,10 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
             result = self.valid_result()
             mutate(result)
             self.assertTrue(self.contract_errors(result))
+
+    def test_precheck_contract_accepts_skipped_patch_and_tests(self):
+        result = self.valid_precheck_result()
+        self.assertEqual([], self.contract_errors(result))
 
     def test_contract_rejects_mismatched_failure_classes(self):
         result = self.valid_result()

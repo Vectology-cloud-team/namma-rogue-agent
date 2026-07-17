@@ -334,10 +334,12 @@ condition or fallback.
 
 Stage 2B does not apply patches, modify the working tree, run
 recommended tests, commit, push, create branches, open pull requests,
-merge, or use GitHub code suggestions. Stage 2C sandbox apply is still
-not implemented.
+merge, or use GitHub code suggestions. Stage 2C-A preflight is
+implemented, but Stage 2C-B sandbox apply/test is still not
+implemented.
 
-PR #25 adds the Stage 2C sandbox validation design only. The design is:
+PR #25 adds the Stage 2C sandbox validation design. PR #26 adds the
+Stage 2C-A preflight gate only. The design is:
 
 ```text
 docs/stage2c-sandbox-validation-design.md
@@ -349,13 +351,18 @@ The result schema draft is:
 .github/codex/schemas/sandbox-validation-result.schema.json
 ```
 
-Stage 2C will require a separate `ai-fix-validate` label in addition to
+Stage 2C requires a separate `ai-fix-validate` label in addition to
 the live `ai-fix-proposal` and `ai-fix-approved` labels. The approval
-label alone will not start sandbox validation. A future Stage 2C
-validator must re-check the live pull request HEAD, proposal hash,
-approval record hash, trusted policy hash, target blob SHAs, artifact
-provenance, protected paths, Stage 1 finding binding, and current
-approval actor repository permission before creating any sandbox.
+label alone will not start sandbox validation. The Stage 2C-A validator
+re-checks the live pull request HEAD, proposal hash, approval record
+hash, trusted policy hash, target blob SHAs, artifact provenance,
+protected paths, Stage 1 finding binding, current approval actor
+repository permission, and current validation request actor repository
+permission before any sandbox can be created.
+
+Stage 2C-A can produce `PRECHECK_PASSED`. That status means preflight
+passed only. It does not mean the patch was applied, source was checked
+out into a sandbox, or tests were executed.
 
 Stage 2C patch application is limited to a disposable sandbox checkout.
 The design still forbids persistent repository writes, commits, pushes,
