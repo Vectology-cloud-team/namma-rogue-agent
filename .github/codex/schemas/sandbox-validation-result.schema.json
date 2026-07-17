@@ -36,7 +36,9 @@
     "blob_sha_check",
     "tests_requested",
     "tests_executed",
+    "requested_tests_executed",
     "test_results",
+    "changed_files_match_expected",
     "persistent_repository_modified",
     "sandbox_worktree_modified",
     "commit_created",
@@ -200,6 +202,9 @@
         "$ref": "#/$defs/test_id"
       }
     },
+    "requested_tests_executed": {
+      "type": "boolean"
+    },
     "test_results": {
       "type": "array",
       "items": {
@@ -241,6 +246,9 @@
           }
         }
       }
+    },
+    "changed_files_match_expected": {
+      "type": "boolean"
     },
     "persistent_repository_modified": {
       "const": false
@@ -321,6 +329,24 @@
               "status"
             ]
           },
+          "requested_tests_executed": {
+            "const": true
+          },
+          "test_results": {
+            "items": {
+              "properties": {
+                "status": {
+                  "const": "PASS"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            }
+          },
+          "changed_files_match_expected": {
+            "const": true
+          },
           "persistent_repository_modified": {
             "const": false
           },
@@ -335,6 +361,121 @@
           },
           "sandbox_destroyed": {
             "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "PATCH_REJECTED"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure_class": {
+            "const": "PATCH_REJECTED"
+          },
+          "failure_code": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "TEST_FAILED"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure_class": {
+            "const": "TEST_FAILED"
+          },
+          "failure_code": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "STALE"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure_class": {
+            "const": "STALE"
+          },
+          "failure_code": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "FATAL"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure_class": {
+            "const": "FATAL"
+          },
+          "failure_code": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "INFRA_ERROR"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure_class": {
+            "const": "INFRA_ERROR"
+          },
+          "failure_code": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }
@@ -396,6 +537,7 @@
         "workflow_run_id",
         "workflow_name",
         "repository",
+        "pull_request_number",
         "head_sha"
       ],
       "properties": {
@@ -418,6 +560,10 @@
         "repository": {
           "type": "string",
           "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "pull_request_number": {
+          "type": "integer",
+          "minimum": 1
         },
         "head_sha": {
           "$ref": "#/$defs/full_sha"

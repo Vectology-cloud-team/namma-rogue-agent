@@ -372,7 +372,22 @@ repository writes.
 The result also records proposal artifact provenance, approval artifact
 provenance, schema versions, approval actor repository permission, and
 the test plan hash so the validation can be audited without trusting a
-comment body.
+comment body. Artifact provenance includes the repository, pull request
+number, workflow run, and head SHA so proposal and approval artifacts
+remain bound to the reviewed PR.
+
+The result also records:
+
+- whether all requested trusted test IDs were executed,
+- whether actual changed files matched expected files.
+
+The schema draft includes status-conditional invariants. `SUCCESS`
+requires patch checks, patch apply, protected path checks, and blob SHA
+checks to pass; all requested trusted test IDs to be executed; all
+recorded test results to pass; actual changed files to match expected
+files; no persistent repository modification; no commit, push, or merge;
+and sandbox destruction to be reported. Non-success terminal statuses
+must carry a matching `failure_class`.
 
 ## Validation ID
 
