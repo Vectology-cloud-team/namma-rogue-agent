@@ -82,6 +82,9 @@ FORBIDDEN_TEST_FRAGMENTS = (
     "wget",
     "sudo",
     "docker",
+    "python",
+    "bash",
+    "powershell",
     "pip",
     "npm",
     "apt",
@@ -740,11 +743,11 @@ def parse_declared_patch_targets(
                     "patch new-file header targets an undeclared file",
                 )
             parsed_paths.add(new_path)
-    if not (saw_diff_header and saw_old_header and saw_new_header):
+    if not (saw_old_header and saw_new_header):
         raise PreflightStatus(
             RESULT_STATUS_PATCH_REJECTED,
             "PATCH_PATH_MISMATCH",
-            "patch must contain diff, old-file, and new-file headers",
+            "patch must contain old-file and new-file headers",
         )
     if parsed_paths != {declared_path}:
         raise PreflightStatus(
@@ -950,12 +953,21 @@ def normalize_test_ids(
             )
         test_id = item.strip()
         lowered = test_id.lower()
+        is_simple_test_id = re.fullmatch(r"[a-z][a-z0-9_-]*", test_id) is not None
         if any(fragment in lowered for fragment in FORBIDDEN_TEST_FRAGMENTS):
+            if not is_simple_test_id and not any(
+                fragment in lowered
+                for fragment in FORBIDDEN_TEST_FRAGMENTS
+                if fragment != " "
+            ):
+                continue
             raise PreflightStatus(
                 RESULT_STATUS_PATCH_REJECTED,
                 "UNTRUSTED_TEST_COMMAND",
                 "test recommendation contains command syntax",
             )
+        if not is_simple_test_id:
+            continue
         if test_id not in allowed:
             raise PreflightStatus(
                 RESULT_STATUS_PATCH_REJECTED,
@@ -1402,14 +1414,14 @@ def post_or_update_sandbox_comment(
             "PATCH",
             f"/repos/{repo}/issues/comments/{comment_id}",
             token=token,
-            payload={"body": body},
+            body={"body": body},
         )
         return comment_id, "update"
     comment, _ = stage1.github_json(
         "POST",
         f"/repos/{repo}/issues/{issue_number}/comments",
         token=token,
-        payload={"body": body},
+        body={"body": body},
     )
     if not isinstance(comment, dict) or "id" not in comment:
         raise fatal(
