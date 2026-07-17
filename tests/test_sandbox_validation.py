@@ -292,6 +292,17 @@ class SandboxValidationTests(unittest.TestCase):
         self.assertEqual("PASS", result["status"])
         self.assertEqual(["canary/example.py"], result["expected_files"])
 
+    def test_patch_metadata_accepts_stage2a_unified_patch_without_git_header(self):
+        proposal = self.proposal()
+        patch_lines = proposal["changes"][0]["patch"].splitlines()
+        proposal["changes"][0]["patch"] = "\n".join(patch_lines[1:])
+        result = sandbox_validation.validate_patch_metadata(
+            proposal=proposal,
+            policy=self.policy().proposal_policy,
+        )
+        self.assertEqual("PASS", result["status"])
+        self.assertEqual(["canary/example.py"], result["expected_files"])
+
     def test_patch_metadata_rejects_path_traversal(self):
         proposal = self.proposal(path="../escape.py")
         self.assert_preflight_status(
@@ -489,6 +500,31 @@ class SandboxValidationTests(unittest.TestCase):
             ),
         )
 
+    def test_stage2a_natural_language_test_recommendations_are_not_promoted(self):
+        self.assertEqual(
+            ("unit",),
+            sandbox_validation.normalize_test_ids(
+                [
+                    "Run the targeted Stage 2C clamp tests.",
+                    "unit",
+                    "Run the repository unit test suite relevant to canary utilities.",
+                ],
+                allowed_test_ids=("unit", "compileall"),
+            ),
+        )
+
+    def test_all_stage2a_natural_language_test_recommendations_plan_no_tests(self):
+        self.assertEqual(
+            (),
+            sandbox_validation.normalize_test_ids(
+                [
+                    "Run the targeted Stage 2C clamp tests.",
+                    "Run the repository unit test suite relevant to canary utilities.",
+                ],
+                allowed_test_ids=("unit", "compileall"),
+            ),
+        )
+
     def test_raw_shell_tests_are_rejected(self):
         for test_id in (
             "python -m unittest",
@@ -505,6 +541,91 @@ class SandboxValidationTests(unittest.TestCase):
                     [test_id],
                     allowed_test_ids=("unit", "compileall"),
                 )
+
+    def test_sandbox_comment_uses_issue_comment_api_create_body(self):
+        original_iter = sandbox_validation.stage1.iter_issue_comments
+        original_github_json = sandbox_validation.stage1.github_json
+        calls = []
+
+        def fake_iter_issue_comments(repo, issue_number, token):
+            return iter(())
+
+        def fake_github_json(method, path, *, token, body=None):
+            calls.append((method, path, token, body))
+            return {"id": 12345}, {}
+
+        try:
+            sandbox_validation.stage1.iter_issue_comments = fake_iter_issue_comments
+            sandbox_validation.stage1.github_json = fake_github_json
+            comment_id, action = sandbox_validation.post_or_update_sandbox_comment(
+                repo=sandbox_validation.EXPECTED_REPOSITORY,
+                issue_number="27",
+                token="token",
+                body="body",
+            )
+        finally:
+            sandbox_validation.stage1.iter_issue_comments = original_iter
+            sandbox_validation.stage1.github_json = original_github_json
+
+        self.assertEqual("12345", comment_id)
+        self.assertEqual("create", action)
+        self.assertEqual(
+            [
+                (
+                    "POST",
+                    f"/repos/{sandbox_validation.EXPECTED_REPOSITORY}/issues/27/comments",
+                    "token",
+                    {"body": "body"},
+                )
+            ],
+            calls,
+        )
+
+    def test_sandbox_comment_uses_issue_comment_api_update_body(self):
+        original_iter = sandbox_validation.stage1.iter_issue_comments
+        original_github_json = sandbox_validation.stage1.github_json
+        calls = []
+
+        def fake_iter_issue_comments(repo, issue_number, token):
+            return iter(
+                [
+                    {
+                        "id": 67890,
+                        "body": sandbox_validation.SANDBOX_MARKER,
+                    }
+                ]
+            )
+
+        def fake_github_json(method, path, *, token, body=None):
+            calls.append((method, path, token, body))
+            return None, {}
+
+        try:
+            sandbox_validation.stage1.iter_issue_comments = fake_iter_issue_comments
+            sandbox_validation.stage1.github_json = fake_github_json
+            comment_id, action = sandbox_validation.post_or_update_sandbox_comment(
+                repo=sandbox_validation.EXPECTED_REPOSITORY,
+                issue_number="27",
+                token="token",
+                body="body",
+            )
+        finally:
+            sandbox_validation.stage1.iter_issue_comments = original_iter
+            sandbox_validation.stage1.github_json = original_github_json
+
+        self.assertEqual("67890", comment_id)
+        self.assertEqual("update", action)
+        self.assertEqual(
+            [
+                (
+                    "PATCH",
+                    f"/repos/{sandbox_validation.EXPECTED_REPOSITORY}/issues/comments/67890",
+                    "token",
+                    {"body": "body"},
+                )
+            ],
+            calls,
+        )
 
     def test_precheck_result_is_deterministic_and_records_no_execution(self):
         proposal_bundle = self.proposal_bundle()
