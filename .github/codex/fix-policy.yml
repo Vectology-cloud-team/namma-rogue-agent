@@ -19,6 +19,12 @@ limits:
 allowed_operations:
   - modify
 
+sandbox_test_ids:
+  - unit
+  - stage2c-targeted
+  - workflow-checkers
+  - compileall
+
 protected_paths:
   - .git/**
   - .github/workflows/**

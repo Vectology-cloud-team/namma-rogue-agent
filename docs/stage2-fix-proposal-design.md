@@ -3,8 +3,9 @@
 This document defines the Stage 2 guarded AI fix suggestion flow. PR #16
 implements Stage 2A proposal generation. PR #21 implements Stage 2B
 approval record creation. PR #25 adds the Stage 2C sandbox validation
-design only. The repository still does not contain workflow code that
-applies proposals, commits, pushes, or merges AI fixes.
+design. PR #26 adds Stage 2C-A preflight runtime only. The repository
+still does not contain workflow code that checks out a sandbox, applies
+proposals, runs proposal tests, commits, pushes, or merges AI fixes.
 
 Stage 2 must preserve the Stage 1 trust boundary: pull request content,
 review artifacts, proposal comments, and generated patches are
@@ -25,7 +26,7 @@ Stage 2 still does not implement:
 - trusted sandbox patch application runtime,
 - trusted sandbox test execution runtime,
 - GitHub code suggestion posting,
-- Stage 2C executable workflow.
+- Stage 2C-B sandbox apply/test workflow.
 
 The Stage 2A runtime artifacts are limited to request collection,
 trusted proposal generation, proposal validation, artifact storage, and a
@@ -47,7 +48,8 @@ A human reviews the proposal and explicitly approves it.
 The repository is still not modified.
 
 Stage 2C: Sandboxed Apply
-An approved proposal may be applied inside an isolated sandbox.
+Stage 2C-A preflight can validate proposal and approval artifacts.
+Stage 2C-B may later apply an approved proposal inside an isolated sandbox.
 The production branch is not committed or pushed.
 ```
 
@@ -177,6 +179,18 @@ record artifact, current head SHA, policy hash, schema versions,
 protected paths, target blob SHAs, artifact provenance, Stage 1 finding
 binding, and current approval actor repository permission. A failed gate
 must stop before checkout or patch application.
+
+PR #26 implements this preflight gate as Stage 2C-A. It creates a
+`sandbox-validation-preflight` artifact and a sticky comment using:
+
+```html
+<!-- namma-ai-sandbox-validation -->
+```
+
+`PRECHECK_PASSED` means proposal and approval artifacts, live labels,
+actor repository permissions, target blob metadata, patch metadata, and
+trusted test IDs passed preflight. It does not mean a patch was applied
+or tests were run.
 
 Stage 2C may apply the patch only in a disposable sandbox checkout. It
 does not modify the main working tree, update the pull request branch,

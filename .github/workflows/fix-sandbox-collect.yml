@@ -1,0 +1,73 @@
+name: Sandbox Validation Request Collector
+
+on:
+  pull_request:
+    types:
+      - labeled
+
+concurrency:
+  group: sandbox-validation-collect-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Collect sandbox validation request
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ai-fix-validate' &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.repository == 'Vectology-cloud-team/namma-rogue-agent'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Build sandbox validation request artifact
+        env:
+          REQUEST_DIR: ${{ runner.temp }}/sandbox-validation-request
+          REQUESTED_AT: ${{ github.event.pull_request.updated_at }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event_path = Path(os.environ["GITHUB_EVENT_PATH"])
+          event = json.loads(event_path.read_text(encoding="utf-8"))
+          pull = event["pull_request"]
+          labels = sorted(label["name"] for label in pull.get("labels", []))
+          manifest = {
+              "schema_version": "sandbox-validation-request-v1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "pull_request_number": int(pull["number"]),
+              "base_sha": pull["base"]["sha"],
+              "head_sha": pull["head"]["sha"],
+              "actor": event["sender"]["login"],
+              "author_association": pull.get("author_association", ""),
+              "draft": bool(pull.get("draft", False)),
+              "base_repository": pull["base"]["repo"]["full_name"],
+              "head_repository": pull["head"]["repo"]["full_name"],
+              "labels": labels,
+              "event_action": event["action"],
+              "event_name": "pull_request",
+              "event_label": event["label"]["name"],
+              "collector_workflow_name": "Sandbox Validation Request Collector",
+              "collector_workflow_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "requested_at": os.environ["REQUESTED_AT"],
+          }
+          output_dir = Path(os.environ["REQUEST_DIR"])
+          output_dir.mkdir(parents=True, exist_ok=True)
+          (output_dir / "manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload sandbox validation request artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sandbox-validation-request-${{ github.run_id }}
+          path: ${{ runner.temp }}/sandbox-validation-request
+          if-no-files-found: error
+          retention-days: 3
+          include-hidden-files: false

@@ -147,7 +147,15 @@ def parse_simple_yaml_mapping(text: str) -> dict[str, Any]:
                 data[key] = strip_yaml_scalar(value)
                 current_section = None
             else:
-                data[key] = [] if key in {"allowed_operations", "protected_paths"} else {}
+                data[key] = (
+                    []
+                    if key in {
+                        "allowed_operations",
+                        "protected_paths",
+                        "sandbox_test_ids",
+                    }
+                    else {}
+                )
                 current_section = key
             continue
         if current_section is None:

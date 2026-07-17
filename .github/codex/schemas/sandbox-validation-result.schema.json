@@ -7,6 +7,7 @@
   "required": [
     "schema_version",
     "validation_id",
+    "phase",
     "repository",
     "pull_request_number",
     "base_sha",
@@ -18,6 +19,10 @@
     "approved_by",
     "approved_by_repository_permission",
     "approved_by_repository_role",
+    "validation_request_actor",
+    "validation_request_actor_repository_permission",
+    "validation_request_actor_repository_role",
+    "live_labels",
     "proposal_artifact",
     "approval_artifact",
     "schema_versions",
@@ -34,12 +39,18 @@
     "actual_changed_files",
     "protected_path_check",
     "blob_sha_check",
+    "target_blob_checks",
+    "patch_metadata_check",
     "tests_requested",
     "tests_executed",
     "test_results",
     "changed_files_match_expected",
     "persistent_repository_modified",
     "sandbox_worktree_modified",
+    "sandbox_checkout_performed",
+    "patch_check_performed",
+    "patch_applied",
+    "test_execution_performed",
     "commit_created",
     "push_performed",
     "merge_performed",
@@ -52,6 +63,13 @@
     "validation_id": {
       "type": "string",
       "pattern": "^[0-9a-f]{32}$"
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "PREFLIGHT",
+        "SANDBOX"
+      ]
     },
     "repository": {
       "type": "string",
@@ -97,6 +115,31 @@
         "string",
         "null"
       ]
+    },
+    "validation_request_actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validation_request_actor_repository_permission": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "maintain"
+      ]
+    },
+    "validation_request_actor_repository_role": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "live_labels": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
     },
     "proposal_artifact": {
       "$ref": "#/$defs/artifact_provenance"
@@ -144,6 +187,7 @@
       "type": "string",
       "enum": [
         "SUCCESS",
+        "PRECHECK_PASSED",
         "PATCH_REJECTED",
         "TEST_FAILED",
         "STALE",
@@ -188,6 +232,15 @@
     },
     "blob_sha_check": {
       "$ref": "#/$defs/check_result"
+    },
+    "target_blob_checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/target_blob_check"
+      }
+    },
+    "patch_metadata_check": {
+      "$ref": "#/$defs/patch_metadata_check"
     },
     "tests_requested": {
       "type": "array",
@@ -238,6 +291,18 @@
     "sandbox_worktree_modified": {
       "type": "boolean"
     },
+    "sandbox_checkout_performed": {
+      "type": "boolean"
+    },
+    "patch_check_performed": {
+      "type": "boolean"
+    },
+    "patch_applied": {
+      "type": "boolean"
+    },
+    "test_execution_performed": {
+      "type": "boolean"
+    },
     "commit_created": {
       "const": false
     },
@@ -252,6 +317,140 @@
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "PRECHECK_PASSED"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "phase": {
+            "const": "PREFLIGHT"
+          },
+          "failure_class": {
+            "const": null
+          },
+          "failure_code": {
+            "const": null
+          },
+          "patch_check": {
+            "properties": {
+              "status": {
+                "const": "SKIPPED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "patch_apply": {
+            "properties": {
+              "status": {
+                "const": "SKIPPED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "protected_path_check": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "blob_sha_check": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "patch_metadata_check": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "tests_requested": {
+            "items": {
+              "properties": {
+                "requested": {
+                  "const": true
+                },
+                "executed": {
+                  "const": false
+                },
+                "status": {
+                  "const": "SKIPPED"
+                }
+              },
+              "required": [
+                "requested",
+                "executed",
+                "status"
+              ]
+            }
+          },
+          "tests_executed": {
+            "maxItems": 0
+          },
+          "test_results": {
+            "maxItems": 0
+          },
+          "changed_files_match_expected": {
+            "const": true
+          },
+          "persistent_repository_modified": {
+            "const": false
+          },
+          "sandbox_worktree_modified": {
+            "const": false
+          },
+          "sandbox_checkout_performed": {
+            "const": false
+          },
+          "patch_check_performed": {
+            "const": false
+          },
+          "patch_applied": {
+            "const": false
+          },
+          "test_execution_performed": {
+            "const": false
+          },
+          "commit_created": {
+            "const": false
+          },
+          "push_performed": {
+            "const": false
+          },
+          "merge_performed": {
+            "const": false
+          },
+          "sandbox_destroyed": {
+            "const": true
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {
@@ -577,6 +776,73 @@
         "log_excerpt": {
           "type": "string",
           "maxLength": 4000
+        }
+      }
+    },
+    "target_blob_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "expected_blob_sha",
+        "actual_blob_sha",
+        "file_type",
+        "mode",
+        "size",
+        "status"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/repo_path"
+        },
+        "expected_blob_sha": {
+          "$ref": "#/$defs/full_sha"
+        },
+        "actual_blob_sha": {
+          "$ref": "#/$defs/full_sha"
+        },
+        "file_type": {
+          "const": "blob"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "100644",
+            "100755"
+          ]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "const": "PASS"
+        }
+      }
+    },
+    "patch_metadata_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "message",
+        "patch_bytes"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "patch_bytes": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

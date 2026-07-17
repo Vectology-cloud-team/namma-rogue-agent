@@ -26,7 +26,7 @@ EXPECTED_REPOSITORY = "Vectology-cloud-team/namma-rogue-agent"
 COLLECTOR_WORKFLOW_NAME = "Fix Approval Request Collect"
 RECORDER_WORKFLOW_NAME = "Fix Approval Recorder"
 APPROVAL_REQUEST_SCHEMA_VERSION = "fix-approval-request-v1"
-APPROVAL_RECORD_SCHEMA_VERSION = "approval-record-v2"
+APPROVAL_RECORD_SCHEMA_VERSION = "approval-record-v3"
 APPROVAL_MARKER = "<!-- namma-ai-approval -->"
 APPROVAL_SOURCE_LABEL = "ai-fix-approved-label"
 APPROVAL_STATUS_APPROVED = "APPROVED"
@@ -210,6 +210,7 @@ def validate_approval_record_schema_file(path: Path) -> None:
 APPROVAL_RECORD_KEYS = {
     "schema_version",
     "approval_id",
+    "approval_record_hash",
     "proposal_id",
     "proposal_hash",
     "repository",
@@ -227,6 +228,30 @@ APPROVAL_RECORD_KEYS = {
     "human_approval_required",
     "status",
 }
+
+
+def approval_record_hash_source(record: dict[str, Any]) -> dict[str, Any]:
+    hash_source = dict(record)
+    hash_source.pop("approval_record_hash", None)
+    return hash_source
+
+
+def approval_record_hash(record: dict[str, Any]) -> str:
+    return sha256_hex_json(approval_record_hash_source(record))
+
+
+def validate_approval_record_hash(record: dict[str, Any]) -> None:
+    expected_hash = ensure_sha256(
+        record.get("approval_record_hash"),
+        "approval_record_hash",
+    )
+    actual_hash = approval_record_hash(record)
+    if actual_hash != expected_hash:
+        raise fatal(
+            fix.FailureCode.INVALID_PROPOSAL,
+            "approval record hash does not match canonical approval record content",
+            "approval_record_validation",
+        )
 
 
 def validate_approval_record_shape(record: dict[str, Any]) -> None:
@@ -261,6 +286,7 @@ def validate_approval_record_shape(record: dict[str, Any]) -> None:
             "approval_record_validation",
         )
     ensure_sha256(record["proposal_hash"], "proposal_hash")
+    validate_approval_record_hash(record)
     ensure_sha256(record["policy_hash"], "policy_hash")
     ensure_full_sha(record["base_sha"], "base_sha")
     ensure_full_sha(record["head_sha"], "head_sha")
@@ -672,6 +698,7 @@ def build_approval_record(
     record = {
         "schema_version": APPROVAL_RECORD_SCHEMA_VERSION,
         "approval_id": "",
+        "approval_record_hash": "",
         "proposal_id": str(metadata["proposal_id"]),
         "proposal_hash": str(metadata["proposal_hash"]),
         "repository": str(metadata["repository"]),
@@ -692,6 +719,7 @@ def build_approval_record(
     hash_source = dict(record)
     del hash_source["approval_id"]
     record["approval_id"] = sha256_hex_json(hash_source)[:32]
+    record["approval_record_hash"] = approval_record_hash(record)
     validate_approval_record_shape(record)
     return record
 
@@ -836,6 +864,7 @@ def approval_comment_body(
             "",
             f"- Status: `{record['status']}`",
             f"- Approval ID: `{record['approval_id']}`",
+            f"- Approval record hash: `{record['approval_record_hash']}`",
             f"- Proposal ID: `{record['proposal_id']}`",
             f"- Proposal hash: `{record['proposal_hash']}`",
             f"- HEAD SHA: `{record['head_sha']}`",
