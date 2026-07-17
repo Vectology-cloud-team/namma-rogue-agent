@@ -14,7 +14,8 @@
     "base_sha",
     "head_sha",
     "approved_by",
-    "approved_by_association",
+    "approved_by_repository_permission",
+    "approved_by_repository_role",
     "approved_at",
     "approval_source",
     "policy_hash",
@@ -25,7 +26,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "approval-record-v1"
+      "const": "approval-record-v2"
     },
     "approval_id": {
       "type": "string",
@@ -56,11 +57,17 @@
       "type": "string",
       "minLength": 1
     },
-    "approved_by_association": {
+    "approved_by_repository_permission": {
       "type": "string",
       "enum": [
-        "OWNER",
-        "MEMBER"
+        "admin",
+        "maintain"
+      ]
+    },
+    "approved_by_repository_role": {
+      "type": [
+        "string",
+        "null"
       ]
     },
     "approved_at": {

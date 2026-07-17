@@ -26,14 +26,14 @@ EXPECTED_REPOSITORY = "Vectology-cloud-team/namma-rogue-agent"
 COLLECTOR_WORKFLOW_NAME = "Fix Approval Request Collect"
 RECORDER_WORKFLOW_NAME = "Fix Approval Recorder"
 APPROVAL_REQUEST_SCHEMA_VERSION = "fix-approval-request-v1"
-APPROVAL_RECORD_SCHEMA_VERSION = "approval-record-v1"
+APPROVAL_RECORD_SCHEMA_VERSION = "approval-record-v2"
 APPROVAL_MARKER = "<!-- namma-ai-approval -->"
 APPROVAL_SOURCE_LABEL = "ai-fix-approved-label"
 APPROVAL_STATUS_APPROVED = "APPROVED"
 APPROVAL_STATUS_PENDING = "PENDING"
 APPROVAL_STATUS_STALE = "STALE"
 MAX_ARTIFACT_BYTES = 100000
-ALLOWED_APPROVER_ASSOCIATIONS = {"OWNER", "MEMBER"}
+ALLOWED_REPOSITORY_PERMISSIONS = {"admin", "maintain"}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -217,7 +217,8 @@ APPROVAL_RECORD_KEYS = {
     "base_sha",
     "head_sha",
     "approved_by",
-    "approved_by_association",
+    "approved_by_repository_permission",
+    "approved_by_repository_role",
     "approved_at",
     "approval_source",
     "policy_hash",
@@ -263,10 +264,17 @@ def validate_approval_record_shape(record: dict[str, Any]) -> None:
     ensure_sha256(record["policy_hash"], "policy_hash")
     ensure_full_sha(record["base_sha"], "base_sha")
     ensure_full_sha(record["head_sha"], "head_sha")
-    if record["approved_by_association"] not in ALLOWED_APPROVER_ASSOCIATIONS:
+    if str(record["approved_by_repository_permission"]) not in {"admin", "maintain"}:
         raise fatal(
             fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
-            "approved_by_association must be OWNER or MEMBER",
+            "approved_by_repository_permission must be admin or maintain",
+            "approval_record_validation",
+        )
+    role = record["approved_by_repository_role"]
+    if role is not None and not isinstance(role, str):
+        raise fatal(
+            fix.FailureCode.INVALID_PROPOSAL,
+            "approved_by_repository_role must be a string or null",
             "approval_record_validation",
         )
     if record["approval_source"] != APPROVAL_SOURCE_LABEL:
@@ -330,7 +338,7 @@ def validate_approval_gate(
     live_issue: dict[str, Any],
     policy: fix.FixProposalPolicy,
     approval_actor: str,
-    approval_actor_association: str,
+    approval_actor_repository_permission: str,
 ) -> None:
     validate_request_manifest_shape(manifest)
     proposal_label = policy.proposal_policy.proposal_label
@@ -423,47 +431,77 @@ def validate_approval_gate(
             "bot pull requests cannot produce approval records",
             "approval_gate",
         )
-    if approval_actor_association not in ALLOWED_APPROVER_ASSOCIATIONS:
+    if approval_actor_repository_permission not in ALLOWED_REPOSITORY_PERMISSIONS:
         raise fatal(
             fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
-            "approval actor must be OWNER or MEMBER",
+            "approval actor must have repository admin or maintain permission",
             "approval_gate",
         )
 
 
-def approval_actor_association(
+def approval_actor_repository_permission(
     *,
     repo: str,
     actor: str,
     token: str,
-) -> str:
-    owner = repo.split("/", 1)[0]
-    if actor == owner:
-        return "OWNER"
+) -> dict[str, str | None]:
     try:
-        stage1.github_api_request(
+        response, _ = stage1.github_json(
             "GET",
-            f"/orgs/{owner}/members/{actor}",
+            f"/repos/{repo}/collaborators/{actor}/permission",
             token=token,
-            operation="github_approval_actor_membership",
         )
     except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            raise fatal(
+                fix.FailureCode.PERMISSION_ERROR,
+                "repository permission could not be confirmed for approval actor",
+                "github_approval_actor_repository_permission",
+            ) from error
         if error.code == 404:
             raise fatal(
                 fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
-                "approval actor is not a visible organization member",
-                "github_approval_actor_membership",
+                "approval actor is not a repository collaborator",
+                "github_approval_actor_repository_permission",
             ) from error
         raise fix.classify_github_operation(
             error,
-            "github_approval_actor_membership",
+            "github_approval_actor_repository_permission",
         ) from error
     except BaseException as error:
         raise fix.classify_github_operation(
             error,
-            "github_approval_actor_membership",
+            "github_approval_actor_repository_permission",
         ) from error
-    return "MEMBER"
+    if not isinstance(response, dict):
+        raise fatal(
+            fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
+            "repository permission response was malformed",
+            "github_approval_actor_repository_permission",
+        )
+    user = response.get("user")
+    if not isinstance(user, dict) or user.get("login") != actor:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "repository permission response actor mismatch",
+            "github_approval_actor_repository_permission",
+        )
+    permission = response.get("permission")
+    if not isinstance(permission, str) or not permission:
+        raise fatal(
+            fix.FailureCode.UNAUTHORIZED_ASSOCIATION,
+            "repository permission response missing permission",
+            "github_approval_actor_repository_permission",
+        )
+    role_name = response.get("role_name")
+    if role_name is None and isinstance(user.get("role_name"), str):
+        role_name = user["role_name"]
+    if role_name is not None and not isinstance(role_name, str):
+        role_name = None
+    return {
+        "permission": permission.lower(),
+        "role_name": role_name,
+    }
 
 
 def proposal_hash_for_approval(
@@ -625,7 +663,8 @@ def build_approval_record(
     proposal: dict[str, Any],
     metadata: dict[str, Any],
     approved_by: str | None = None,
-    approved_by_association: str | None = None,
+    approved_by_repository_permission: str,
+    approved_by_repository_role: str | None,
     approved_at: str | None = None,
 ) -> dict[str, Any]:
     if approved_at is None:
@@ -640,7 +679,8 @@ def build_approval_record(
         "base_sha": str(metadata["base_sha"]),
         "head_sha": str(metadata["head_sha"]),
         "approved_by": str(approved_by or manifest["actor"]),
-        "approved_by_association": str(approved_by_association or "UNVERIFIED"),
+        "approved_by_repository_permission": approved_by_repository_permission,
+        "approved_by_repository_role": approved_by_repository_role,
         "approved_at": approved_at,
         "approval_source": APPROVAL_SOURCE_LABEL,
         "policy_hash": str(metadata["policy_hash"]),
@@ -800,7 +840,8 @@ def approval_comment_body(
             f"- Proposal hash: `{record['proposal_hash']}`",
             f"- HEAD SHA: `{record['head_sha']}`",
             f"- Approved By: `{record['approved_by']}`",
-            f"- Approved By Association: `{record['approved_by_association']}`",
+            f"- Approved Repository Permission: `{record['approved_by_repository_permission']}`",
+            f"- Approved Repository Role: `{record['approved_by_repository_role'] or 'not provided'}`",
             f"- Approved At: `{record['approved_at']}`",
             f"- Workflow run: [{workflow_run_id}](https://github.com/{repo}/actions/runs/{workflow_run_id})",
             "",
@@ -1000,7 +1041,7 @@ def command_record_approval(_: argparse.Namespace) -> int:
             token=token,
         )
         approval_actor = required_env("APPROVAL_ACTOR")
-        actor_association = approval_actor_association(
+        actor_permission = approval_actor_repository_permission(
             repo=repo,
             actor=approval_actor,
             token=token,
@@ -1011,7 +1052,7 @@ def command_record_approval(_: argparse.Namespace) -> int:
             live_issue=live_issue,
             policy=policy,
             approval_actor=approval_actor,
-            approval_actor_association=actor_association,
+            approval_actor_repository_permission=str(actor_permission["permission"]),
         )
         proposal, metadata, proposal_artifact_id = fix.run_with_retry(
             "github_verified_proposal_artifact",
@@ -1029,7 +1070,8 @@ def command_record_approval(_: argparse.Namespace) -> int:
             proposal=proposal,
             metadata=metadata,
             approved_by=approval_actor,
-            approved_by_association=actor_association,
+            approved_by_repository_permission=str(actor_permission["permission"]),
+            approved_by_repository_role=actor_permission["role_name"],
         )
         write_approval_artifact(output_dir=record_dir, record=record)
         github_output(
@@ -1052,6 +1094,8 @@ def command_record_approval(_: argparse.Namespace) -> int:
                     f"- Proposal ID: `{record['proposal_id']}`",
                     f"- Proposal hash: `{record['proposal_hash'][:16]}`",
                     f"- Head SHA: `{record['head_sha']}`",
+                    f"- Approved By: `{record['approved_by']}`",
+                    f"- Repository Permission: `{record['approved_by_repository_permission']}`",
                     "",
                     "No patch application, repository write, commit, push, or merge was performed.",
                 ]

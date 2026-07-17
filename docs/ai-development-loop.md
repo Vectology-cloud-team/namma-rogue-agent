@@ -327,8 +327,10 @@ trusted approval record artifact and a separate sticky comment with
 marker `<!-- namma-ai-approval -->`. Approval is valid only when the
 current pull request head SHA, repository, pull request number, proposal
 ID, proposal hash, trusted policy hash, proposal artifact, live
-`ai-fix-proposal` label, and verified `OWNER` or `MEMBER` label actor all
-match. The label alone is never sufficient.
+`ai-fix-proposal` label, and a trusted label actor with repository
+`admin` or `maintain` permission all match. The label alone is never
+sufficient. Public organization membership is not used as an approval
+condition or fallback.
 
 Stage 2B does not apply patches, modify the working tree, run
 recommended tests, commit, push, create branches, open pull requests,
