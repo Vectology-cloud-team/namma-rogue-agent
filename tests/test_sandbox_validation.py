@@ -513,6 +513,18 @@ class SandboxValidationTests(unittest.TestCase):
             ),
         )
 
+    def test_all_stage2a_natural_language_test_recommendations_plan_no_tests(self):
+        self.assertEqual(
+            (),
+            sandbox_validation.normalize_test_ids(
+                [
+                    "Run the targeted Stage 2C clamp tests.",
+                    "Run the repository unit test suite relevant to canary utilities.",
+                ],
+                allowed_test_ids=("unit", "compileall"),
+            ),
+        )
+
     def test_raw_shell_tests_are_rejected(self):
         for test_id in (
             "python -m unittest",
