@@ -1,0 +1,26 @@
+schema_version: 1
+
+label: ai-fix-test-sandbox
+
+limits:
+  command_timeout_seconds: 120
+  total_timeout_seconds: 300
+  stdout_max_bytes: 1048576
+  stderr_max_bytes: 1048576
+
+network_isolation_enforced: false
+
+allowed_environment:
+  - PATH
+  - HOME
+  - LANG
+  - LC_ALL
+  - PYTHONPATH
+  - PYTHONDONTWRITEBYTECODE
+
+commands:
+  stage2c-b1-clamp: python3|-m|unittest|stage2c_b1_clamp_tests
+
+aliases:
+  Run the targeted clamp checks for clamp(5, 1, 3), clamp(0, 1, 3), and clamp(2, 1, 3).: stage2c-b1-clamp
+  Run the repository's configured stage2c-targeted or unit test target if available.: stage2c-b1-clamp

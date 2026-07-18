@@ -156,6 +156,8 @@ def _value_matches_type(value: Any, type_name: str) -> bool:
         return isinstance(value, str)
     if type_name == "integer":
         return isinstance(value, int) and not isinstance(value, bool)
+    if type_name == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
     if type_name == "boolean":
         return isinstance(value, bool)
     if type_name == "null":

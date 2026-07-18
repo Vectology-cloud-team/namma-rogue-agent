@@ -1,0 +1,527 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Vectology-cloud-team/namma-rogue-agent/.github/codex/schemas/sandbox-test-result.schema.json",
+  "title": "NaMMA AI Sandbox Test Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "phase",
+    "status",
+    "sandbox_test_id",
+    "repository",
+    "pull_request_number",
+    "base_sha",
+    "head_sha",
+    "proposal_id",
+    "proposal_hash",
+    "approval_id",
+    "approval_record_hash",
+    "preflight_validation_id",
+    "preflight_artifact_id",
+    "preflight_result_hash",
+    "sandbox_apply_id",
+    "sandbox_apply_artifact_id",
+    "sandbox_apply_result_hash",
+    "policy_hash",
+    "sandbox_test_policy_hash",
+    "patch_hash",
+    "resulting_diff_hash",
+    "test_request_actor",
+    "test_request_actor_repository_permission",
+    "approved_by",
+    "approved_by_repository_permission",
+    "validation_request_actor",
+    "validation_request_actor_repository_permission",
+    "apply_request_actor",
+    "apply_request_actor_repository_permission",
+    "tests_source",
+    "tests_requested",
+    "tests_executed",
+    "commands",
+    "working_directories",
+    "started_at",
+    "completed_at",
+    "duration_seconds",
+    "exit_codes",
+    "timeouts",
+    "stdout_hashes",
+    "stderr_hashes",
+    "stdout_truncated",
+    "stderr_truncated",
+    "stdout_byte_counts",
+    "stderr_byte_counts",
+    "network_isolation_enforced",
+    "credentials_available",
+    "patch_apply_result",
+    "test_generated_tracked_changes",
+    "test_generated_untracked_files",
+    "persistent_repository_modified",
+    "commit_performed",
+    "push_performed",
+    "merge_performed",
+    "cleanup_performed",
+    "sandbox_destroyed",
+    "failure_class",
+    "failure_code",
+    "failed_operation",
+    "last_error"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "sandbox-test-result-v1"
+    },
+    "phase": {
+      "const": "SANDBOX_TEST"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "TESTS_PASSED",
+        "TESTS_FAILED",
+        "TESTS_TIMEOUT",
+        "TEST_COMMAND_REJECTED",
+        "TEST_ENVIRONMENT_REJECTED",
+        "TEST_OUTPUT_LIMIT",
+        "ARTIFACT_INVALID",
+        "BINDING_MISMATCH",
+        "PATCH_APPLY_FAILED",
+        "INTERNAL_ERROR"
+      ]
+    },
+    "sandbox_test_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "pull_request_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "base_sha": {
+      "$ref": "#/$defs/full_sha"
+    },
+    "head_sha": {
+      "$ref": "#/$defs/full_sha"
+    },
+    "proposal_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "proposal_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "approval_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "approval_record_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "preflight_validation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "preflight_artifact_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "preflight_result_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sandbox_apply_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "sandbox_apply_artifact_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "sandbox_apply_result_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "policy_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sandbox_test_policy_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "patch_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "resulting_diff_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "test_request_actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "test_request_actor_repository_permission": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "maintain"
+      ]
+    },
+    "approved_by": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approved_by_repository_permission": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "maintain"
+      ]
+    },
+    "validation_request_actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validation_request_actor_repository_permission": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "maintain"
+      ]
+    },
+    "apply_request_actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "apply_request_actor_repository_permission": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "maintain"
+      ]
+    },
+    "tests_source": {
+      "const": "proposal.tests_recommended"
+    },
+    "tests_requested": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/test_command_record"
+      }
+    },
+    "tests_executed": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/test_command_record"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/argv"
+      }
+    },
+    "working_directories": {
+      "type": "array",
+      "items": {
+        "const": "."
+      }
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "exit_codes": {
+      "type": "array",
+      "items": {
+        "type": [
+          "integer",
+          "null"
+        ]
+      }
+    },
+    "timeouts": {
+      "type": "array",
+      "items": {
+        "type": "boolean"
+      }
+    },
+    "stdout_hashes": {
+      "$ref": "#/$defs/string_array"
+    },
+    "stderr_hashes": {
+      "$ref": "#/$defs/string_array"
+    },
+    "stdout_truncated": {
+      "type": "array",
+      "items": {
+        "type": "boolean"
+      }
+    },
+    "stderr_truncated": {
+      "type": "array",
+      "items": {
+        "type": "boolean"
+      }
+    },
+    "stdout_byte_counts": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "stderr_byte_counts": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "network_isolation_enforced": {
+      "type": "boolean"
+    },
+    "credentials_available": {
+      "const": false
+    },
+    "patch_apply_result": {
+      "$ref": "#/$defs/check_result"
+    },
+    "test_generated_tracked_changes": {
+      "$ref": "#/$defs/path_array"
+    },
+    "test_generated_untracked_files": {
+      "$ref": "#/$defs/path_array"
+    },
+    "persistent_repository_modified": {
+      "const": false
+    },
+    "commit_performed": {
+      "const": false
+    },
+    "push_performed": {
+      "const": false
+    },
+    "merge_performed": {
+      "const": false
+    },
+    "cleanup_performed": {
+      "type": "boolean"
+    },
+    "sandbox_destroyed": {
+      "type": "boolean"
+    },
+    "failure_class": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "failure_code": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "failed_operation": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_error": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1000
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "TESTS_PASSED"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure_class": {
+            "const": null
+          },
+          "failure_code": {
+            "const": null
+          },
+          "failed_operation": {
+            "const": null
+          },
+          "last_error": {
+            "const": null
+          },
+          "patch_apply_result": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "cleanup_performed": {
+            "const": true
+          },
+          "sandbox_destroyed": {
+            "const": true
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "full_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "repo_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*[\\u0000-\\u001F\\u007F\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069])(?!.*(^|/)\\.\\.($|/))(?!.*(^|/)\\.git($|/))[^\\\\]+$"
+    },
+    "path_array": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/repo_path"
+      },
+      "uniqueItems": true
+    },
+    "string_array": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "argv": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "test_command_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test_id",
+        "argv",
+        "working_directory",
+        "timeout_seconds",
+        "status",
+        "exit_code",
+        "duration_seconds",
+        "stdout_bytes",
+        "stderr_bytes",
+        "stdout_hash",
+        "stderr_hash",
+        "stdout_truncated",
+        "stderr_truncated"
+      ],
+      "properties": {
+        "test_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "argv": {
+          "$ref": "#/$defs/argv"
+        },
+        "working_directory": {
+          "const": "."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "TIMEOUT",
+            "REJECTED",
+            "OUTPUT_LIMIT"
+          ]
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "stdout_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stderr_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stdout_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "stderr_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "stdout_truncated": {
+          "type": "boolean"
+        },
+        "stderr_truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "check_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "message"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "SKIPPED"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    }
+  }
+}

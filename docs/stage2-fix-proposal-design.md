@@ -24,9 +24,8 @@ Stage 2 still does not implement:
 - pull request creation,
 - merges,
 - production working tree patch application,
-- trusted sandbox test execution runtime,
 - GitHub code suggestion posting,
-- Stage 2C-B2 trusted test workflow.
+- Stage 2D or Stage 3 repository mutation workflows.
 
 The Stage 2A runtime artifacts are limited to request collection,
 trusted proposal generation, proposal validation, artifact storage, and a
@@ -50,7 +49,7 @@ The repository is still not modified.
 Stage 2C: Sandboxed Apply
 Stage 2C-A preflight can validate proposal and approval artifacts.
 Stage 2C-B1 may apply an approved proposal inside an isolated sandbox.
-Stage 2C-B2 trusted tests are not implemented.
+Stage 2C-B2 may run approved trusted tests inside an isolated sandbox.
 The production branch is not committed or pushed.
 ```
 
@@ -442,6 +441,19 @@ apply, changed files, diff binding, planned tests, and explicit
 statements that tests were not executed and no persistent repository
 change, commit, push, or merge occurred.
 
+Stage 2C-B2 uses a separate sandbox test comment marker:
+
+```html
+<!-- namma-ai-sandbox-test -->
+```
+
+The sandbox test comment displays sandbox test ID, proposal ID,
+approval ID, preflight validation ID, sandbox apply ID, HEAD SHA, test
+command count, pass/fail counts, timeout status, network isolation
+status, credential availability, cleanup status, artifact ID, and
+explicit statements that no persistent repository change, commit, push,
+or merge occurred. It does not include full stdout or stderr content.
+
 ## Threat Model
 
 | Threat | Mitigation |
@@ -456,7 +468,7 @@ change, commit, push, or merge occurred.
 | Duplicate or old approval reuse | Approval must name current proposal ID, hash, and head SHA in the trusted approval record. |
 | Oversized patch resource use | Fix policy limits total patch bytes, per-file patch bytes, and changed file count. |
 | AI includes unrequested changes | Proposal must address explicit Stage 1 findings and list every target path and rationale. |
-| Recommended tests executed as shell without validation | Test recommendations are data only. Stage 2 design does not execute shell commands. |
+| Recommended tests executed as shell without validation | Stage 2C-B2 maps proposal recommendations through trusted sandbox-test policy aliases into fixed argv commands and always uses shell-free execution. |
 | Proposal comment command injection | Proposal comments are display artifacts and are never interpreted as commands. |
 | Fork or external contributor privilege escalation | Forks, bots, and untrusted author associations are ineligible for proposal generation. |
 | Sandbox path escape | Stage 2C must reject absolute paths, `..`, symlink target escape, `.git` paths, and protected paths before patch application. |
@@ -476,6 +488,9 @@ patches, commit, push, or merge.
 trigger contract. It verifies that Stage 2A, Stage 2B, and Stage 2C-A
 collectors each process only their dedicated label, and that trusted
 `workflow_run` jobs reject artifacts from the other Stage collectors.
+`scripts/check_sandbox_validation_workflow.py` validates Stage 2C-A,
+`scripts/check_sandbox_apply_workflow.py` validates Stage 2C-B1, and
+`scripts/check_sandbox_test_workflow.py` validates Stage 2C-B2.
 
 Future Stage 2C static checks must verify that the sandbox workflow has
 no persistent write permission, no unrestricted shell execution, no
