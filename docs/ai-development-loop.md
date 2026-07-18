@@ -336,7 +336,8 @@ Stage 2B does not apply patches, modify the working tree, run
 recommended tests, commit, push, create branches, open pull requests,
 merge, or use GitHub code suggestions. Stage 2C-A preflight is
 implemented. Stage 2C-B1 ephemeral sandbox patch apply is implemented,
-but Stage 2C-B2 trusted tests are still not implemented.
+and Stage 2C-B2 trusted sandbox tests are implemented. Stage 2C-B2
+still does not persist repository changes, commit, push, or merge.
 
 PR #25 adds the Stage 2C sandbox validation design. PR #26 adds the
 Stage 2C-A preflight gate only. PR #31 adds Stage 2C-B1 ephemeral
@@ -369,7 +370,11 @@ Stage 2C-B1 can produce `APPLY_PASSED`. That status means the approved
 patch applied in an ephemeral sandbox and the resulting diff matched the
 proposal. It does not mean recommended tests were executed, repository
 contents were changed persistently, or a commit, push, or merge occurred.
-Stage 2C-B2 trusted test execution remains unimplemented.
+Stage 2C-B2 can produce `TESTS_PASSED`. That status means the approved
+patch was re-applied in an ephemeral sandbox and only trusted
+proposal-bound test commands passed. It still does not mean repository
+contents were changed persistently, or that a commit, push, or merge
+occurred.
 
 Stage 2C patch application is limited to a disposable sandbox checkout.
 The design still forbids persistent repository writes, commits, pushes,
@@ -390,6 +395,12 @@ The Stage 2C-B1 sandbox apply sticky comment marker is:
 <!-- namma-ai-sandbox-apply -->
 ```
 
+The Stage 2C-B2 sandbox test sticky comment marker is:
+
+```html
+<!-- namma-ai-sandbox-test -->
+```
+
 The comment and result artifact will report validation status while
 explicitly stating that no persistent repository modification, commit,
 push, or merge occurred.
@@ -406,16 +417,25 @@ triggered by its own label event.
 | `ai-fix-approved` | Stage 2B only | Stage 2B, Stage 2C-A, Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale approval |
 | `ai-fix-validate` | Stage 2C-A only | Stage 2C-A, Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale preflight |
 | `ai-fix-apply-sandbox` | Stage 2C-B1 only | Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale sandbox apply |
+| `ai-fix-test-sandbox` | Stage 2C-B2 only | Stage 2C-B2 | repo `admin` or `maintain` | no collector work | stale sandbox test |
 
 For Stage 2A, a trusted PR author means `OWNER`, `MEMBER`, or
 `COLLABORATOR`; fork and bot PRs are skipped. Stage 2B and Stage 2C-A
 bind the label actor to the trusted event data and re-check repository
 permission through the collaborator permission API.
 
-The Stage 2A, Stage 2B, and Stage 2C-A trusted `workflow_run` jobs each
-accept only their dedicated collector workflow and stage-specific
-request artifact. A manifest `request_stage` value is checked as
-evidence, but it is not trusted by itself.
+The Stage 2A, Stage 2B, Stage 2C-A, Stage 2C-B1, and Stage 2C-B2
+trusted `workflow_run` jobs each accept only their dedicated collector
+workflow and stage-specific request artifact. A manifest
+`request_stage` value is checked as evidence, but it is not trusted by
+itself.
+
+Stage 2C-B2 does not discover tests from the repository or from
+comments. It accepts only `proposal.tests_recommended` entries that
+match trusted sandbox-test policy IDs or exact trusted aliases, maps
+them to fixed `python3 -m unittest` argv arrays, and runs them inside
+the same ephemeral sandbox model as Stage 2C-B1. The sandbox test job
+does not receive OpenAI credentials, PATs, or write permissions.
 
 ## Human Decisions
 

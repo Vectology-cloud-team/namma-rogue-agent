@@ -80,6 +80,16 @@ STAGES = {
         trusted_workflow="Sandbox Apply Validator",
         artifact_prefix="sandbox-apply-request-",
     ),
+    "stage2c_b2": StageSpec(
+        name="Stage 2C-B2",
+        label="ai-fix-test-sandbox",
+        request_stage="SANDBOX_TEST_REQUEST",
+        collector_path=WORKFLOW_DIR / "fix-sandbox-test-collect.yml",
+        collector_workflow="Sandbox Test Request Collector",
+        trusted_path=WORKFLOW_DIR / "fix-sandbox-test.yml",
+        trusted_workflow="Sandbox Test Validator",
+        artifact_prefix="sandbox-test-request-",
+    ),
 }
 
 
@@ -226,6 +236,7 @@ def check_trusted_workflow(spec: StageSpec) -> list[CheckResult]:
         "stage2b": "record",
         "stage2c": "preflight",
         "stage2c_b1": "sandbox_apply",
+        "stage2c_b2": "sandbox_test",
     }[next(key for key, value in STAGES.items() if value == spec)]
     condition = trusted_job_if(text, primary_job)
     results: list[CheckResult] = []
@@ -260,6 +271,11 @@ def check_runtime_stage_validation() -> list[CheckResult]:
             REPO_ROOT / "scripts" / "sandbox_apply.py",
             "REQUEST_STAGE = \"SANDBOX_APPLY_REQUEST\"",
             "sandbox apply request came from an unexpected stage",
+        ),
+        "Stage 2C-B2": (
+            REPO_ROOT / "scripts" / "sandbox_test.py",
+            "REQUEST_STAGE = \"SANDBOX_TEST_REQUEST\"",
+            "sandbox test request came from an unexpected stage",
         ),
     }
     results: list[CheckResult] = []

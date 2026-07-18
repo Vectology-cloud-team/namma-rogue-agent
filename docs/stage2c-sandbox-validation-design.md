@@ -39,7 +39,7 @@ Stop
 Stage 2C-B is split into two runtime stages:
 
 - Stage 2C-B1: ephemeral sandbox patch apply and diff verification,
-- Stage 2C-B2: trusted test execution, not implemented yet.
+- Stage 2C-B2: approved trusted test execution in the same ephemeral sandbox model.
 
 Stage 2C-B1 has this boundary:
 
@@ -399,8 +399,8 @@ Example test IDs:
 - `compileall`.
 
 Stage 2C-A and Stage 2C-B1 only validate or carry these IDs. They do
-not execute any test command. Stage 2C-B2 will be the first stage that
-may execute trusted test IDs.
+not execute any test command. Stage 2C-B2 is the first stage that may
+execute trusted test IDs.
 
 The future runner should execute commands with shell-free semantics,
 equivalent to `shell=False`.
@@ -707,6 +707,7 @@ The Stage 2C static checkers verify:
 
 `scripts/check_sandbox_validation_workflow.py` validates Stage 2C-A.
 `scripts/check_sandbox_apply_workflow.py` validates Stage 2C-B1.
+`scripts/check_sandbox_test_workflow.py` validates Stage 2C-B2.
 
 ## Unit Test Matrix
 
@@ -716,7 +717,7 @@ Normal cases:
 
 - valid proposal, valid approval, valid labels, same HEAD,
 - patch check and apply succeed for Stage 2C-B1,
-- allowed tests succeed for future Stage 2C-B2,
+- allowed tests succeed for Stage 2C-B2,
 - deterministic validation ID,
 - one sticky comment.
 
@@ -752,7 +753,7 @@ Result cases:
 
 ## Non-Goals After PR #31
 
-PR #31 still does not implement:
+PR #31 still did not implement:
 
 - Stage 2C-B2 test execution runtime,
 - repository write,
@@ -762,3 +763,121 @@ PR #31 still does not implement:
 - workflow permission changes,
 - secret changes,
 - Stage 2C E2E.
+
+## Stage 2C-B2 Sandbox Tests
+
+Stage 2C-B2 is the first runtime that executes approved recommended
+tests. It reuses the same trust chain as Stage 2C-B1:
+
+```text
+Proposal artifact
++ Approval record artifact
++ Preflight result artifact
++ Sandbox apply result artifact
++ live labels and current HEAD
+-> exact detached sandbox checkout
+-> approved patch apply
+-> approved tests only
+-> sandbox test result artifact
+-> sticky comment
+-> sandbox destruction
+```
+
+The trigger label is:
+
+```text
+ai-fix-test-sandbox
+```
+
+The live gate requires all previous labels plus this label:
+
+- `ai-fix-proposal`,
+- `ai-fix-approved`,
+- `ai-fix-validate`,
+- `ai-fix-apply-sandbox`,
+- `ai-fix-test-sandbox`.
+
+Adding `ai-fix-apply-sandbox` still starts only Stage 2C-B1. Stage
+2C-B2 starts only when `ai-fix-test-sandbox` is added.
+
+### Command Model
+
+Stage 2C-B2 never treats `tests_recommended` as shell text. The
+proposal supplies only recommendation strings. The trusted
+`.github/codex/sandbox-test-policy.yml` maps exact trusted aliases or
+simple trusted IDs to fixed argv arrays.
+
+Initial executable allowance is intentionally narrow:
+
+- `python3`,
+- `python`,
+- `-m unittest`.
+
+The runtime rejects shell strings, `shell=true`, inline Python code,
+path traversal, absolute paths, wildcards, command separators, package
+installers, Git commands, network download tools, and unknown runners.
+The test process receives only allowlisted environment variables and a
+trusted fixed `PYTHONPATH` when a trusted support module is required.
+
+### Runtime Limits
+
+The sandbox test policy defines:
+
+- command timeout: 120 seconds,
+- total timeout: 300 seconds,
+- stdout limit: 1 MiB per command,
+- stderr limit: 1 MiB per command,
+- `network_isolation_enforced: false`.
+
+The workflow does not claim network isolation when it cannot enforce it
+on GitHub-hosted runners. Instead it avoids package installation,
+network download tools, external tokens, and arbitrary executables.
+
+### Result Artifact
+
+Stage 2C-B2 writes `sandbox-test-result.schema.json` artifacts with
+phase `SANDBOX_TEST`. Status values include:
+
+- `TESTS_PASSED`,
+- `TESTS_FAILED`,
+- `TESTS_TIMEOUT`,
+- `TEST_COMMAND_REJECTED`,
+- `TEST_ENVIRONMENT_REJECTED`,
+- `TEST_OUTPUT_LIMIT`,
+- `ARTIFACT_INVALID`,
+- `BINDING_MISMATCH`,
+- `PATCH_APPLY_FAILED`,
+- `INTERNAL_ERROR`.
+
+The result records proposal, approval, preflight, and apply bindings,
+test commands, exit codes, durations, stdout and stderr hashes,
+truncation flags, generated-file checks, cleanup state, and explicit
+`false` values for persistent repository modification, commit, push,
+and merge.
+
+The sticky comment marker is:
+
+```html
+<!-- namma-ai-sandbox-test -->
+```
+
+The comment displays the status and high-level evidence only. Full
+stdout and stderr are stored in the short-lived artifact, subject to
+byte limits, and are not copied into the pull request comment.
+
+## Non-Goals After Stage 2C-B2
+
+Stage 2C-B2 still does not implement:
+
+- repository branch modification,
+- PR branch update,
+- commit automation,
+- push automation,
+- merge automation,
+- code suggestion APIs,
+- test failure repair,
+- proposal regeneration,
+- approval regeneration,
+- package installation,
+- Stage 2D,
+- Stage 3.
