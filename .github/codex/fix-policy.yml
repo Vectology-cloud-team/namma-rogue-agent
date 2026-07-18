@@ -8,6 +8,8 @@ generator:
 labels:
   proposal: ai-fix-proposal
   approval: ai-fix-approved
+  validate: ai-fix-validate
+  apply_sandbox: ai-fix-apply-sandbox
 
 limits:
   max_changed_files: 5

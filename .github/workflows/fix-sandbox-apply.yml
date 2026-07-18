@@ -1,0 +1,240 @@
+name: Sandbox Apply Validator
+
+on:
+  workflow_run:
+    workflows:
+      - Sandbox Apply Request Collector
+    types:
+      - completed
+
+concurrency:
+  group: sandbox-apply-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  sandbox_apply:
+    name: Run ephemeral sandbox apply
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.name == 'Sandbox Apply Request Collector' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.repository.full_name == github.repository &&
+      github.repository == 'Vectology-cloud-team/namma-rogue-agent'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      result_ready: ${{ steps.apply.outputs.result_ready || 'false' }}
+      should_comment: ${{ steps.apply.outputs.should_comment || 'false' }}
+      artifact_name: ${{ steps.prepare.outputs.artifact_name }}
+      pr_number: ${{ steps.validate_request.outputs.pr_number }}
+      head_sha: ${{ steps.validate_request.outputs.head_sha }}
+      status: ${{ steps.apply.outputs.status }}
+      apply_id: ${{ steps.prepare.outputs.apply_id }}
+    steps:
+      - name: Download trusted sandbox apply control plane
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TRUSTED_REF: ${{ github.sha }}
+          CONTROL_DIR: ${{ github.workspace }}/sandbox-apply-control
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GITHUB_TOKEN"]
+          ref = os.environ["TRUSTED_REF"]
+          control_dir = Path(os.environ["CONTROL_DIR"])
+          paths = [
+              "scripts/sandbox_apply.py",
+              "scripts/sandbox_validation.py",
+              "scripts/fix_proposal_generator.py",
+              "scripts/approval_record.py",
+              "scripts/architect_review_retry.py",
+              "scripts/check_fix_proposal_design.py",
+              ".github/codex/fix-policy.yml",
+              ".github/codex/schemas/fix-proposal.schema.json",
+              ".github/codex/schemas/approval-record.schema.json",
+              ".github/codex/schemas/sandbox-validation-result.schema.json",
+          ]
+          for path in paths:
+              quoted = urllib.parse.quote(path, safe="/")
+              url = f"https://api.github.com/repos/{repo}/contents/{quoted}?ref={ref}"
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  payload = json.loads(response.read().decode("utf-8"))
+              if payload.get("type") != "file" or payload.get("encoding") != "base64":
+                  raise RuntimeError(f"trusted control file unavailable: {path}")
+              destination = control_dir / path
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              destination.write_bytes(base64.b64decode(payload["content"]))
+          PY
+
+      - name: Download sandbox apply request artifact
+        id: download_request
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sandbox-apply-control/scripts
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COLLECTOR_RUN_ID: ${{ github.event.workflow_run.id }}
+          ARTIFACT_NAME: sandbox-apply-request-${{ github.event.workflow_run.id }}
+          APPLY_REQUEST_DIR: ${{ github.workspace }}/sandbox-apply-request
+          MAX_ARTIFACT_BYTES: "50000"
+        run: |
+          python3 sandbox-apply-control/scripts/sandbox_apply.py download-request-artifact
+
+      - name: Validate sandbox apply request manifest
+        id: validate_request
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sandbox-apply-control/scripts
+          APPLY_REQUEST_DIR: ${{ github.workspace }}/sandbox-apply-request
+        run: |
+          python3 sandbox-apply-control/scripts/sandbox_apply.py validate-request
+
+      - name: Select trusted artifacts and prepare sandbox apply
+        id: prepare
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sandbox-apply-control/scripts
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          APPLY_REQUEST_DIR: ${{ github.workspace }}/sandbox-apply-request
+          APPLY_CONTEXT_DIR: ${{ runner.temp }}/sandbox-apply-context
+          PROPOSAL_ARTIFACT_DIR: ${{ runner.temp }}/fix-proposal
+          APPROVAL_ARTIFACT_DIR: ${{ runner.temp }}/fix-approval-record
+          PREFLIGHT_ARTIFACT_DIR: ${{ runner.temp }}/sandbox-validation-preflight
+          APPLY_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          FIX_POLICY: ${{ github.workspace }}/sandbox-apply-control/.github/codex/fix-policy.yml
+          MAX_ARTIFACT_BYTES: "100000"
+        run: |
+          python3 sandbox-apply-control/scripts/sandbox_apply.py prepare
+
+      - name: Checkout exact pull request HEAD into sandbox
+        if: steps.prepare.outputs.apply_ready == 'true'
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ steps.prepare.outputs.head_sha }}
+          path: sandbox-worktree
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          lfs: false
+          clean: true
+
+      - name: Apply patch in ephemeral sandbox
+        id: apply
+        if: steps.prepare.outputs.apply_ready == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sandbox-apply-control/scripts
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          APPLY_CONTEXT_DIR: ${{ runner.temp }}/sandbox-apply-context
+          APPLY_RESULT_DIR: ${{ runner.temp }}/sandbox-apply-result
+          SANDBOX_WORKTREE: ${{ github.workspace }}/sandbox-worktree
+          PATCH_FILE: ${{ runner.temp }}/namma-fix.patch
+          SANDBOX_RESULT_SCHEMA: ${{ github.workspace }}/sandbox-apply-control/.github/codex/schemas/sandbox-validation-result.schema.json
+        run: |
+          python3 sandbox-apply-control/scripts/sandbox_apply.py apply
+
+      - name: Upload sandbox apply result artifact
+        if: steps.apply.outputs.result_ready == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}
+          path: ${{ runner.temp }}/sandbox-apply-result
+          if-no-files-found: error
+          retention-days: 3
+          include-hidden-files: false
+
+  post_sandbox_apply:
+    name: Post sandbox apply comment
+    needs: sandbox_apply
+    if: needs.sandbox_apply.result == 'success' && needs.sandbox_apply.outputs.should_comment == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Download trusted sandbox apply comment control plane
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TRUSTED_REF: ${{ github.sha }}
+          CONTROL_DIR: ${{ github.workspace }}/sandbox-apply-control
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GITHUB_TOKEN"]
+          ref = os.environ["TRUSTED_REF"]
+          control_dir = Path(os.environ["CONTROL_DIR"])
+          paths = [
+              "scripts/sandbox_apply.py",
+              "scripts/sandbox_validation.py",
+              "scripts/fix_proposal_generator.py",
+              "scripts/approval_record.py",
+              "scripts/architect_review_retry.py",
+              "scripts/check_fix_proposal_design.py",
+              ".github/codex/schemas/sandbox-validation-result.schema.json",
+          ]
+          for path in paths:
+              quoted = urllib.parse.quote(path, safe="/")
+              url = f"https://api.github.com/repos/{repo}/contents/{quoted}?ref={ref}"
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  payload = json.loads(response.read().decode("utf-8"))
+              if payload.get("type") != "file" or payload.get("encoding") != "base64":
+                  raise RuntimeError(f"trusted control file unavailable: {path}")
+              destination = control_dir / path
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              destination.write_bytes(base64.b64decode(payload["content"]))
+          PY
+
+      - name: Download sandbox apply result artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.sandbox_apply.outputs.artifact_name }}
+          path: ${{ github.workspace }}/sandbox-apply-result
+
+      - name: Post or update sandbox apply comment
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sandbox-apply-control/scripts
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.sandbox_apply.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.sandbox_apply.outputs.head_sha }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          APPLY_RESULT_PATH: ${{ github.workspace }}/sandbox-apply-result/sandbox-validation-result.json
+          SANDBOX_RESULT_SCHEMA: ${{ github.workspace }}/sandbox-apply-control/.github/codex/schemas/sandbox-validation-result.schema.json
+        run: |
+          python3 sandbox-apply-control/scripts/sandbox_apply.py post-comment

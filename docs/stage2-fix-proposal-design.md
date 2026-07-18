@@ -3,9 +3,10 @@
 This document defines the Stage 2 guarded AI fix suggestion flow. PR #16
 implements Stage 2A proposal generation. PR #21 implements Stage 2B
 approval record creation. PR #25 adds the Stage 2C sandbox validation
-design. PR #26 adds Stage 2C-A preflight runtime only. The repository
-still does not contain workflow code that checks out a sandbox, applies
-proposals, runs proposal tests, commits, pushes, or merges AI fixes.
+design. PR #26 adds Stage 2C-A preflight runtime only. PR #31 adds
+Stage 2C-B1 ephemeral sandbox patch apply only. The repository still
+does not contain workflow code that runs proposal tests, commits,
+pushes, or merges AI fixes.
 
 Stage 2 must preserve the Stage 1 trust boundary: pull request content,
 review artifacts, proposal comments, and generated patches are
@@ -23,10 +24,9 @@ Stage 2 still does not implement:
 - pull request creation,
 - merges,
 - production working tree patch application,
-- trusted sandbox patch application runtime,
 - trusted sandbox test execution runtime,
 - GitHub code suggestion posting,
-- Stage 2C-B sandbox apply/test workflow.
+- Stage 2C-B2 trusted test workflow.
 
 The Stage 2A runtime artifacts are limited to request collection,
 trusted proposal generation, proposal validation, artifact storage, and a
@@ -49,7 +49,8 @@ The repository is still not modified.
 
 Stage 2C: Sandboxed Apply
 Stage 2C-A preflight can validate proposal and approval artifacts.
-Stage 2C-B may later apply an approved proposal inside an isolated sandbox.
+Stage 2C-B1 may apply an approved proposal inside an isolated sandbox.
+Stage 2C-B2 trusted tests are not implemented.
 The production branch is not committed or pushed.
 ```
 
@@ -192,6 +193,15 @@ actor repository permissions, target blob metadata, patch metadata, and
 trusted test IDs passed preflight. It does not mean a patch was applied
 or tests were run.
 
+PR #31 implements Stage 2C-B1. It requires a separate
+`ai-fix-apply-sandbox` label, revalidates the proposal, approval, and
+preflight result, checks out the exact head SHA into an ephemeral
+sandbox, runs fixed `git apply --check` and `git apply`, verifies
+changed files and final diff binding, writes an apply result artifact,
+and destroys the sandbox. It still does not run recommended tests,
+commit, push, merge, update a pull request, or persist repository
+changes.
+
 ## Label Trigger Isolation
 
 Each Stage 2 label event is routed to exactly one collector. Later
@@ -200,9 +210,10 @@ that stage.
 
 | Label | Starts Collector | Live Gate References | Actor Requirement | Removal | HEAD Change |
 | --- | --- | --- | --- | --- | --- |
-| `ai-fix-proposal` | Stage 2A only | Stage 2A, Stage 2C-A | trusted PR author | no collector work | stale proposal |
-| `ai-fix-approved` | Stage 2B only | Stage 2B, Stage 2C-A | repo `admin` or `maintain` | no collector work | stale approval |
-| `ai-fix-validate` | Stage 2C-A only | Stage 2C-A | repo `admin` or `maintain` | no collector work | stale preflight |
+| `ai-fix-proposal` | Stage 2A only | Stage 2A, Stage 2C-A, Stage 2C-B1 | trusted PR author | no collector work | stale proposal |
+| `ai-fix-approved` | Stage 2B only | Stage 2B, Stage 2C-A, Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale approval |
+| `ai-fix-validate` | Stage 2C-A only | Stage 2C-A, Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale preflight |
+| `ai-fix-apply-sandbox` | Stage 2C-B1 only | Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale sandbox apply |
 
 The collectors process only `pull_request` `labeled` events with their
 exact label. They skip `unlabeled`, `synchronize`, `reopened`,
@@ -418,6 +429,18 @@ Stage 2C will use a third sticky comment marker:
 That comment will display validation ID, proposal ID, approval ID, head
 SHA, patch check, patch apply, tests, status, and explicit statements
 that no persistent repository change, commit, push, or merge occurred.
+
+Stage 2C-B1 uses a separate apply comment marker:
+
+```html
+<!-- namma-ai-sandbox-apply -->
+```
+
+The apply comment displays apply ID, proposal ID, approval ID, preflight
+validation ID, HEAD SHA, requester, checkout SHA, patch check, patch
+apply, changed files, diff binding, planned tests, and explicit
+statements that tests were not executed and no persistent repository
+change, commit, push, or merge occurred.
 
 ## Threat Model
 

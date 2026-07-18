@@ -13,6 +13,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 import approval_record  # noqa: E402
 import check_stage_label_triggers as trigger_check  # noqa: E402
 import fix_proposal_generator  # noqa: E402
+import sandbox_apply  # noqa: E402
 import sandbox_validation  # noqa: E402
 
 
@@ -88,18 +89,50 @@ def sandbox_manifest() -> dict[str, object]:
     }
 
 
+def sandbox_apply_manifest() -> dict[str, object]:
+    return {
+        "schema_version": "sandbox-apply-request-v1",
+        "request_stage": "SANDBOX_APPLY_REQUEST",
+        "repository": EXPECTED_REPOSITORY,
+        "pull_request_number": 30,
+        "base_sha": BASE_SHA,
+        "head_sha": HEAD_SHA,
+        "actor": "shinoda",
+        "author_association": "MEMBER",
+        "draft": False,
+        "base_repository": EXPECTED_REPOSITORY,
+        "head_repository": EXPECTED_REPOSITORY,
+        "labels": [
+            "ai-fix-proposal",
+            "ai-fix-approved",
+            "ai-fix-validate",
+            "ai-fix-apply-sandbox",
+        ],
+        "event_action": "labeled",
+        "event_name": "pull_request",
+        "event_label": "ai-fix-apply-sandbox",
+        "collector_workflow_name": "Sandbox Apply Request Collector",
+        "collector_workflow_run_id": 400,
+        "requested_at": "2026-07-18T00:00:00Z",
+    }
+
+
 class StageLabelTriggerTests(unittest.TestCase):
     def assert_matrix(self, stage_key: str, expected_label: str) -> None:
         spec = trigger_check.STAGES[stage_key]
-        cases = [
-            ("labeled", expected_label, True),
-            ("labeled", "ai-fix-proposal", expected_label == "ai-fix-proposal"),
-            ("labeled", "ai-fix-approved", expected_label == "ai-fix-approved"),
-            ("labeled", "ai-fix-validate", expected_label == "ai-fix-validate"),
-            ("labeled", "other-label", False),
-            ("unlabeled", expected_label, False),
-            ("synchronize", None, False),
-        ]
+        stage_labels = {stage.label for stage in trigger_check.STAGES.values()}
+        cases = [("labeled", expected_label, True)]
+        cases.extend(
+            ("labeled", other_label, False)
+            for other_label in sorted(stage_labels.difference({expected_label}))
+        )
+        cases.extend(
+            [
+                ("labeled", "other-label", False),
+                ("unlabeled", expected_label, False),
+                ("synchronize", None, False),
+            ]
+        )
         for action, label, expected in cases:
             with self.subTest(stage=stage_key, action=action, label=label):
                 self.assertIs(
@@ -120,6 +153,9 @@ class StageLabelTriggerTests(unittest.TestCase):
 
     def test_stage2c_collector_event_matrix(self):
         self.assert_matrix("stage2c", "ai-fix-validate")
+
+    def test_stage2c_b1_collector_event_matrix(self):
+        self.assert_matrix("stage2c_b1", "ai-fix-apply-sandbox")
 
     def test_label_removal_and_synchronize_do_not_process_any_collector(self):
         for spec in trigger_check.STAGES.values():
@@ -193,6 +229,30 @@ class StageLabelTriggerTests(unittest.TestCase):
         with self.assertRaises(sandbox_validation.fix.FixProposalFailure):
             sandbox_validation.validate_request_manifest_shape(manifest)
 
+    def test_stage2c_b1_validator_rejects_stage2a_collector_artifact(self):
+        manifest = sandbox_apply_manifest()
+        manifest["request_stage"] = "FIX_PROPOSAL_REQUEST"
+        manifest["event_label"] = "ai-fix-proposal"
+        manifest["collector_workflow_name"] = "Fix Proposal Request Collect"
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            sandbox_apply.validate_request_manifest_shape(manifest)
+
+    def test_stage2c_b1_validator_rejects_stage2b_collector_artifact(self):
+        manifest = sandbox_apply_manifest()
+        manifest["request_stage"] = "FIX_APPROVAL_REQUEST"
+        manifest["event_label"] = "ai-fix-approved"
+        manifest["collector_workflow_name"] = "Fix Approval Request Collect"
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            sandbox_apply.validate_request_manifest_shape(manifest)
+
+    def test_stage2c_b1_validator_rejects_stage2c_a_collector_artifact(self):
+        manifest = sandbox_apply_manifest()
+        manifest["request_stage"] = "SANDBOX_VALIDATION_REQUEST"
+        manifest["event_label"] = "ai-fix-validate"
+        manifest["collector_workflow_name"] = "Sandbox Validation Request Collector"
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            sandbox_apply.validate_request_manifest_shape(manifest)
+
     def test_spoofed_manifest_stage_is_rejected(self):
         for manifest, validator, exception_type in (
             (
@@ -209,6 +269,11 @@ class StageLabelTriggerTests(unittest.TestCase):
                 sandbox_manifest(),
                 sandbox_validation.validate_request_manifest_shape,
                 sandbox_validation.fix.FixProposalFailure,
+            ),
+            (
+                sandbox_apply_manifest(),
+                sandbox_apply.validate_request_manifest_shape,
+                sandbox_apply.fix.FixProposalFailure,
             ),
         ):
             with self.subTest(schema=manifest["schema_version"]):
@@ -232,6 +297,11 @@ class StageLabelTriggerTests(unittest.TestCase):
                 sandbox_manifest(),
                 sandbox_validation.validate_request_manifest_shape,
                 sandbox_validation.fix.FixProposalFailure,
+            ),
+            (
+                sandbox_apply_manifest(),
+                sandbox_apply.validate_request_manifest_shape,
+                sandbox_apply.fix.FixProposalFailure,
             ),
         ):
             with self.subTest(schema=manifest["schema_version"]):

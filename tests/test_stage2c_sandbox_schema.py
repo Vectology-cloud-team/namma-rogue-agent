@@ -145,6 +145,19 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
                 return condition["then"]["properties"]
         self.fail("sandbox validation result schema lacks PRECHECK_PASSED condition")
 
+    def apply_passed_condition(self):
+        schema = self.schema()
+        for condition in schema.get("allOf", []):
+            status = (
+                condition.get("if", {})
+                .get("properties", {})
+                .get("status", {})
+                .get("const")
+            )
+            if status == "APPLY_PASSED":
+                return condition["then"]
+        self.fail("sandbox validation result schema lacks APPLY_PASSED condition")
+
     def valid_precheck_result(self):
         result = self.valid_result()
         skipped_test = {
@@ -247,6 +260,29 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
                 errors.append("precheck has executed tests")
             if result["test_results"]:
                 errors.append("precheck has test results")
+        elif result["status"] == "APPLY_PASSED":
+            if result["phase"] != "SANDBOX_APPLY":
+                errors.append("apply phase mismatch")
+            if result["failure_class"] is not None:
+                errors.append("apply success has failure_class")
+            if result["failure_code"] is not None:
+                errors.append("apply success has failure_code")
+            if result["git_apply_check"]["status"] != "PASS":
+                errors.append("git apply check did not pass")
+            if result["git_apply"]["status"] != "PASS":
+                errors.append("git apply did not pass")
+            if not result["checkout_performed"]:
+                errors.append("apply did not checkout")
+            if not result["patch_applied"]:
+                errors.append("apply did not apply patch")
+            if result["test_execution_performed"]:
+                errors.append("apply executed tests")
+            if result["tests_executed"] or result["test_results"]:
+                errors.append("apply has executed test evidence")
+            if result["commit_created"] or result["push_performed"] or result["merge_performed"]:
+                errors.append("apply persisted repository changes")
+            if not result["sandbox_destroyed"]:
+                errors.append("apply did not destroy sandbox")
         else:
             if result["failure_class"] != result["status"]:
                 errors.append("failure_class does not match status")
@@ -345,6 +381,32 @@ class Stage2CSandboxSchemaTests(unittest.TestCase):
         self.assertEqual(False, properties["test_execution_performed"]["const"])
         self.assertEqual(0, properties["tests_executed"]["maxItems"])
         self.assertEqual(0, properties["test_results"]["maxItems"])
+
+    def test_apply_passed_requires_patch_apply_but_no_tests_or_persistent_write(self):
+        condition = self.apply_passed_condition()
+        properties = condition["properties"]
+        required = condition["required"]
+        self.assertEqual("SANDBOX_APPLY", properties["phase"]["const"])
+        self.assertEqual("PASS", properties["git_apply_check"]["properties"]["status"]["const"])
+        self.assertEqual("PASS", properties["git_apply"]["properties"]["status"]["const"])
+        self.assertEqual("PASS", properties["diff_binding"]["properties"]["status"]["const"])
+        self.assertEqual(True, properties["checkout_performed"]["const"])
+        self.assertEqual(True, properties["patch_applied"]["const"])
+        self.assertEqual(False, properties["test_execution_performed"]["const"])
+        self.assertEqual(False, properties["persistent_repository_modified"]["const"])
+        self.assertEqual(False, properties["commit_created"]["const"])
+        self.assertEqual(False, properties["push_performed"]["const"])
+        self.assertEqual(False, properties["merge_performed"]["const"])
+        self.assertEqual(True, properties["sandbox_destroyed"]["const"])
+        for field_name in (
+            "apply_request_actor",
+            "preflight_validation_id",
+            "preflight_result_hash",
+            "patch_file_hash",
+            "resulting_file_hashes",
+            "sandbox_cleanup",
+        ):
+            self.assertIn(field_name, required)
 
     def test_contract_rejects_invalid_success_results(self):
         invalid_cases = [
