@@ -299,7 +299,7 @@ def validate_fix_policy(policy: FixPolicy) -> None:
         if not TEST_ID_RE.fullmatch(test_id):
             raise ProposalValidationError(
                 "INVALID_POLICY",
-                "sandbox test IDs must be simple machine-readable aliases",
+                "sandbox test IDs must be simple machine-readable command IDs",
             )
     missing = REQUIRED_PROTECTED_PATHS.difference(policy.protected_paths)
     if missing:

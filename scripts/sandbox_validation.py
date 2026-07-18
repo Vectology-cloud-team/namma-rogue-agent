@@ -960,19 +960,17 @@ def normalize_test_ids(
         lowered = test_id.lower()
         is_simple_test_id = re.fullmatch(r"[a-z][a-z0-9_-]*", test_id) is not None
         if any(fragment in lowered for fragment in FORBIDDEN_TEST_FRAGMENTS):
-            if not is_simple_test_id and not any(
-                fragment in lowered
-                for fragment in FORBIDDEN_TEST_FRAGMENTS
-                if fragment != " "
-            ):
-                continue
             raise PreflightStatus(
                 RESULT_STATUS_PATCH_REJECTED,
                 "UNTRUSTED_TEST_COMMAND",
                 "test recommendation contains command syntax",
             )
         if not is_simple_test_id:
-            continue
+            raise PreflightStatus(
+                RESULT_STATUS_PATCH_REJECTED,
+                "INVALID_TEST_PLAN",
+                "test recommendation must be a trusted test ID",
+            )
         if test_id not in allowed:
             raise PreflightStatus(
                 RESULT_STATUS_PATCH_REJECTED,

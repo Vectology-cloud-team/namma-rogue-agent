@@ -170,7 +170,7 @@ def check_test_workflow(text: str) -> list[CheckResult]:
     add(results, "script verifies proposal approval preflight apply", all(token in script for token in ("find_latest_proposal_artifact", "find_latest_approval_artifact", "find_latest_preflight_artifact", "find_latest_apply_result_artifact")))
     add(results, "script rejects empty tests", "EMPTY_TEST_PLAN" in script)
     add(results, "script uses proposal tests_recommended source", "proposal.tests_recommended" in script)
-    add(results, "script uses trusted aliases", "test_policy.aliases" in script)
+    add(results, "script uses canonical trusted command IDs", "test_policy.commands" in script and "test_policy.aliases" not in script)
     add(results, "script runs tests from trusted support directory", "trusted-support" in script)
     add(results, "script appends worktree after trusted support path", "python_path.append(str(worktree))" in script)
     add(results, "script uses shell false subprocess", "shell=True" not in script and "subprocess.run(" in script)

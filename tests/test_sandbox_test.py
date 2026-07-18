@@ -195,11 +195,8 @@ class SandboxTestTests(unittest.TestCase):
                 test_actor_permission="maintain",
             )
 
-    def test_pr32_recommendations_resolve_to_fixed_command(self):
-        recommendations = [
-            "Run the targeted clamp checks for clamp(5, 1, 3), clamp(0, 1, 3), and clamp(2, 1, 3).",
-            "Run the repository's configured stage2c-targeted or unit test target if available.",
-        ]
+    def test_trusted_test_id_resolves_to_fixed_command(self):
+        recommendations = ["stage2c-b1-clamp"]
         commands = sandbox_test.resolve_requested_test_commands(
             recommendations,
             self.sandbox_test_policy(),
@@ -215,12 +212,20 @@ class SandboxTestTests(unittest.TestCase):
         with self.assertRaises(sandbox_test.SandboxTestStatus):
             sandbox_test.resolve_requested_test_commands([], self.sandbox_test_policy())
 
-    def test_unknown_recommendation_is_rejected(self):
-        with self.assertRaises(sandbox_test.SandboxTestStatus):
-            sandbox_test.resolve_requested_test_commands(
-                ["python -m unittest discover"],
-                self.sandbox_test_policy(),
-            )
+    def test_unknown_or_natural_language_recommendation_is_rejected(self):
+        cases = [
+            ["python -m unittest discover"],
+            [
+                "Run the targeted clamp checks for clamp(5, 1, 3), clamp(0, 1, 3), and clamp(2, 1, 3).",
+            ],
+        ]
+        for recommendations in cases:
+            with self.subTest(recommendations=recommendations):
+                with self.assertRaises(sandbox_test.SandboxTestStatus):
+                    sandbox_test.resolve_requested_test_commands(
+                        recommendations,
+                        self.sandbox_test_policy(),
+                    )
 
     def assert_bad_argv(self, argv):
         with self.assertRaises(sandbox_test.SandboxTestStatus):

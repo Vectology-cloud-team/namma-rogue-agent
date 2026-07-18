@@ -513,29 +513,28 @@ class SandboxValidationTests(unittest.TestCase):
             ),
         )
 
-    def test_stage2a_natural_language_test_recommendations_are_not_promoted(self):
-        self.assertEqual(
-            ("unit",),
-            sandbox_validation.normalize_test_ids(
-                [
-                    "Run the targeted Stage 2C clamp tests.",
-                    "unit",
-                    "Run the repository unit test suite relevant to canary utilities.",
-                ],
-                allowed_test_ids=("unit", "compileall"),
-            ),
+    def test_stage2a_natural_language_test_recommendations_fail_closed(self):
+        self.assert_preflight_status(
+            "PATCH_REJECTED",
+            "UNTRUSTED_TEST_COMMAND",
+            sandbox_validation.normalize_test_ids,
+            [
+                "Run the targeted Stage 2C clamp tests.",
+                "unit",
+            ],
+            allowed_test_ids=("unit", "compileall"),
         )
 
-    def test_all_stage2a_natural_language_test_recommendations_plan_no_tests(self):
-        self.assertEqual(
-            (),
-            sandbox_validation.normalize_test_ids(
-                [
-                    "Run the targeted Stage 2C clamp tests.",
-                    "Run the repository unit test suite relevant to canary utilities.",
-                ],
-                allowed_test_ids=("unit", "compileall"),
-            ),
+    def test_all_stage2a_natural_language_test_recommendations_are_rejected(self):
+        self.assert_preflight_status(
+            "PATCH_REJECTED",
+            "UNTRUSTED_TEST_COMMAND",
+            sandbox_validation.normalize_test_ids,
+            [
+                "Run the targeted Stage 2C clamp tests.",
+                "Run the repository unit test suite relevant to canary utilities.",
+            ],
+            allowed_test_ids=("unit", "compileall"),
         )
 
     def test_raw_shell_tests_are_rejected(self):

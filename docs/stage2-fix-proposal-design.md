@@ -470,7 +470,7 @@ or merge occurred. It does not include full stdout or stderr content.
 | Duplicate or old approval reuse | Approval must name current proposal ID, hash, and head SHA in the trusted approval record. |
 | Oversized patch resource use | Fix policy limits total patch bytes, per-file patch bytes, and changed file count. |
 | AI includes unrequested changes | Proposal must address explicit Stage 1 findings and list every target path and rationale. |
-| Recommended tests executed as shell without validation | Stage 2C-B2 maps proposal recommendations through trusted sandbox-test policy aliases into fixed argv commands and always uses shell-free execution. |
+| Recommended tests executed as shell without validation | Stage 2A emits trusted test IDs only, and Stage 2C-B2 maps those IDs through trusted sandbox-test policy commands into fixed argv arrays with shell-free execution. |
 | Proposal comment command injection | Proposal comments are display artifacts and are never interpreted as commands. |
 | Fork or external contributor privilege escalation | Forks, bots, and untrusted author associations are ineligible for proposal generation. |
 | Sandbox path escape | Stage 2C must reject absolute paths, `..`, symlink target escape, `.git` paths, and protected paths before patch application. |

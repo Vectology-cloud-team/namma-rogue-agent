@@ -144,7 +144,6 @@ class SandboxTestPolicy:
     stderr_max_bytes: int
     allowed_environment: tuple[str, ...]
     commands: dict[str, TestCommandSpec]
-    aliases: dict[str, str]
     network_isolation_enforced: bool
     policy_hash: str
 
@@ -413,22 +412,6 @@ def load_sandbox_test_policy(path: Path) -> SandboxTestPolicy:
             working_directory="trusted-support",
             timeout_seconds=timeout,
         )
-    aliases_raw = raw.get("aliases", {})
-    if not isinstance(aliases_raw, dict):
-        raise fatal(
-            fix.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
-            "sandbox test aliases must be a mapping",
-            "sandbox_test_policy",
-        )
-    aliases: dict[str, str] = {}
-    for alias, test_id in aliases_raw.items():
-        if str(test_id) not in commands:
-            raise fatal(
-                fix.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
-                "sandbox test alias references an unknown command",
-                "sandbox_test_policy",
-            )
-        aliases[str(alias)] = str(test_id)
     return SandboxTestPolicy(
         label=label,
         command_timeout_seconds=timeout,
@@ -437,7 +420,6 @@ def load_sandbox_test_policy(path: Path) -> SandboxTestPolicy:
         stderr_max_bytes=stderr_limit,
         allowed_environment=tuple(str(item) for item in allowed_environment),
         commands=commands,
-        aliases=aliases,
         network_isolation_enforced=bool(raw.get("network_isolation_enforced", False)),
         policy_hash=sha256_hex_bytes(text.encode("utf-8")),
     )
@@ -663,7 +645,7 @@ def resolve_requested_test_commands(
                 "test recommendation is empty",
                 "sandbox_test_command_validation",
             )
-        test_id = test_policy.aliases.get(item, item)
+        test_id = item
         if test_id not in test_policy.commands:
             unknown.append(item)
             continue
@@ -672,7 +654,7 @@ def resolve_requested_test_commands(
         raise SandboxTestStatus(
             RESULT_STATUS_TEST_COMMAND_REJECTED,
             "UNKNOWN_TEST_COMMAND",
-            f"test recommendations are not trusted policy aliases: {unknown}",
+            f"test recommendations are not trusted policy command IDs: {unknown}",
             "sandbox_test_command_validation",
         )
     if not selected:
