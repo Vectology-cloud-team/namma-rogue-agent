@@ -75,6 +75,8 @@ class CommandResult:
     returncode: int
     output: str
     log_path: str
+    timed_out: bool = False
+    output_truncated: bool = False
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -90,31 +92,105 @@ def write_json(path: Path, value: Any) -> None:
     write_text(path, json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
-def run_command(argv: list[str], *, output_dir: Path, log_name: str) -> CommandResult:
-    env = os.environ.copy()
-    for key in SECRET_ENV_KEYS:
-        env.pop(key, None)
+def parse_sandbox_policy(path: Path) -> dict[str, Any]:
+    policy: dict[str, Any] = {
+        "limits": {
+            "command_timeout_seconds": 120,
+            "stdout_max_bytes": 1048576,
+            "stderr_max_bytes": 1048576,
+        },
+        "allowed_environment": (),
+    }
+    in_limits = False
+    in_allowed_environment = False
+    allowed: list[str] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if line == "limits:":
+            in_limits = True
+            in_allowed_environment = False
+            continue
+        if line == "allowed_environment:":
+            in_limits = False
+            in_allowed_environment = True
+            continue
+        if stripped and not line.startswith(" "):
+            in_limits = False
+            in_allowed_environment = False
+        if in_limits and stripped:
+            key, separator, value = stripped.partition(":")
+            if separator:
+                policy["limits"][key] = int(value.strip())
+        if in_allowed_environment and stripped.startswith("- "):
+            allowed.append(stripped[2:])
+    policy["allowed_environment"] = tuple(allowed)
+    return policy
+
+
+def command_environment() -> dict[str, str]:
+    policy = parse_sandbox_policy(POLICY_PATH)
+    allowed = set(policy["allowed_environment"])
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key in allowed
+    }
     python_path = [str(SUPPORT_DIR), str(REPO_ROOT)]
-    existing_python_path = env.get("PYTHONPATH")
+    existing_python_path = os.environ.get("PYTHONPATH")
     if existing_python_path:
         python_path.append(existing_python_path)
     env["PYTHONPATH"] = os.pathsep.join(python_path)
-    completed = subprocess.run(
-        argv,
-        cwd=SUPPORT_DIR,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        check=False,
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
+
+
+def read_limited_text(path: Path, max_bytes: int) -> tuple[str, bool]:
+    data = path.read_bytes()
+    truncated = len(data) > max_bytes
+    if truncated:
+        data = data[:max_bytes]
+    text = data.decode("utf-8", errors="replace")
+    if truncated:
+        text += "\n[output truncated by Linux verification]\n"
+    return text, truncated
+
+
+def run_command(argv: list[str], *, output_dir: Path, log_name: str) -> CommandResult:
+    policy = parse_sandbox_policy(POLICY_PATH)
+    timeout = int(policy["limits"]["command_timeout_seconds"])
+    max_output = int(policy["limits"]["stdout_max_bytes"]) + int(
+        policy["limits"]["stderr_max_bytes"]
     )
+    env = command_environment()
     log_path = output_dir / log_name
-    write_text(log_path, completed.stdout)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    timed_out = False
+    returncode = 0
+    with log_path.open("wb") as output:
+        try:
+            completed = subprocess.run(
+                argv,
+                cwd=SUPPORT_DIR,
+                env=env,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+                check=False,
+            )
+            returncode = completed.returncode
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            returncode = 124
+            output.write(b"\n[command timed out]\n")
+    output_text, output_truncated = read_limited_text(log_path, max_output)
     return CommandResult(
         argv=tuple(argv),
-        returncode=completed.returncode,
-        output=completed.stdout,
+        returncode=returncode,
+        output=output_text,
         log_path=str(log_path.relative_to(output_dir)),
+        timed_out=timed_out,
+        output_truncated=output_truncated,
     )
 
 
@@ -190,6 +266,8 @@ def parse_unittest_output(command: CommandResult) -> dict[str, Any]:
         "skipped": summary_counts.get("skipped", 0),
         "expected_failures": summary_counts.get("expected_failures", 0),
         "unexpected_successes": summary_counts.get("unexpected_successes", 0),
+        "timed_out": command.timed_out,
+        "output_truncated": command.output_truncated,
         "successes": sorted(successes),
         "failure_tests": sorted(failures),
         "error_tests": sorted(errors),
@@ -408,7 +486,8 @@ def trusted_policy_summary() -> dict[str, Any]:
 
 
 def forbidden_secret_environment_present() -> list[str]:
-    return sorted(key for key in SECRET_ENV_KEYS if os.environ.get(key))
+    env = command_environment()
+    return sorted(key for key in SECRET_ENV_KEYS if env.get(key))
 
 
 def determine_status(
@@ -421,6 +500,10 @@ def determine_status(
 ) -> str:
     if not env.get("python3_path"):
         return "INTERNAL_ERROR"
+    if full.get("timed_out") or targeted.get("timed_out"):
+        return "TEST_FAILURE"
+    if full.get("output_truncated") or targeted.get("output_truncated"):
+        return "TEST_FAILURE"
     if full["returncode"] != 0 or targeted["returncode"] != 0:
         return "TEST_FAILURE"
     if policy["missing_commands"] or policy["missing_downloads"] or policy["orphan_downloads"]:
@@ -453,6 +536,31 @@ def determine_status(
     return "VERIFIED"
 
 
+def policy_execution_plan() -> dict[str, list[str]]:
+    targeted_modules = [
+        "stage2c_targeted_tests",
+        "workflow_checker_tests",
+        "compileall_checks",
+    ]
+    executed_policy_test_ids = [
+        "unit",
+        "stage2c-targeted",
+        "workflow-checkers",
+        "compileall",
+    ]
+    not_applicable_policy_test_ids: list[str] = []
+    if (REPO_ROOT / "canary" / "stage2c_b1_clamp.py").is_file():
+        targeted_modules.append("stage2c_b1_clamp_tests")
+        executed_policy_test_ids.append("stage2c-b1-clamp")
+    else:
+        not_applicable_policy_test_ids.append("stage2c-b1-clamp")
+    return {
+        "targeted_modules": targeted_modules,
+        "executed_policy_test_ids": executed_policy_test_ids,
+        "not_applicable_policy_test_ids": not_applicable_policy_test_ids,
+    }
+
+
 def run_verification(output_dir: Path) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     env, env_text = environment_summary()
@@ -476,13 +584,12 @@ def run_verification(output_dir: Path) -> int:
         "unit_tests",
         "-v",
     ]
+    execution_plan = policy_execution_plan()
     targeted_command = [
         "python3",
         "-m",
         "unittest",
-        "stage2c_targeted_tests",
-        "workflow_checker_tests",
-        "compileall_checks",
+        *execution_plan["targeted_modules"],
         "-v",
     ]
     full = parse_unittest_output(
@@ -521,6 +628,8 @@ def run_verification(output_dir: Path) -> int:
         "full_skipped": full["skipped"],
         "full_expected_failures": full["expected_failures"],
         "full_unexpected_successes": full["unexpected_successes"],
+        "full_timed_out": full["timed_out"],
+        "full_output_truncated": full["output_truncated"],
         "full_skipped_tests": full["skipped_tests"],
         "targeted_tests_run": targeted["run"],
         "targeted_passed": targeted["passed"],
@@ -529,9 +638,15 @@ def run_verification(output_dir: Path) -> int:
         "targeted_skipped": targeted["skipped"],
         "targeted_expected_failures": targeted["expected_failures"],
         "targeted_unexpected_successes": targeted["unexpected_successes"],
+        "targeted_timed_out": targeted["timed_out"],
+        "targeted_output_truncated": targeted["output_truncated"],
         "targeted_skipped_tests": targeted["skipped_tests"],
         **skip_info,
         "trusted_test_ids": policy["trusted_test_ids"],
+        "executed_policy_test_ids": execution_plan["executed_policy_test_ids"],
+        "not_applicable_policy_test_ids": execution_plan[
+            "not_applicable_policy_test_ids"
+        ],
         "canonical_commands": policy["canonical_commands"],
         "support_module_paths": policy["support_module_paths"],
         "support_module_hashes": {

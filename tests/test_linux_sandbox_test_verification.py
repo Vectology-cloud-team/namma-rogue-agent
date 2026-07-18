@@ -114,10 +114,10 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
         def fake_run(*args, **kwargs):
             captured["cwd"] = kwargs["cwd"]
             captured["env"] = kwargs["env"]
+            kwargs["stdout"].write(b"sample output\n")
             return subprocess.CompletedProcess(
                 args=args[0],
                 returncode=0,
-                stdout="sample output\n",
             )
 
         try:
@@ -141,6 +141,92 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
                 self.assertEqual(str(linux_verification.REPO_ROOT), python_path[1])
         finally:
             linux_verification.subprocess.run = current
+
+    def test_command_environment_uses_allowlist_and_strips_credentials(self) -> None:
+        original_env = dict(linux_verification.os.environ)
+        try:
+            linux_verification.os.environ.clear()
+            linux_verification.os.environ.update(
+                {
+                    "PATH": "/usr/bin",
+                    "HOME": "/home/runner",
+                    "GITHUB_TOKEN": "secret-token",
+                    "ACTIONS_RUNTIME_TOKEN": "runtime-token",
+                    "GH_TOKEN": "gh-token",
+                    "SSH_AUTH_SOCK": "/tmp/agent.sock",
+                    "UNRELATED": "drop-me",
+                }
+            )
+            env = linux_verification.command_environment()
+            self.assertEqual("/usr/bin", env["PATH"])
+            self.assertEqual("/home/runner", env["HOME"])
+            self.assertIn("PYTHONPATH", env)
+            self.assertEqual("1", env["PYTHONDONTWRITEBYTECODE"])
+            for forbidden in (
+                "GITHUB_TOKEN",
+                "ACTIONS_RUNTIME_TOKEN",
+                "GH_TOKEN",
+                "SSH_AUTH_SOCK",
+                "UNRELATED",
+            ):
+                self.assertNotIn(forbidden, env)
+        finally:
+            linux_verification.os.environ.clear()
+            linux_verification.os.environ.update(original_env)
+
+    def test_run_command_records_timeout(self) -> None:
+        current = linux_verification.subprocess.run
+
+        def fake_timeout(*args, **kwargs):
+            raise subprocess.TimeoutExpired(args[0], timeout=1)
+
+        try:
+            linux_verification.subprocess.run = fake_timeout
+            with tempfile.TemporaryDirectory() as tmp:
+                result = linux_verification.run_command(
+                    ["python3", "-m", "unittest", "unit_tests"],
+                    output_dir=Path(tmp),
+                    log_name="timeout.log",
+                )
+                self.assertEqual(124, result.returncode)
+                self.assertTrue(result.timed_out)
+                self.assertIn("command timed out", result.output)
+        finally:
+            linux_verification.subprocess.run = current
+
+    def test_run_command_caps_output_from_log(self) -> None:
+        current_run = linux_verification.subprocess.run
+        current_policy = linux_verification.parse_sandbox_policy
+
+        def fake_policy(path):
+            del path
+            return {
+                "limits": {
+                    "command_timeout_seconds": 120,
+                    "stdout_max_bytes": 5,
+                    "stderr_max_bytes": 0,
+                },
+                "allowed_environment": ("PATH", "PYTHONPATH"),
+            }
+
+        def fake_run(*args, **kwargs):
+            kwargs["stdout"].write(b"abcdef")
+            return subprocess.CompletedProcess(args=args[0], returncode=0)
+
+        try:
+            linux_verification.parse_sandbox_policy = fake_policy
+            linux_verification.subprocess.run = fake_run
+            with tempfile.TemporaryDirectory() as tmp:
+                result = linux_verification.run_command(
+                    ["python3", "-m", "unittest", "unit_tests"],
+                    output_dir=Path(tmp),
+                    log_name="large.log",
+                )
+                self.assertTrue(result.output_truncated)
+                self.assertTrue(result.output.startswith("abcde"))
+        finally:
+            linux_verification.subprocess.run = current_run
+            linux_verification.parse_sandbox_policy = current_policy
 
     def test_support_module_hashes_use_control_root_with_split_roots(self) -> None:
         original_target = linux_verification.REPO_ROOT
@@ -175,6 +261,57 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
                     "scripts/sandbox_test_support/support_paths.py",
                     hashes["support_paths"]["path"],
                 )
+        finally:
+            linux_verification.configure_roots(
+                target_root=original_target,
+                control_root=original_control,
+            )
+
+    def test_policy_execution_plan_marks_missing_canary_alias_not_applicable(self) -> None:
+        original_target = linux_verification.REPO_ROOT
+        original_control = linux_verification.CONTROL_ROOT
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                target = root / "target"
+                control = root / "control"
+                target.mkdir()
+                control.mkdir()
+                linux_verification.configure_roots(
+                    target_root=target,
+                    control_root=control,
+                )
+                plan = linux_verification.policy_execution_plan()
+                self.assertIn("stage2c-b1-clamp", plan["not_applicable_policy_test_ids"])
+                self.assertNotIn("stage2c_b1_clamp_tests", plan["targeted_modules"])
+        finally:
+            linux_verification.configure_roots(
+                target_root=original_target,
+                control_root=original_control,
+            )
+
+    def test_policy_execution_plan_runs_canary_alias_when_target_exists(self) -> None:
+        original_target = linux_verification.REPO_ROOT
+        original_control = linux_verification.CONTROL_ROOT
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                target = root / "target"
+                control = root / "control"
+                (target / "canary").mkdir(parents=True)
+                (target / "canary" / "stage2c_b1_clamp.py").write_text(
+                    "def clamp(value, minimum, maximum):\n"
+                    "    return max(minimum, min(value, maximum))\n",
+                    encoding="utf-8",
+                )
+                control.mkdir()
+                linux_verification.configure_roots(
+                    target_root=target,
+                    control_root=control,
+                )
+                plan = linux_verification.policy_execution_plan()
+                self.assertIn("stage2c-b1-clamp", plan["executed_policy_test_ids"])
+                self.assertIn("stage2c_b1_clamp_tests", plan["targeted_modules"])
         finally:
             linux_verification.configure_roots(
                 target_root=original_target,
