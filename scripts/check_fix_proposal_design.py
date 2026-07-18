@@ -674,14 +674,22 @@ def check_stage2a_runtime_boundary() -> list[CheckResult]:
         path.read_text(encoding="utf-8")
         for path in sorted({*WORKFLOW_DIR.glob("*.yml"), *WORKFLOW_DIR.glob("*.yaml")})
     )
-    runtime_text = workflow_text
+    stage2a_workflow_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (
+            WORKFLOW_DIR / "fix-proposal-collect.yml",
+            WORKFLOW_DIR / "fix-proposal.yml",
+        )
+        if path.exists()
+    )
+    runtime_text = stage2a_workflow_text
     if FIX_PROPOSAL_RUNTIME_PATH.exists():
         runtime_text += "\n" + FIX_PROPOSAL_RUNTIME_PATH.read_text(encoding="utf-8")
     results.append(
         CheckResult(
-            "workflows may request proposals but not approvals",
+            "Stage 2A workflows may request proposals but not approvals",
             STAGE2_LABEL in runtime_text
-            and STAGE2_APPROVAL_LABEL not in workflow_text,
+            and STAGE2_APPROVAL_LABEL not in stage2a_workflow_text,
         )
     )
     results.append(

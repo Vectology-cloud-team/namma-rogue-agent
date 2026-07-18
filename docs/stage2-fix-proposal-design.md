@@ -192,6 +192,25 @@ actor repository permissions, target blob metadata, patch metadata, and
 trusted test IDs passed preflight. It does not mean a patch was applied
 or tests were run.
 
+## Label Trigger Isolation
+
+Each Stage 2 label event is routed to exactly one collector. Later
+trusted gates may read other live labels, but those labels do not start
+that stage.
+
+| Label | Starts Collector | Live Gate References | Actor Requirement | Removal | HEAD Change |
+| --- | --- | --- | --- | --- | --- |
+| `ai-fix-proposal` | Stage 2A only | Stage 2A, Stage 2C-A | trusted PR author | no collector work | stale proposal |
+| `ai-fix-approved` | Stage 2B only | Stage 2B, Stage 2C-A | repo `admin` or `maintain` | no collector work | stale approval |
+| `ai-fix-validate` | Stage 2C-A only | Stage 2C-A | repo `admin` or `maintain` | no collector work | stale preflight |
+
+The collectors process only `pull_request` `labeled` events with their
+exact label. They skip `unlabeled`, `synchronize`, `reopened`,
+`edited`, and unrelated labels. Trusted `workflow_run` jobs accept only
+their dedicated collector workflow and the matching stage-specific
+request artifact. `request_stage` is checked together with workflow
+name and artifact provenance; it is not trusted by itself.
+
 Stage 2C may apply the patch only in a disposable sandbox checkout. It
 does not modify the main working tree, update the pull request branch,
 commit, push, merge, create branches, publish packages, deploy, or write
@@ -429,6 +448,11 @@ validates the Stage 2A workflow trust boundary.
 `scripts/check_approval_workflow.py` validates the Stage 2B approval
 workflow trust boundary. These checks are read-only and do not apply
 patches, commit, push, or merge.
+
+`scripts/check_stage_label_triggers.py` validates the cross-stage label
+trigger contract. It verifies that Stage 2A, Stage 2B, and Stage 2C-A
+collectors each process only their dedicated label, and that trusted
+`workflow_run` jobs reject artifacts from the other Stage collectors.
 
 Future Stage 2C static checks must verify that the sandbox workflow has
 no persistent write permission, no unrestricted shell execution, no

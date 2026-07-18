@@ -224,6 +224,23 @@ Required live labels:
 Adding `ai-fix-approved` must not automatically start Stage 2C. This
 keeps "approval recorded" separate from "run sandbox validation".
 
+The Stage 2C-A collector starts only when `ai-fix-validate` is added.
+It does not process `ai-fix-proposal`, `ai-fix-approved`, unrelated
+labels, label removal, or pull request `synchronize` events. The
+validator still requires all three live labels as a gate.
+
+| Label | Starts Collector | Live Gate References | Actor Requirement | Removal | HEAD Change |
+| --- | --- | --- | --- | --- | --- |
+| `ai-fix-proposal` | Stage 2A only | Stage 2A, Stage 2C-A | trusted PR author | no collector work | stale proposal |
+| `ai-fix-approved` | Stage 2B only | Stage 2B, Stage 2C-A | repo `admin` or `maintain` | no collector work | stale approval |
+| `ai-fix-validate` | Stage 2C-A only | Stage 2C-A | repo `admin` or `maintain` | no collector work | stale preflight |
+
+The sandbox validator accepts workflow runs only from `Sandbox
+Validation Request Collector`. A manifest `request_stage` of
+`SANDBOX_VALIDATION_REQUEST` is required, but the manifest stage value
+does not authenticate the artifact without the trusted workflow_run
+source and artifact provenance.
+
 ## Sandbox Model
 
 Stage 2C-A deliberately does not create the sandbox. Its preflight model

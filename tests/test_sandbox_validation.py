@@ -29,9 +29,19 @@ class SandboxValidationTests(unittest.TestCase):
             REPO_ROOT / ".github" / "codex" / "fix-policy.yml"
         )
 
-    def manifest(self, *, labels=None, head_sha=HEAD_SHA):
+    def manifest(
+        self,
+        *,
+        labels=None,
+        head_sha=HEAD_SHA,
+        request_stage="SANDBOX_VALIDATION_REQUEST",
+        event_action="labeled",
+        event_name="pull_request",
+        event_label="ai-fix-validate",
+    ):
         return {
             "schema_version": "sandbox-validation-request-v1",
+            "request_stage": request_stage,
             "repository": sandbox_validation.EXPECTED_REPOSITORY,
             "pull_request_number": 26,
             "base_sha": BASE_SHA,
@@ -46,9 +56,9 @@ class SandboxValidationTests(unittest.TestCase):
                 "ai-fix-approved",
                 "ai-fix-validate",
             ],
-            "event_action": "labeled",
-            "event_name": "pull_request",
-            "event_label": "ai-fix-validate",
+            "event_action": event_action,
+            "event_name": event_name,
+            "event_label": event_label,
             "collector_workflow_name": sandbox_validation.COLLECTOR_WORKFLOW_NAME,
             "collector_workflow_run_id": 123,
             "requested_at": "2026-07-17T00:00:00Z",

@@ -29,6 +29,7 @@ EXPECTED_REPOSITORY = "Vectology-cloud-team/namma-rogue-agent"
 COLLECTOR_WORKFLOW_NAME = "Sandbox Validation Request Collector"
 VALIDATOR_WORKFLOW_NAME = "Sandbox Preflight Validator"
 REQUEST_SCHEMA_VERSION = "sandbox-validation-request-v1"
+REQUEST_STAGE = "SANDBOX_VALIDATION_REQUEST"
 RESULT_SCHEMA_VERSION = "sandbox-validation-result-v1"
 RESULT_PHASE_PREFLIGHT = "PREFLIGHT"
 RESULT_STATUS_PRECHECK_PASSED = "PRECHECK_PASSED"
@@ -206,6 +207,7 @@ def load_sandbox_test_ids(policy_path: Path) -> tuple[str, ...]:
 def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
     required = {
         "schema_version",
+        "request_stage",
         "repository",
         "pull_request_number",
         "base_sha",
@@ -235,6 +237,12 @@ def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
         raise fatal(
             fix.FailureCode.INVALID_MANIFEST,
             "unsupported sandbox request manifest schema",
+            "sandbox_request_validation",
+        )
+    if manifest["request_stage"] != REQUEST_STAGE:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "sandbox request came from an unexpected stage",
             "sandbox_request_validation",
         )
     if manifest["repository"] != EXPECTED_REPOSITORY:

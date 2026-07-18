@@ -12,6 +12,12 @@ concurrency:
 jobs:
   collect:
     name: Collect untrusted fix approval request
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ai-fix-approved' &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.repository == 'Vectology-cloud-team/namma-rogue-agent'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -22,6 +28,7 @@ jobs:
           COLLECTOR_WORKFLOW_NAME: Fix Approval Request Collect
           COLLECTOR_WORKFLOW_RUN_ID: ${{ github.run_id }}
           MAX_ARTIFACT_BYTES: "50000"
+          REQUEST_STAGE: FIX_APPROVAL_REQUEST
         run: |
           python3 - <<'PY'
           from __future__ import annotations
@@ -44,6 +51,7 @@ jobs:
               event_label = str(event["label"].get("name", ""))
           manifest = {
               "schema_version": "fix-approval-request-v1",
+              "request_stage": os.environ["REQUEST_STAGE"],
               "repository": event["repository"]["full_name"],
               "pull_request_number": int(pull_request["number"]),
               "base_sha": pull_request["base"]["sha"],
@@ -55,6 +63,7 @@ jobs:
               "head_repository": pull_request["head"]["repo"]["full_name"],
               "labels": labels,
               "event_action": event["action"],
+              "event_name": "pull_request",
               "event_label": event_label,
               "collector_workflow_name": os.environ["COLLECTOR_WORKFLOW_NAME"],
               "collector_workflow_run_id": int(os.environ["COLLECTOR_WORKFLOW_RUN_ID"]),

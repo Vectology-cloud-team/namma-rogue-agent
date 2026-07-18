@@ -34,9 +34,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR_WORKFLOW_NAME = "Fix Proposal Request Collect"
 GENERATOR_WORKFLOW_NAME = "Fix Proposal Generator"
 REQUEST_SCHEMA_VERSION = "fix-proposal-request-v1"
+REQUEST_STAGE = "FIX_PROPOSAL_REQUEST"
 REVIEW_RESULT_SCHEMA_VERSION = "architect-review-result-v1"
 PROPOSAL_METADATA_SCHEMA_VERSION = "fix-proposal-metadata-v1"
 PROPOSAL_MARKER = "<!-- namma-ai-fix-proposal -->"
+PROPOSAL_LABEL = "ai-fix-proposal"
 PROPOSAL_STATUS_READY = "PROPOSAL_READY"
 PROPOSAL_STATUS_SKIPPED = "SKIPPED"
 PROPOSAL_STATUS_STALE = "STALE"
@@ -317,6 +319,7 @@ def ensure_full_sha(value: Any, field_name: str) -> str:
 def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
     required = {
         "schema_version",
+        "request_stage",
         "repository",
         "pull_request_number",
         "base_sha",
@@ -327,6 +330,9 @@ def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
         "base_repository",
         "head_repository",
         "labels",
+        "event_action",
+        "event_name",
+        "event_label",
         "collector_workflow_name",
         "collector_workflow_run_id",
     }
@@ -340,6 +346,12 @@ def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
         raise fatal(
             FailureCode.INVALID_MANIFEST,
             "unsupported fix proposal request schema",
+            "manifest_validation",
+        )
+    if manifest["request_stage"] != REQUEST_STAGE:
+        raise fatal(
+            FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "fix proposal request came from an unexpected stage",
             "manifest_validation",
         )
     if manifest["repository"] != EXPECTED_REPOSITORY:
@@ -360,6 +372,18 @@ def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
         raise fatal(
             FailureCode.WORKFLOW_CONFIGURATION_ERROR,
             "unexpected collector workflow name",
+            "manifest_validation",
+        )
+    if manifest["event_name"] != "pull_request":
+        raise fatal(
+            FailureCode.INVALID_MANIFEST,
+            "fix proposal request must come from pull_request",
+            "manifest_validation",
+        )
+    if manifest["event_action"] != "labeled" or manifest["event_label"] != PROPOSAL_LABEL:
+        raise fatal(
+            FailureCode.LABEL_MISSING,
+            "fix proposal request requires the ai-fix-proposal label event",
             "manifest_validation",
         )
     if not isinstance(manifest["labels"], list):

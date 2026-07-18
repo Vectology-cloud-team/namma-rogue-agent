@@ -26,6 +26,7 @@ EXPECTED_REPOSITORY = "Vectology-cloud-team/namma-rogue-agent"
 COLLECTOR_WORKFLOW_NAME = "Fix Approval Request Collect"
 RECORDER_WORKFLOW_NAME = "Fix Approval Recorder"
 APPROVAL_REQUEST_SCHEMA_VERSION = "fix-approval-request-v1"
+REQUEST_STAGE = "FIX_APPROVAL_REQUEST"
 APPROVAL_RECORD_SCHEMA_VERSION = "approval-record-v3"
 APPROVAL_MARKER = "<!-- namma-ai-approval -->"
 APPROVAL_SOURCE_LABEL = "ai-fix-approved-label"
@@ -111,6 +112,7 @@ def ensure_sha256(value: Any, field_name: str) -> str:
 def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
     required = {
         "schema_version",
+        "request_stage",
         "repository",
         "pull_request_number",
         "base_sha",
@@ -122,6 +124,7 @@ def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
         "head_repository",
         "labels",
         "event_action",
+        "event_name",
         "event_label",
         "collector_workflow_name",
         "collector_workflow_run_id",
@@ -140,6 +143,12 @@ def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
             "unsupported approval request manifest schema",
             "approval_request_validation",
         )
+    if manifest["request_stage"] != REQUEST_STAGE:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "approval request came from an unexpected stage",
+            "approval_request_validation",
+        )
     if manifest["repository"] != EXPECTED_REPOSITORY:
         raise fatal(
             fix.FailureCode.REPOSITORY_MISMATCH,
@@ -150,6 +159,18 @@ def validate_request_manifest_shape(manifest: dict[str, Any]) -> None:
         raise fatal(
             fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
             "approval request came from an unexpected collector workflow",
+            "approval_request_validation",
+        )
+    if manifest["event_name"] != "pull_request":
+        raise fatal(
+            fix.FailureCode.INVALID_MANIFEST,
+            "approval request must come from pull_request",
+            "approval_request_validation",
+        )
+    if manifest["event_action"] != "labeled" or manifest["event_label"] != "ai-fix-approved":
+        raise fatal(
+            fix.FailureCode.LABEL_MISSING,
+            "approval request requires the ai-fix-approved label event",
             "approval_request_validation",
         )
     if not isinstance(manifest["pull_request_number"], int):

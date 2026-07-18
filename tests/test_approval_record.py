@@ -33,9 +33,19 @@ class ApprovalRecordTests(unittest.TestCase):
             REPO_ROOT / ".github" / "codex" / "fix-policy.yml"
         )
 
-    def manifest(self, *, labels=None, head_sha=HEAD_SHA, event_label="ai-fix-approved"):
+    def manifest(
+        self,
+        *,
+        labels=None,
+        head_sha=HEAD_SHA,
+        event_action="labeled",
+        event_name="pull_request",
+        event_label="ai-fix-approved",
+        request_stage="FIX_APPROVAL_REQUEST",
+    ):
         return {
             "schema_version": "fix-approval-request-v1",
+            "request_stage": request_stage,
             "repository": approval_record.EXPECTED_REPOSITORY,
             "pull_request_number": 17,
             "base_sha": BASE_SHA,
@@ -49,7 +59,8 @@ class ApprovalRecordTests(unittest.TestCase):
                 "ai-fix-proposal",
                 "ai-fix-approved",
             ],
-            "event_action": "labeled",
+            "event_action": event_action,
+            "event_name": event_name,
             "event_label": event_label,
             "collector_workflow_name": approval_record.COLLECTOR_WORKFLOW_NAME,
             "collector_workflow_run_id": 123,

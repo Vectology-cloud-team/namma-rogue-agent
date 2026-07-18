@@ -121,6 +121,7 @@ def check_collector(text: str) -> list[CheckResult]:
     add(results, "approval collector does not listen for synchronize", "- synchronize" not in text)
     add(results, "approval collector does not listen for reopened", "- reopened" not in text)
     add(results, "approval collector does not listen for ready_for_review", "- ready_for_review" not in text)
+    add(results, "approval collector requires approval label", "github.event.label.name == 'ai-fix-approved'" in collect_job)
     add(results, "approval collector has no workflow_dispatch", "workflow_dispatch" not in text)
     add(results, "approval collector has only contents read", regex(collect_job, r"permissions:\n\s+contents: read"))
     add(results, "approval collector has no write permission", ": write" not in collect_job)
@@ -129,6 +130,8 @@ def check_collector(text: str) -> list[CheckResult]:
     add(results, "approval collector does not run Codex", "openai/codex-action" not in collect_job)
     add(results, "approval collector does not run repository scripts", "scripts/" not in collect_job)
     add(results, "approval collector writes fixed schema", "fix-approval-request-v1" in collect_job)
+    add(results, "approval collector writes fixed request stage", "FIX_APPROVAL_REQUEST" in collect_job)
+    add(results, "approval collector records event name", "event_name" in collect_job)
     add(results, "approval collector records event label", "event_label" in collect_job)
     add(results, "approval collector uploads request artifact", "fix-approval-request-${{ github.run_id }}" in collect_job)
     return results

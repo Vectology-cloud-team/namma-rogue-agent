@@ -45,6 +45,7 @@ class FixProposalGeneratorTests(unittest.TestCase):
     def request_manifest(self):
         return {
             "schema_version": "fix-proposal-request-v1",
+            "request_stage": "FIX_PROPOSAL_REQUEST",
             "repository": "Vectology-cloud-team/namma-rogue-agent",
             "pull_request_number": 16,
             "base_sha": FULL_SHA_A,
@@ -55,6 +56,9 @@ class FixProposalGeneratorTests(unittest.TestCase):
             "base_repository": "Vectology-cloud-team/namma-rogue-agent",
             "head_repository": "Vectology-cloud-team/namma-rogue-agent",
             "labels": ["ai-fix-proposal"],
+            "event_action": "labeled",
+            "event_name": "pull_request",
+            "event_label": "ai-fix-proposal",
             "collector_workflow_name": "Fix Proposal Request Collect",
             "collector_workflow_run_id": 123,
         }

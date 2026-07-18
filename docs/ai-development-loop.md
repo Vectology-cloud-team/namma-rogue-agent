@@ -381,6 +381,28 @@ The comment and result artifact will report validation status while
 explicitly stating that no persistent repository modification, commit,
 push, or merge occurred.
 
+## Stage Label Trigger Isolation
+
+Stage label events are isolated by collector. A collector may read the
+current live labels during its later trusted gate, but it may only be
+triggered by its own label event.
+
+| Label | Starts Collector | Live Gate References | Actor Requirement | Removal | HEAD Change |
+| --- | --- | --- | --- | --- | --- |
+| `ai-fix-proposal` | Stage 2A only | Stage 2A, Stage 2C-A | trusted PR author | no collector work | stale proposal |
+| `ai-fix-approved` | Stage 2B only | Stage 2B, Stage 2C-A | repo `admin` or `maintain` | no collector work | stale approval |
+| `ai-fix-validate` | Stage 2C-A only | Stage 2C-A | repo `admin` or `maintain` | no collector work | stale preflight |
+
+For Stage 2A, a trusted PR author means `OWNER`, `MEMBER`, or
+`COLLABORATOR`; fork and bot PRs are skipped. Stage 2B and Stage 2C-A
+bind the label actor to the trusted event data and re-check repository
+permission through the collaborator permission API.
+
+The Stage 2A, Stage 2B, and Stage 2C-A trusted `workflow_run` jobs each
+accept only their dedicated collector workflow and stage-specific
+request artifact. A manifest `request_stage` value is checked as
+evidence, but it is not trusted by itself.
+
 ## Human Decisions
 
 The following decisions remain human-owned:

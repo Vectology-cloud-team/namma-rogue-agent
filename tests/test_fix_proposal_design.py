@@ -579,26 +579,27 @@ class FixProposalDesignTests(unittest.TestCase):
         self.assertEqual([], failed)
 
     def test_stage2a_workflow_wiring_is_proposal_only(self):
-        workflow_text = "\n".join(
+        stage2a_workflow_text = "\n".join(
             path.read_text(encoding="utf-8")
-            for path in sorted(
-                {
-                    *check_fix_proposal_design.WORKFLOW_DIR.glob("*.yml"),
-                    *check_fix_proposal_design.WORKFLOW_DIR.glob("*.yaml"),
-                }
+            for path in (
+                check_fix_proposal_design.WORKFLOW_DIR
+                / "fix-proposal-collect.yml",
+                check_fix_proposal_design.WORKFLOW_DIR
+                / "fix-proposal.yml",
             )
+            if path.exists()
         )
-        runtime_text = workflow_text + "\n" + (
+        runtime_text = stage2a_workflow_text + "\n" + (
             check_fix_proposal_design.FIX_PROPOSAL_RUNTIME_PATH.read_text(
                 encoding="utf-8"
             )
         )
         self.assertIn("ai-fix-proposal", runtime_text)
-        self.assertNotIn("ai-fix-approved", workflow_text)
+        self.assertNotIn("ai-fix-approved", stage2a_workflow_text)
         self.assertIn("namma-ai-fix-proposal", runtime_text)
-        self.assertNotIn("contents: write", workflow_text)
-        self.assertNotIn("git push", workflow_text)
-        self.assertNotIn("git merge", workflow_text)
+        self.assertNotIn("contents: write", stage2a_workflow_text)
+        self.assertNotIn("git push", stage2a_workflow_text)
+        self.assertNotIn("git merge", stage2a_workflow_text)
 
     def test_stage2_design_adds_no_secret_reference(self):
         new_files = [

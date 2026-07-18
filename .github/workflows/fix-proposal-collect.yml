@@ -4,9 +4,6 @@ on:
   pull_request:
     types:
       - labeled
-      - synchronize
-      - reopened
-      - ready_for_review
 
 concurrency:
   group: fix-proposal-collect-${{ github.event.pull_request.number }}
@@ -15,6 +12,12 @@ concurrency:
 jobs:
   collect:
     name: Collect untrusted fix proposal request
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ai-fix-proposal' &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.repository == 'Vectology-cloud-team/namma-rogue-agent'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,6 +28,7 @@ jobs:
           COLLECTOR_WORKFLOW_NAME: Fix Proposal Request Collect
           COLLECTOR_WORKFLOW_RUN_ID: ${{ github.run_id }}
           MAX_ARTIFACT_BYTES: "50000"
+          REQUEST_STAGE: FIX_PROPOSAL_REQUEST
         run: |
           python3 - <<'PY'
           from __future__ import annotations
@@ -42,8 +46,12 @@ jobs:
               for label in pull_request.get("labels", [])
               if isinstance(label, dict) and "name" in label
           ]
+          event_label = ""
+          if isinstance(event.get("label"), dict):
+              event_label = str(event["label"].get("name", ""))
           manifest = {
               "schema_version": "fix-proposal-request-v1",
+              "request_stage": os.environ["REQUEST_STAGE"],
               "repository": event["repository"]["full_name"],
               "pull_request_number": int(pull_request["number"]),
               "base_sha": pull_request["base"]["sha"],
@@ -54,6 +62,9 @@ jobs:
               "base_repository": pull_request["base"]["repo"]["full_name"],
               "head_repository": pull_request["head"]["repo"]["full_name"],
               "labels": labels,
+              "event_action": event["action"],
+              "event_name": "pull_request",
+              "event_label": event_label,
               "collector_workflow_name": os.environ["COLLECTOR_WORKFLOW_NAME"],
               "collector_workflow_run_id": int(os.environ["COLLECTOR_WORKFLOW_RUN_ID"]),
           }
