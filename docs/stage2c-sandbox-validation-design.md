@@ -865,9 +865,10 @@ phase `SANDBOX_TEST`. Status values include:
 - `PATCH_APPLY_FAILED`,
 - `INTERNAL_ERROR`.
 
-The result records proposal, approval, preflight, and apply bindings,
-including the Stage 2C-B1 canonical `patch_file_hash`,
-`resulting_file_hashes`, and a `resulting_diff_hash` derived from the
+The runtime validates proposal, approval, preflight, and apply bindings,
+including the Stage 2C-B1 canonical `patch_file_hash` and
+`resulting_file_hashes`. The result records those binding outcomes,
+including `patch_file_hash` and a `resulting_diff_hash` derived from the
 canonical B1 `diff_binding` JSON. It also records test commands, exit
 codes, durations, stdout and stderr hashes, truncation flags,
 generated-file checks, cleanup state, and explicit `false` values for
