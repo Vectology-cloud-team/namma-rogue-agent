@@ -49,6 +49,26 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
             set(commands),
         )
 
+    def test_policy_duplicate_command_ids_are_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = Path(tmp) / "sandbox-test-policy.yml"
+            policy.write_text(
+                "\n".join(
+                    [
+                        "commands:",
+                        "  unit: python3|-m|unittest|unit_tests",
+                        "  unit: python3|-m|unittest|other_tests",
+                        "  compileall: python3|-m|unittest|compileall_checks",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                ("unit",),
+                linux_verification.parse_command_policy_duplicate_ids(policy),
+            )
+
     def test_fix_policy_test_ids_match_sandbox_policy(self) -> None:
         fix_ids = linux_verification.parse_fix_policy_ids(
             REPO_ROOT / ".github" / "codex" / "fix-policy.yml"
@@ -407,16 +427,8 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
             / "workflows"
             / "sandbox-test-linux-verification.yml"
         ).read_text(encoding="utf-8")
-        collector = (
-            REPO_ROOT
-            / ".github"
-            / "workflows"
-            / "sandbox-test-linux-verification-collect.yml"
-        ).read_text(encoding="utf-8")
         self.assertIn("contents: read", workflow)
         self.assertNotIn(": write", workflow)
-        self.assertIn("contents: read", collector)
-        self.assertNotIn(": write", collector)
 
     def test_workflow_uses_default_branch_control_plane(self) -> None:
         workflow = (
@@ -425,12 +437,9 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
             / "workflows"
             / "sandbox-test-linux-verification.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("workflow_run:", workflow)
-        self.assertIn("github.event.workflow_run.event == 'pull_request'", workflow)
-        self.assertIn(
-            "github.event.workflow_run.head_repository.full_name == github.repository",
-            workflow,
-        )
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("workflow_run:", workflow)
+        self.assertNotIn("pull_request:", workflow)
         self.assertIn("TRIGGER_HEAD_SHA", workflow)
         self.assertNotIn("PR_HEAD_SHA", workflow)
         self.assertIn("VERIFICATION_SCOPE: default-branch-control-plane", workflow)
@@ -453,18 +462,6 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
         self.assertIn('"compileall_checks"', script)
         self.assertNotIn('"discover"', script)
         self.assertNotIn('"test_*.py"', script)
-
-    def test_collector_does_not_checkout_or_run_repository_code(self) -> None:
-        collector = (
-            REPO_ROOT
-            / ".github"
-            / "workflows"
-            / "sandbox-test-linux-verification-collect.yml"
-        ).read_text(encoding="utf-8")
-        self.assertIn("pull_request:", collector)
-        self.assertNotIn("actions/checkout", collector)
-        self.assertNotIn("scripts/", collector)
-        self.assertIn("sandbox-test-linux-verification-request", collector)
 
     def test_script_writes_required_artifact_files_when_python3_missing(self) -> None:
         current = linux_verification.shutil.which

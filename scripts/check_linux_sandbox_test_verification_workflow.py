@@ -16,12 +16,6 @@ WORKFLOW_PATH = (
     / "workflows"
     / "sandbox-test-linux-verification.yml"
 )
-COLLECTOR_PATH = (
-    REPO_ROOT
-    / ".github"
-    / "workflows"
-    / "sandbox-test-linux-verification-collect.yml"
-)
 SCRIPT_PATH = REPO_ROOT / "scripts" / "linux_sandbox_test_verification.py"
 POLICY_PATH = REPO_ROOT / ".github" / "codex" / "sandbox-test-policy.yml"
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -125,29 +119,13 @@ def check_action_pinning(text: str) -> list[CheckResult]:
 
 def check_workflow(text: str, script: str, policy: str) -> list[CheckResult]:
     results: list[CheckResult] = []
-    collector = load_text(COLLECTOR_PATH) if COLLECTOR_PATH.exists() else ""
     job = job_section(text, "linux_verification")
-    collect_job = job_section(collector, "collect")
-    add(results, "collector workflow exists", COLLECTOR_PATH.exists())
-    add(results, "collector name is explicit", "name: Sandbox Test Linux Verification Collect" in collector)
-    add(results, "collector uses pull_request trigger", "pull_request:" in collector)
-    add(results, "collector has no workflow_dispatch trigger", "workflow_dispatch:" not in collector)
-    add(results, "collector has top-level contents read", re.search(r"(?m)^permissions:\n\s+contents: read$", collector) is not None)
-    add(results, "collector job has contents read", re.search(r"(?m)^\s+permissions:\n\s+contents: read$", collect_job) is not None)
-    add(results, "collector has no write permission", ": write" not in collector)
-    add(results, "collector does not checkout PR code", "actions/checkout" not in collector)
-    add(results, "collector uploads request artifact", "sandbox-test-linux-verification-request-${{ github.run_id }}" in collector)
     add(results, "workflow exists", WORKFLOW_PATH.exists())
     add(results, "workflow name is explicit", "name: Sandbox Test Linux Verification" in text)
-    add(results, "workflow uses workflow_run trigger", "workflow_run:" in text)
-    add(results, "workflow watches verification collector", "Sandbox Test Linux Verification Collect" in text)
+    add(results, "workflow uses workflow_dispatch trigger", "workflow_dispatch:" in text)
+    add(results, "workflow has no workflow_run trigger", "workflow_run:" not in text)
     add(results, "workflow has no pull_request trigger", "pull_request:" not in text)
-    add(results, "workflow has no workflow_dispatch trigger", "workflow_dispatch:" not in text)
-    add(results, "workflow checks collector success", "github.event.workflow_run.conclusion == 'success'" in text)
-    add(results, "workflow checks collector name", "github.event.workflow_run.name == 'Sandbox Test Linux Verification Collect'" in text)
-    add(results, "workflow accepts pull_request collector runs only", "github.event.workflow_run.event == 'pull_request'" in text)
     add(results, "workflow checks repository identity", "github.repository == 'Vectology-cloud-team/namma-rogue-agent'" in text)
-    add(results, "workflow rejects fork target repositories", "github.event.workflow_run.head_repository.full_name == github.repository" in text)
     add(results, "workflow uses ubuntu runner", "runs-on: ubuntu-latest" in job)
     add(results, "workflow has top-level contents read", re.search(r"(?m)^permissions:\n\s+contents: read$", text) is not None)
     add(results, "job has contents read", re.search(r"(?m)^\s+permissions:\n\s+contents: read$", job) is not None)
@@ -225,13 +203,12 @@ def check_forbidden(text: str, script: str) -> list[CheckResult]:
 
 def run_checks() -> list[CheckResult]:
     text = load_text(WORKFLOW_PATH) if WORKFLOW_PATH.exists() else ""
-    collector = load_text(COLLECTOR_PATH) if COLLECTOR_PATH.exists() else ""
     script = load_text(SCRIPT_PATH) if SCRIPT_PATH.exists() else ""
     policy = load_text(POLICY_PATH) if POLICY_PATH.exists() else ""
     results: list[CheckResult] = []
-    results.extend(check_action_pinning(text + "\n" + collector))
+    results.extend(check_action_pinning(text))
     results.extend(check_workflow(text, script, policy))
-    results.extend(check_forbidden(text + "\n" + collector, script))
+    results.extend(check_forbidden(text, script))
     return results
 
 

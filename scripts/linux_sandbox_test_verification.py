@@ -340,6 +340,28 @@ def parse_command_policy(path: Path) -> dict[str, tuple[str, ...]]:
     return commands
 
 
+def parse_command_policy_duplicate_ids(path: Path) -> tuple[str, ...]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    in_commands = False
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.rstrip()
+        if line == "commands:":
+            in_commands = True
+            continue
+        if in_commands and line and not line.startswith(" "):
+            break
+        if not in_commands or not line.strip():
+            continue
+        key, separator, _value = line.strip().partition(":")
+        if not separator:
+            continue
+        if key in seen:
+            duplicates.add(key)
+        seen.add(key)
+    return tuple(sorted(duplicates))
+
+
 def parse_fix_policy_ids(path: Path) -> tuple[str, ...]:
     ids: list[str] = []
     in_ids = False
@@ -444,12 +466,13 @@ def classify_skips(
 
 def trusted_policy_summary() -> dict[str, Any]:
     commands = parse_command_policy(POLICY_PATH)
+    duplicate_command_ids = parse_command_policy_duplicate_ids(POLICY_PATH)
     fix_policy_ids = parse_fix_policy_ids(FIX_POLICY_PATH)
     downloaded_modules = workflow_downloaded_support_modules(SANDBOX_TEST_WORKFLOW)
     command_modules = {argv[3] for argv in commands.values() if len(argv) >= 4}
     expected_downloads = set(command_modules) | {"support_paths"}
     support_hashes = support_module_hashes(commands)
-    duplicate_mapping = len(commands) != len(set(commands))
+    duplicate_mapping = bool(duplicate_command_ids)
     unknown_policy_ids = sorted(set(fix_policy_ids) - set(commands))
     missing_fix_policy_ids = sorted(set(EXPECTED_TEST_IDS) - set(fix_policy_ids))
     missing_commands = sorted(set(fix_policy_ids) - set(commands))
@@ -475,6 +498,7 @@ def trusted_policy_summary() -> dict[str, Any]:
         "support_module_hashes": support_hashes,
         "policy_download_list_match": not missing_downloads and not orphan_downloads,
         "duplicate_mapping": duplicate_mapping,
+        "duplicate_command_ids": list(duplicate_command_ids),
         "unknown_policy_ids": unknown_policy_ids,
         "missing_fix_policy_ids": missing_fix_policy_ids,
         "missing_commands": missing_commands,
