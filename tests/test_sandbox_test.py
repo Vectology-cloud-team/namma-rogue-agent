@@ -918,7 +918,6 @@ class SandboxTestTests(unittest.TestCase):
                 os.environ.update(old_env)
         self.assertFalse(called)
 
-    @unittest.skipUnless(python3_works(), "python3 is unavailable locally")
     def test_command_run_tests_success_uses_full_apply_diff_binding(self):
         diff_message = "applied diff paths and line counts match proposal patch"
         patched_source = "VALUE = True\n"
@@ -944,6 +943,7 @@ class SandboxTestTests(unittest.TestCase):
             diff_binding_overrides=diff_binding_overrides,
         )
         old_env = os.environ.copy()
+        old_run_one_test = sandbox_test.run_one_test
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             worktree = root / "worktree"
@@ -953,6 +953,7 @@ class SandboxTestTests(unittest.TestCase):
             (worktree / "canary" / "example.py").write_text(
                 "VALUE = False\n",
                 encoding="utf-8",
+                newline="\n",
             )
             (worktree / "tests").mkdir()
             (worktree / "tests" / "test_example.py").write_text(
@@ -970,6 +971,7 @@ class SandboxTestTests(unittest.TestCase):
                     ]
                 ),
                 encoding="utf-8",
+                newline="\n",
             )
             for command in (
                 ["git", "init"],
@@ -978,6 +980,7 @@ class SandboxTestTests(unittest.TestCase):
                 ["git", "config", "core.autocrlf", "false"],
                 ["git", "add", "."],
                 ["git", "commit", "-m", "base"],
+                ["git", "checkout", "--detach", "HEAD"],
             ):
                 subprocess.run(
                     command,
@@ -1024,6 +1027,23 @@ class SandboxTestTests(unittest.TestCase):
                     "TEST_SUPPORT_DIR": str(REPO_ROOT / "scripts" / "sandbox_test_support"),
                 }
             )
+            if not python3_works():
+
+                def compatible_run_one_test(**kwargs):
+                    command = kwargs["command"]
+                    actual = sandbox_test.TestCommandSpec(
+                        test_id=command.test_id,
+                        argv=(sys.executable, *command.argv[1:]),
+                        working_directory=command.working_directory,
+                        timeout_seconds=command.timeout_seconds,
+                    )
+                    record, stdout_truncated, stderr_truncated = old_run_one_test(
+                        **{**kwargs, "command": actual}
+                    )
+                    record["argv"] = list(command.argv)
+                    return record, stdout_truncated, stderr_truncated
+
+                sandbox_test.run_one_test = compatible_run_one_test
             try:
                 self.assertEqual(0, sandbox_test.command_run_tests(None))
                 result = sandbox_test.read_json_file(
@@ -1035,8 +1055,8 @@ class SandboxTestTests(unittest.TestCase):
                 )
                 self.assertEqual("TESTS_PASSED", result["status"])
                 self.assertEqual(2, len(result["tests_executed"]))
-                self.assertEqual([], result["tracked_changes_after_tests"])
-                self.assertEqual([], result["untracked_files_after_tests"])
+                self.assertEqual([], result["test_generated_tracked_changes"])
+                self.assertEqual([], result["test_generated_untracked_files"])
                 self.assertEqual(
                     sandbox_test.sha256_hex_json(
                         self.apply_diff_binding(overrides=diff_binding_overrides)
@@ -1044,6 +1064,7 @@ class SandboxTestTests(unittest.TestCase):
                     result["resulting_diff_hash"],
                 )
             finally:
+                sandbox_test.run_one_test = old_run_one_test
                 os.environ.clear()
                 os.environ.update(old_env)
 
