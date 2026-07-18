@@ -1,0 +1,46 @@
+name: Sandbox Test Linux Verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux_verification:
+    name: Verify default-branch sandbox tests on Linux
+    if: >-
+      github.repository == 'Vectology-cloud-team/namma-rogue-agent' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted verification control plane
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ github.sha }}
+          path: verification-control
+          persist-credentials: false
+
+      - name: Run sandbox test Linux verification
+        env:
+          MAIN_SHA: ${{ github.sha }}
+          TRIGGER_HEAD_SHA: ${{ github.sha }}
+          VERIFICATION_SCOPE: default-branch-control-plane
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 verification-control/scripts/linux_sandbox_test_verification.py \
+            --control-root verification-control \
+            --target-root verification-control \
+            --output-dir linux-verification-results
+
+      - name: Upload Linux verification result artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sandbox-test-linux-verification-${{ github.run_id }}
+          path: linux-verification-results
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: false
