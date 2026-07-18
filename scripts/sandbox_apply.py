@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import re
 import shutil
 import stat
 import subprocess
+import unicodedata
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -46,6 +49,15 @@ SANDBOX_APPLY_MARKER = "<!-- namma-ai-sandbox-apply -->"
 MAX_ARTIFACT_BYTES = 100000
 ALLOWED_REPOSITORY_PERMISSIONS = {"admin", "maintain"}
 APPLY_CONTEXT_FILE = "sandbox-apply-context.json"
+PREFLIGHT_ARTIFACT_MEMBERS = frozenset(
+    {
+        "sandbox-validation-result.json",
+        "selected-proposal-manifest.json",
+        "selected-approval-manifest.json",
+        "target-blob-checks.json",
+        "patch-metadata-check.json",
+    }
+)
 
 GIT_APPLY_CHECK_ARGV = (
     "git",
@@ -476,6 +488,352 @@ def preflight_result_targets_apply_request(
     )
 
 
+def _is_unsafe_zip_member_name(name: str) -> bool:
+    if not name:
+        return True
+    if "\x00" in name or "\\" in name:
+        return True
+    if name.startswith("/") or name.startswith("../") or "/../" in name:
+        return True
+    if re.match(r"^[A-Za-z]:", name) is not None or name.startswith("//"):
+        return True
+    if "/" in name:
+        return True
+    for character in name:
+        category = unicodedata.category(character)
+        if category in {"Cc", "Cf"}:
+            return True
+    if name.lower().endswith(".zip"):
+        return True
+    return False
+
+
+def safe_extract_canonical_preflight_zip(
+    zip_bytes: bytes,
+    target_dir: Path,
+    *,
+    max_bytes: int,
+) -> None:
+    if len(zip_bytes) > max_bytes:
+        raise fix.retryable(
+            fix.FailureCode.ARTIFACT_TRANSIENT_ERROR,
+            "downloaded preflight artifact zip exceeds configured maximum",
+            "artifact_download",
+        )
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    root = target_dir.resolve()
+    seen: set[str] = set()
+    normalized_seen: set[str] = set()
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        for member in archive.infolist():
+            name = member.filename
+            if member.is_dir():
+                raise fatal(
+                    fix.FailureCode.INVALID_MANIFEST,
+                    "preflight artifact directory entries are not allowed",
+                    "artifact_download",
+                )
+            if _is_unsafe_zip_member_name(name):
+                raise fatal(
+                    fix.FailureCode.INVALID_MANIFEST,
+                    f"unsafe preflight artifact member: {name}",
+                    "artifact_download",
+                )
+            normalized_name = unicodedata.normalize("NFC", name).casefold()
+            if name in seen or normalized_name in normalized_seen:
+                raise fatal(
+                    fix.FailureCode.INVALID_MANIFEST,
+                    f"duplicate preflight artifact member: {name}",
+                    "artifact_download",
+                )
+            seen.add(name)
+            normalized_seen.add(normalized_name)
+            mode = member.external_attr >> 16
+            file_type = stat.S_IFMT(mode)
+            if file_type and not stat.S_ISREG(mode):
+                raise fatal(
+                    fix.FailureCode.INVALID_MANIFEST,
+                    f"unsupported preflight artifact member type: {name}",
+                    "artifact_download",
+                )
+            if name not in PREFLIGHT_ARTIFACT_MEMBERS:
+                raise fatal(
+                    fix.FailureCode.INVALID_MANIFEST,
+                    f"unexpected preflight artifact member: {name}",
+                    "artifact_download",
+                )
+            if member.file_size > max_bytes:
+                raise fatal(
+                    fix.FailureCode.INVALID_MANIFEST,
+                    "preflight artifact member exceeds configured maximum",
+                    "artifact_download",
+                )
+            destination = (target_dir / name).resolve()
+            if root != destination and root not in destination.parents:
+                raise fatal(
+                    fix.FailureCode.PATH_TRAVERSAL,
+                    "preflight artifact path traversal detected",
+                    "artifact_download",
+                )
+            with archive.open(member) as source, destination.open("wb") as output:
+                output.write(source.read())
+    if seen != set(PREFLIGHT_ARTIFACT_MEMBERS):
+        missing = sorted(set(PREFLIGHT_ARTIFACT_MEMBERS).difference(seen))
+        extra = sorted(seen.difference(PREFLIGHT_ARTIFACT_MEMBERS))
+        raise fatal(
+            fix.FailureCode.INVALID_MANIFEST,
+            f"preflight artifact member set mismatch: missing={missing} extra={extra}",
+            "artifact_download",
+        )
+
+
+def download_preflight_artifact_by_name(
+    *,
+    repo: str,
+    token: str,
+    run_id: str,
+    artifact_name: str,
+    target_dir: Path,
+    max_bytes: int,
+) -> int:
+    listing, _ = stage1.github_json(
+        "GET",
+        f"/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
+        token=token,
+    )
+    artifacts = listing.get("artifacts", []) if isinstance(listing, dict) else []
+    matching = [artifact for artifact in artifacts if artifact.get("name") == artifact_name]
+    if not matching:
+        raise fix.retryable(
+            fix.FailureCode.ARTIFACT_TRANSIENT_ERROR,
+            f"preflight artifact {artifact_name} was not available yet",
+            "artifact_download",
+        )
+    artifact_id = int(matching[0]["id"])
+    data, _ = stage1.github_api_request(
+        "GET",
+        f"/repos/{repo}/actions/artifacts/{artifact_id}/zip",
+        token=token,
+        max_response_bytes=max_bytes,
+    )
+    safe_extract_canonical_preflight_zip(
+        data,
+        target_dir,
+        max_bytes=max_bytes,
+    )
+    return artifact_id
+
+
+def _require_dict(value: Any, name: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise fatal(
+            fix.FailureCode.INVALID_MANIFEST,
+            f"{name} must be a JSON object",
+            "sandbox_preflight_lookup",
+        )
+    return value
+
+
+def _require_list(value: Any, name: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise fatal(
+            fix.FailureCode.INVALID_MANIFEST,
+            f"{name} must be a JSON array",
+            "sandbox_preflight_lookup",
+        )
+    return value
+
+
+def validate_preflight_sidecars(
+    *,
+    result: dict[str, Any],
+    proposal_manifest: dict[str, Any],
+    approval_manifest: dict[str, Any],
+    target_blob_checks: list[Any],
+    patch_metadata_check: dict[str, Any],
+    manifest: dict[str, Any],
+    proposal_bundle: preflight.ArtifactBundle,
+    approval_bundle: preflight.ApprovalBundle,
+    policy_hash: str,
+) -> None:
+    validate_preflight_result(
+        result=result,
+        manifest=manifest,
+        proposal_bundle=proposal_bundle,
+        approval_bundle=approval_bundle,
+        policy_hash=policy_hash,
+    )
+    expected_files = expected_change_paths(proposal_bundle.data)
+    if result.get("expected_files") != expected_files:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "preflight expected files do not match proposal changes",
+            "sandbox_preflight_lookup",
+        )
+    proposal_artifact = _require_dict(result.get("proposal_artifact"), "proposal_artifact")
+    approval_artifact = _require_dict(result.get("approval_artifact"), "approval_artifact")
+    expected_proposal_manifest = {
+        "artifact_id": proposal_bundle.artifact_id,
+        "artifact_name": proposal_bundle.artifact_name,
+        "workflow_run_id": proposal_bundle.workflow_run_id,
+        "proposal_id": proposal_bundle.metadata.get("proposal_id"),
+        "proposal_hash": proposal_bundle.metadata.get("proposal_hash"),
+        "head_sha": proposal_bundle.metadata.get("head_sha"),
+    }
+    expected_approval_manifest = {
+        "artifact_id": approval_bundle.artifact_id,
+        "artifact_name": approval_bundle.artifact_name,
+        "workflow_run_id": approval_bundle.workflow_run_id,
+        "approval_id": approval_bundle.record.get("approval_id"),
+        "approval_record_hash": approval_bundle.record.get("approval_record_hash"),
+        "head_sha": approval_bundle.record.get("head_sha"),
+    }
+    if proposal_manifest != expected_proposal_manifest:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "selected proposal sidecar does not match selected proposal artifact",
+            "sandbox_preflight_lookup",
+        )
+    if approval_manifest != expected_approval_manifest:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "selected approval sidecar does not match selected approval artifact",
+            "sandbox_preflight_lookup",
+        )
+    for key in ("artifact_id", "artifact_name", "workflow_run_id", "head_sha"):
+        if proposal_artifact.get(key) != proposal_manifest.get(key):
+            raise fatal(
+                fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+                f"preflight proposal artifact reference mismatch for {key}",
+                "sandbox_preflight_lookup",
+            )
+        if approval_artifact.get(key) != approval_manifest.get(key):
+            raise fatal(
+                fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+                f"preflight approval artifact reference mismatch for {key}",
+                "sandbox_preflight_lookup",
+            )
+    for artifact_ref in (proposal_artifact, approval_artifact):
+        if artifact_ref.get("repository") != manifest["repository"]:
+            raise fatal(
+                fix.FailureCode.REPOSITORY_MISMATCH,
+                "preflight artifact repository reference mismatch",
+                "sandbox_preflight_lookup",
+            )
+        if artifact_ref.get("pull_request_number") != manifest["pull_request_number"]:
+            raise fatal(
+                fix.FailureCode.PR_MISMATCH,
+                "preflight artifact PR reference mismatch",
+                "sandbox_preflight_lookup",
+            )
+    if proposal_artifact.get("workflow_name") != fix.GENERATOR_WORKFLOW_NAME:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "preflight proposal artifact workflow mismatch",
+            "sandbox_preflight_lookup",
+        )
+    if approval_artifact.get("workflow_name") != approval.RECORDER_WORKFLOW_NAME:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "preflight approval artifact workflow mismatch",
+            "sandbox_preflight_lookup",
+        )
+    result_blob_checks = _require_list(
+        result.get("target_blob_checks"),
+        "target_blob_checks",
+    )
+    if target_blob_checks != result_blob_checks:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "target blob sidecar does not match preflight result",
+            "sandbox_preflight_lookup",
+        )
+    check_paths = [str(entry.get("path", "")) for entry in target_blob_checks if isinstance(entry, dict)]
+    if check_paths != expected_files or len(check_paths) != len(target_blob_checks):
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "target blob sidecar paths do not match expected files",
+            "sandbox_preflight_lookup",
+        )
+    blob_by_path = {
+        str(change["path"]): str(change["original_blob_sha"])
+        for change in proposal_bundle.data.get("changes", [])
+    }
+    for entry in target_blob_checks:
+        item = _require_dict(entry, "target_blob_check")
+        path = str(item.get("path", ""))
+        if item.get("status") != "PASS":
+            raise fatal(
+                fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+                "target blob sidecar contains a non-PASS status",
+                "sandbox_preflight_lookup",
+            )
+        if item.get("file_type") != "blob" or str(item.get("mode", "")) not in {"100644", "100755"}:
+            raise fatal(
+                fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+                "target blob sidecar contains unsupported file metadata",
+                "sandbox_preflight_lookup",
+            )
+        if item.get("expected_blob_sha") != item.get("actual_blob_sha"):
+            raise fatal(
+                fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+                "target blob sidecar expected and actual SHAs differ",
+                "sandbox_preflight_lookup",
+            )
+        if item.get("expected_blob_sha") != blob_by_path.get(path):
+            raise fatal(
+                fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+                "target blob sidecar SHA does not match proposal original blob",
+                "sandbox_preflight_lookup",
+            )
+    result_patch_metadata = _require_dict(
+        result.get("patch_metadata_check"),
+        "patch_metadata_check",
+    )
+    if patch_metadata_check.get("status") != "PASS":
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "patch metadata sidecar is not PASS",
+            "sandbox_preflight_lookup",
+        )
+    if result_patch_metadata.get("status") != "PASS":
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "preflight result patch metadata is not PASS",
+            "sandbox_preflight_lookup",
+        )
+    if patch_metadata_check.get("expected_files") != expected_files:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "patch metadata sidecar files do not match expected files",
+            "sandbox_preflight_lookup",
+        )
+    patch_bytes = len(combined_patch_text(proposal_bundle.data).encode("utf-8"))
+    if patch_metadata_check.get("patch_bytes") != patch_bytes:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "patch metadata sidecar byte count does not match proposal patch",
+            "sandbox_preflight_lookup",
+        )
+    for key in ("status", "message", "patch_bytes"):
+        if result_patch_metadata.get(key) != patch_metadata_check.get(key):
+            raise fatal(
+                fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+                f"patch metadata sidecar mismatch for {key}",
+                "sandbox_preflight_lookup",
+            )
+    for check_name in ("protected_path_check", "blob_sha_check"):
+        check = _require_dict(result.get(check_name), check_name)
+        if check.get("status") != "PASS":
+            raise fatal(
+                fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+                f"{check_name} is not PASS",
+                "sandbox_preflight_lookup",
+            )
+
+
 def validate_preflight_result(
     *,
     result: dict[str, Any],
@@ -561,13 +919,12 @@ def find_latest_preflight_artifact(
             if not name.startswith("sandbox-validation-preflight-"):
                 continue
             try:
-                artifact_id = fix.download_artifact_by_name(
+                artifact_id = download_preflight_artifact_by_name(
                     repo=repo,
                     token=token,
                     run_id=str(run_id),
                     artifact_name=name,
                     target_dir=output_dir,
-                    expected_files={"sandbox-validation-result.json"},
                     max_bytes=max_bytes,
                 )
             except BaseException as error:
@@ -575,14 +932,37 @@ def find_latest_preflight_artifact(
                     continue
                 raise
             result = read_json_file(output_dir / "sandbox-validation-result.json")
-            if not isinstance(result, dict):
-                raise fatal(
-                    fix.FailureCode.INVALID_PROPOSAL,
-                    "preflight artifact must contain a JSON object",
-                    "sandbox_preflight_lookup",
-                )
-            validate_preflight_result(
+            proposal_manifest = read_json_file(
+                output_dir / "selected-proposal-manifest.json"
+            )
+            approval_manifest = read_json_file(
+                output_dir / "selected-approval-manifest.json"
+            )
+            target_blob_checks = read_json_file(output_dir / "target-blob-checks.json")
+            patch_metadata_check = read_json_file(output_dir / "patch-metadata-check.json")
+            result = _require_dict(result, "sandbox-validation-result.json")
+            proposal_manifest = _require_dict(
+                proposal_manifest,
+                "selected-proposal-manifest.json",
+            )
+            approval_manifest = _require_dict(
+                approval_manifest,
+                "selected-approval-manifest.json",
+            )
+            target_blob_checks = _require_list(
+                target_blob_checks,
+                "target-blob-checks.json",
+            )
+            patch_metadata_check = _require_dict(
+                patch_metadata_check,
+                "patch-metadata-check.json",
+            )
+            validate_preflight_sidecars(
                 result=result,
+                proposal_manifest=proposal_manifest,
+                approval_manifest=approval_manifest,
+                target_blob_checks=target_blob_checks,
+                patch_metadata_check=patch_metadata_check,
                 manifest=manifest,
                 proposal_bundle=proposal_bundle,
                 approval_bundle=approval_bundle,

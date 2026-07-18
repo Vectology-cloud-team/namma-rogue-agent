@@ -174,6 +174,19 @@ def check_apply_workflow(text: str) -> list[CheckResult]:
         ),
     )
     add(results, "script verifies proposal approval preflight", "find_latest_preflight_artifact" in script and "validate_preflight_result" in script)
+    add(results, "script defines canonical preflight artifact members", "PREFLIGHT_ARTIFACT_MEMBERS" in script)
+    for member in (
+        "sandbox-validation-result.json",
+        "selected-proposal-manifest.json",
+        "selected-approval-manifest.json",
+        "target-blob-checks.json",
+        "patch-metadata-check.json",
+    ):
+        add(results, f"script accepts canonical preflight sidecar {member}", member in script)
+    add(results, "script rejects non-exact preflight artifact member set", "seen != set(PREFLIGHT_ARTIFACT_MEMBERS)" in script)
+    add(results, "script rejects duplicate preflight artifact members", "duplicate preflight artifact member" in script)
+    add(results, "script validates preflight sidecar cross-bindings", "validate_preflight_sidecars" in script and "selected proposal sidecar" in script)
+    add(results, "script does not allow result-only preflight artifact", 'expected_files={"sandbox-validation-result.json"}' not in script)
     add(
         results,
         "script rechecks three actor permissions",
