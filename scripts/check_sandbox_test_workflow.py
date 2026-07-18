@@ -52,6 +52,25 @@ def load_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def sandbox_test_command_modules(policy: str) -> set[str]:
+    modules: set[str] = set()
+    in_commands = False
+    for raw_line in policy.splitlines():
+        line = raw_line.rstrip()
+        if line == "commands:":
+            in_commands = True
+            continue
+        if in_commands and line and not line.startswith(" "):
+            break
+        if not in_commands or not line.strip():
+            continue
+        _, _, value = line.strip().partition(":")
+        argv = [part for part in value.strip().split("|") if part]
+        if len(argv) >= 4 and argv[:3] in (["python3", "-m", "unittest"], ["python", "-m", "unittest"]):
+            modules.add(argv[3])
+    return modules
+
+
 def add(results: list[CheckResult], label: str, passed: bool, detail: str = "") -> None:
     results.append(CheckResult(label, passed, detail))
 
@@ -193,6 +212,18 @@ def check_test_workflow(text: str) -> list[CheckResult]:
     ):
         add(results, f"policy defines fixed command {command_id}", f"  {command_id}: python3|-m|unittest|" in policy)
     add(results, "policy defines fixed unittest command", "python3|-m|unittest|stage2c_b1_clamp_tests" in policy)
+    for module in sorted(sandbox_test_command_modules(policy)):
+        support_path = f"scripts/sandbox_test_support/{module}.py"
+        add(
+            results,
+            f"workflow downloads trusted support module {module}",
+            support_path in test_job,
+        )
+    add(
+        results,
+        "workflow downloads trusted support helpers",
+        "scripts/sandbox_test_support/support_paths.py" in test_job,
+    )
     add(results, "policy declares network isolation false", "network_isolation_enforced: false" in policy)
     return results
 
