@@ -389,9 +389,17 @@ executed flag, status, exit code, duration, and bounded log excerpt.
 This prevents a successful validation from relying only on a standalone
 boolean claim that requested tests were executed.
 
-Initial trusted test ID:
+Initial trusted test IDs:
 
+- `unit`,
+- `stage2c-targeted`,
+- `workflow-checkers`,
+- `compileall`,
 - `stage2c-b1-clamp`.
+
+Each ID must also exist in the trusted sandbox-test command registry.
+The registry maps IDs to fixed `python -m unittest <trusted module>`
+argv arrays. It must not contain natural-language aliases.
 
 Stage 2C-A and Stage 2C-B1 only validate or carry these IDs. They do
 not execute any test command. Stage 2C-B2 is the first stage that may

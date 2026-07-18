@@ -19,4 +19,8 @@ allowed_environment:
   - PYTHONDONTWRITEBYTECODE
 
 commands:
+  unit: python3|-m|unittest|unit_tests
+  stage2c-targeted: python3|-m|unittest|stage2c_targeted_tests
+  workflow-checkers: python3|-m|unittest|workflow_checker_tests
+  compileall: python3|-m|unittest|compileall_checks
   stage2c-b1-clamp: python3|-m|unittest|stage2c_b1_clamp_tests

@@ -22,6 +22,10 @@ allowed_operations:
   - modify
 
 sandbox_test_ids:
+  - unit
+  - stage2c-targeted
+  - workflow-checkers
+  - compileall
   - stage2c-b1-clamp
 
 protected_paths:

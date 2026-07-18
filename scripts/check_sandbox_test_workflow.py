@@ -183,6 +183,15 @@ def check_test_workflow(text: str) -> list[CheckResult]:
     add(results, "script cleans up sandbox", "cleanup_paths" in script)
     add(results, "test marker is implemented", "<!-- namma-ai-sandbox-test -->" in script)
     add(results, "policy defines fixed test label", "label: ai-fix-test-sandbox" in policy)
+    add(results, "policy has no natural-language alias section", "\naliases:" not in policy)
+    for command_id in (
+        "unit",
+        "stage2c-targeted",
+        "workflow-checkers",
+        "compileall",
+        "stage2c-b1-clamp",
+    ):
+        add(results, f"policy defines fixed command {command_id}", f"  {command_id}: python3|-m|unittest|" in policy)
     add(results, "policy defines fixed unittest command", "python3|-m|unittest|stage2c_b1_clamp_tests" in policy)
     add(results, "policy declares network isolation false", "network_isolation_enforced: false" in policy)
     return results

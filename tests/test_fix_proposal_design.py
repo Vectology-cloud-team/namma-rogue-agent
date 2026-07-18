@@ -98,7 +98,16 @@ class FixProposalDesignTests(unittest.TestCase):
         self.assertEqual("ai-fix-approved", self.policy.approval_label)
         self.assertNotEqual(self.policy.proposal_label, self.policy.approval_label)
         self.assertEqual(("modify",), self.policy.allowed_operations)
-        self.assertEqual(("stage2c-b1-clamp",), self.policy.sandbox_test_ids)
+        self.assertEqual(
+            (
+                "unit",
+                "stage2c-targeted",
+                "workflow-checkers",
+                "compileall",
+                "stage2c-b1-clamp",
+            ),
+            self.policy.sandbox_test_ids,
+        )
         self.assertIn(".github/workflows/**", self.policy.protected_paths)
         self.assertIn(".github/codex/prompts/**", self.policy.protected_paths)
         self.assertIn(".github/codex/fix-policy.yml", self.policy.protected_paths)
@@ -453,7 +462,7 @@ class FixProposalDesignTests(unittest.TestCase):
         cases = [
             (["python -m unittest discover"], "INVALID_TEST_ID"),
             (["Run the targeted clamp checks."], "INVALID_TEST_ID"),
-            (["unit"], "UNKNOWN_TEST_ID"),
+            (["unknown-test-id"], "UNKNOWN_TEST_ID"),
             (["stage2c-b1-clamp", "stage2c-b1-clamp"], "DUPLICATE_TEST_ID"),
             ([], "INVALID_PROPOSAL"),
         ]

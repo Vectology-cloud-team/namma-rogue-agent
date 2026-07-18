@@ -208,6 +208,22 @@ class SandboxTestTests(unittest.TestCase):
             commands[0].argv,
         )
 
+    def test_all_fix_policy_test_ids_resolve_to_trusted_commands(self):
+        recommendations = list(
+            sandbox_test.preflight.load_sandbox_test_ids(
+                REPO_ROOT / ".github" / "codex" / "fix-policy.yml"
+            )
+        )
+        commands = sandbox_test.resolve_requested_test_commands(
+            recommendations,
+            self.sandbox_test_policy(),
+        )
+        self.assertEqual(recommendations, [command.test_id for command in commands])
+        for command in commands:
+            with self.subTest(test_id=command.test_id):
+                self.assertEqual(("python3", "-m", "unittest"), command.argv[:3])
+                self.assertNotIn(" ", command.test_id)
+
     def test_empty_tests_are_rejected(self):
         with self.assertRaises(sandbox_test.SandboxTestStatus):
             sandbox_test.resolve_requested_test_commands([], self.sandbox_test_policy())
