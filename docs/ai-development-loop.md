@@ -335,11 +335,12 @@ condition or fallback.
 Stage 2B does not apply patches, modify the working tree, run
 recommended tests, commit, push, create branches, open pull requests,
 merge, or use GitHub code suggestions. Stage 2C-A preflight is
-implemented, but Stage 2C-B sandbox apply/test is still not
-implemented.
+implemented. Stage 2C-B1 ephemeral sandbox patch apply is implemented,
+but Stage 2C-B2 trusted tests are still not implemented.
 
 PR #25 adds the Stage 2C sandbox validation design. PR #26 adds the
-Stage 2C-A preflight gate only. The design is:
+Stage 2C-A preflight gate only. PR #31 adds Stage 2C-B1 ephemeral
+sandbox patch apply only. The design is:
 
 ```text
 docs/stage2c-sandbox-validation-design.md
@@ -364,6 +365,12 @@ Stage 2C-A can produce `PRECHECK_PASSED`. That status means preflight
 passed only. It does not mean the patch was applied, source was checked
 out into a sandbox, or tests were executed.
 
+Stage 2C-B1 can produce `APPLY_PASSED`. That status means the approved
+patch applied in an ephemeral sandbox and the resulting diff matched the
+proposal. It does not mean recommended tests were executed, repository
+contents were changed persistently, or a commit, push, or merge occurred.
+Stage 2C-B2 trusted test execution remains unimplemented.
+
 Stage 2C patch application is limited to a disposable sandbox checkout.
 The design still forbids persistent repository writes, commits, pushes,
 branch creation, pull request updates, merges, package publishing,
@@ -375,6 +382,12 @@ The Stage 2C sticky comment marker is:
 
 ```html
 <!-- namma-ai-sandbox-validation -->
+```
+
+The Stage 2C-B1 sandbox apply sticky comment marker is:
+
+```html
+<!-- namma-ai-sandbox-apply -->
 ```
 
 The comment and result artifact will report validation status while
@@ -389,9 +402,10 @@ triggered by its own label event.
 
 | Label | Starts Collector | Live Gate References | Actor Requirement | Removal | HEAD Change |
 | --- | --- | --- | --- | --- | --- |
-| `ai-fix-proposal` | Stage 2A only | Stage 2A, Stage 2C-A | trusted PR author | no collector work | stale proposal |
-| `ai-fix-approved` | Stage 2B only | Stage 2B, Stage 2C-A | repo `admin` or `maintain` | no collector work | stale approval |
-| `ai-fix-validate` | Stage 2C-A only | Stage 2C-A | repo `admin` or `maintain` | no collector work | stale preflight |
+| `ai-fix-proposal` | Stage 2A only | Stage 2A, Stage 2C-A, Stage 2C-B1 | trusted PR author | no collector work | stale proposal |
+| `ai-fix-approved` | Stage 2B only | Stage 2B, Stage 2C-A, Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale approval |
+| `ai-fix-validate` | Stage 2C-A only | Stage 2C-A, Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale preflight |
+| `ai-fix-apply-sandbox` | Stage 2C-B1 only | Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale sandbox apply |
 
 For Stage 2A, a trusted PR author means `OWNER`, `MEMBER`, or
 `COLLABORATOR`; fork and bot PRs are skipped. Stage 2B and Stage 2C-A

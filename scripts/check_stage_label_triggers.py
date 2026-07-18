@@ -70,6 +70,16 @@ STAGES = {
         trusted_workflow="Sandbox Preflight Validator",
         artifact_prefix="sandbox-validation-request-",
     ),
+    "stage2c_b1": StageSpec(
+        name="Stage 2C-B1",
+        label="ai-fix-apply-sandbox",
+        request_stage="SANDBOX_APPLY_REQUEST",
+        collector_path=WORKFLOW_DIR / "fix-sandbox-apply-collect.yml",
+        collector_workflow="Sandbox Apply Request Collector",
+        trusted_path=WORKFLOW_DIR / "fix-sandbox-apply.yml",
+        trusted_workflow="Sandbox Apply Validator",
+        artifact_prefix="sandbox-apply-request-",
+    ),
 }
 
 
@@ -215,6 +225,7 @@ def check_trusted_workflow(spec: StageSpec) -> list[CheckResult]:
         "stage2a": "generate",
         "stage2b": "record",
         "stage2c": "preflight",
+        "stage2c_b1": "sandbox_apply",
     }[next(key for key, value in STAGES.items() if value == spec)]
     condition = trusted_job_if(text, primary_job)
     results: list[CheckResult] = []
@@ -244,6 +255,11 @@ def check_runtime_stage_validation() -> list[CheckResult]:
             REPO_ROOT / "scripts" / "sandbox_validation.py",
             "REQUEST_STAGE = \"SANDBOX_VALIDATION_REQUEST\"",
             "sandbox request came from an unexpected stage",
+        ),
+        "Stage 2C-B1": (
+            REPO_ROOT / "scripts" / "sandbox_apply.py",
+            "REQUEST_STAGE = \"SANDBOX_APPLY_REQUEST\"",
+            "sandbox apply request came from an unexpected stage",
         ),
     }
     results: list[CheckResult] = []
@@ -279,20 +295,25 @@ def check_forbidden_stage2c_b_runtime() -> list[CheckResult]:
 
 
 def event_matrix() -> dict[str, list[tuple[str, str, str | None, bool]]]:
-    return {
-        key: [
-            ("pull_request", "labeled", spec.label, True),
-            ("pull_request", "labeled", "ai-fix-proposal", spec.label == "ai-fix-proposal"),
-            ("pull_request", "labeled", "ai-fix-approved", spec.label == "ai-fix-approved"),
-            ("pull_request", "labeled", "ai-fix-validate", spec.label == "ai-fix-validate"),
-            ("pull_request", "labeled", "other-label", False),
-            ("pull_request", "unlabeled", spec.label, False),
-            ("pull_request", "synchronize", None, False),
-            ("pull_request", "reopened", None, False),
-            ("pull_request", "edited", None, False),
-        ]
-        for key, spec in STAGES.items()
-    }
+    stage_labels = {spec.label for spec in STAGES.values()}
+    matrix: dict[str, list[tuple[str, str, str | None, bool]]] = {}
+    for key, spec in STAGES.items():
+        cases = [("pull_request", "labeled", spec.label, True)]
+        cases.extend(
+            ("pull_request", "labeled", label, False)
+            for label in sorted(stage_labels.difference({spec.label}))
+        )
+        cases.extend(
+            [
+                ("pull_request", "labeled", "other-label", False),
+                ("pull_request", "unlabeled", spec.label, False),
+                ("pull_request", "synchronize", None, False),
+                ("pull_request", "reopened", None, False),
+                ("pull_request", "edited", None, False),
+            ]
+        )
+        matrix[key] = cases
+    return matrix
 
 
 def check_event_matrix() -> list[CheckResult]:

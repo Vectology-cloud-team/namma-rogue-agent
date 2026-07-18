@@ -68,7 +68,8 @@
       "type": "string",
       "enum": [
         "PREFLIGHT",
-        "SANDBOX"
+        "SANDBOX",
+        "SANDBOX_APPLY"
       ]
     },
     "repository": {
@@ -187,6 +188,7 @@
       "type": "string",
       "enum": [
         "SUCCESS",
+        "APPLY_PASSED",
         "PRECHECK_PASSED",
         "PATCH_REJECTED",
         "TEST_FAILED",
@@ -314,6 +316,94 @@
     },
     "sandbox_destroyed": {
       "type": "boolean"
+    },
+    "apply_request_actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "apply_request_actor_repository_permission": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "maintain"
+      ]
+    },
+    "apply_request_actor_repository_role": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "preflight_validation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "preflight_result_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "preflight_artifact": {
+      "$ref": "#/$defs/artifact_provenance"
+    },
+    "checkout_performed": {
+      "type": "boolean"
+    },
+    "checkout_sha": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "detached_head": {
+      "type": "boolean"
+    },
+    "credentials_persisted": {
+      "type": "boolean"
+    },
+    "patch_file_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "git_apply_check": {
+      "$ref": "#/$defs/check_result"
+    },
+    "git_apply": {
+      "$ref": "#/$defs/check_result"
+    },
+    "expected_changed_files": {
+      "$ref": "#/$defs/path_array"
+    },
+    "resulting_file_hashes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "resulting_blob_sha"
+        ],
+        "properties": {
+          "path": {
+            "$ref": "#/$defs/repository_path"
+          },
+          "resulting_blob_sha": {
+            "$ref": "#/$defs/full_sha"
+          }
+        }
+      }
+    },
+    "diff_binding": {
+      "$ref": "#/$defs/check_result"
+    },
+    "tests_planned": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "sandbox_cleanup": {
+      "$ref": "#/$defs/check_result"
     }
   },
   "allOf": [
@@ -449,6 +539,139 @@
             "const": true
           }
         }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "APPLY_PASSED"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "phase": {
+            "const": "SANDBOX_APPLY"
+          },
+          "failure_class": {
+            "const": null
+          },
+          "failure_code": {
+            "const": null
+          },
+          "patch_check": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "patch_apply": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "git_apply_check": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "git_apply": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "diff_binding": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "tests_executed": {
+            "maxItems": 0
+          },
+          "test_results": {
+            "maxItems": 0
+          },
+          "changed_files_match_expected": {
+            "const": true
+          },
+          "persistent_repository_modified": {
+            "const": false
+          },
+          "sandbox_checkout_performed": {
+            "const": true
+          },
+          "checkout_performed": {
+            "const": true
+          },
+          "patch_check_performed": {
+            "const": true
+          },
+          "patch_applied": {
+            "const": true
+          },
+          "test_execution_performed": {
+            "const": false
+          },
+          "commit_created": {
+            "const": false
+          },
+          "push_performed": {
+            "const": false
+          },
+          "merge_performed": {
+            "const": false
+          },
+          "sandbox_destroyed": {
+            "const": true
+          }
+        },
+        "required": [
+          "apply_request_actor",
+          "apply_request_actor_repository_permission",
+          "preflight_validation_id",
+          "preflight_result_hash",
+          "preflight_artifact",
+          "checkout_performed",
+          "checkout_sha",
+          "detached_head",
+          "credentials_persisted",
+          "patch_file_hash",
+          "git_apply_check",
+          "git_apply",
+          "expected_changed_files",
+          "resulting_file_hashes",
+          "diff_binding",
+          "tests_planned",
+          "sandbox_cleanup"
+        ]
       }
     },
     {

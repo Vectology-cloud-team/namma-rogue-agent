@@ -2,9 +2,9 @@
 
 This document defines the Stage 2C sandbox validation design. PR #25
 added the design-only baseline. PR #26 adds Stage 2C-A preflight
-runtime only. Stage 2C-A still does not add a sandbox checkout, patch
-runtime, test runner, repository writer, branch creator, commit path,
-push path, or merge path.
+runtime only. PR #31 adds Stage 2C-B1 ephemeral sandbox patch apply.
+Stage 2C-B1 still does not run recommended tests, write a repository
+branch, create a branch, commit, push, update a pull request, or merge.
 
 Stage 2C is the first stage that may apply an approved fix proposal, but
 only inside an ephemeral sandbox working tree. It still stops before any
@@ -36,35 +36,45 @@ Sticky Comment
 Stop
 ```
 
-Stage 2C-B is the future sandbox apply/test phase:
+Stage 2C-B is split into two runtime stages:
+
+- Stage 2C-B1: ephemeral sandbox patch apply and diff verification,
+- Stage 2C-B2: trusted test execution, not implemented yet.
+
+Stage 2C-B1 has this boundary:
 
 ```text
 Validated Fix Proposal
 + Valid Approval Record
++ PRECHECK_PASSED result
 + current pull request HEAD match
-+ live approval labels
++ live proposal, approval, validation, and apply labels
     |
     v
 Ephemeral Sandbox Checkout
     |
     v
+git apply --check
+    |
+    v
 Patch Apply
     |
     v
-Recommended Tests
+Changed File And Diff Binding
     |
     v
-Sandbox Validation Report
+Sandbox Apply Result
     |
     v
 Stop
 ```
 
 Stage 2C-A does not checkout source, run patch applicability checks,
-apply patches, or run tests. Stage 2C does not commit, push, update a
-pull request branch, create a
-branch, merge, approve a pull request, publish a package, deploy, or
-write through the GitHub Contents API.
+apply patches, or run tests. Stage 2C-B1 checks out only an ephemeral
+sandbox worktree and applies the patch there. Stage 2C-B1 does not run
+tests. Stage 2C does not commit, push, update a pull request branch,
+create a branch, merge, approve a pull request, publish a package,
+deploy, or write through the GitHub Contents API.
 
 ## Safety Boundary
 
@@ -112,6 +122,16 @@ Stage 2C requires these validated inputs:
 - patch content,
 - target file blob SHAs.
 
+Stage 2C-B1 additionally requires:
+
+- preflight validation ID,
+- preflight result hash,
+- apply request actor,
+- apply request actor repository permission,
+- patch file hash,
+- planned test plan hash,
+- exact checkout SHA.
+
 Artifacts and comments are not trusted by themselves. Each input must be
 validated against live pull request state and default-branch policy.
 
@@ -130,9 +150,11 @@ created, Stage 2C-A re-checks these preflight gates:
 - `ai-fix-proposal` label is present,
 - `ai-fix-approved` label is present,
 - `ai-fix-validate` label is present,
+- `ai-fix-apply-sandbox` label is present for Stage 2C-B1,
 - approval actor currently has repository `admin` or `maintain`,
 - validation request actor currently has repository `admin` or
   `maintain`,
+- apply request actor currently has repository `admin` or `maintain`,
 - trusted policy hash matches,
 - proposal schema validation succeeds,
 - approval schema validation succeeds,
@@ -229,11 +251,21 @@ It does not process `ai-fix-proposal`, `ai-fix-approved`, unrelated
 labels, label removal, or pull request `synchronize` events. The
 validator still requires all three live labels as a gate.
 
+Stage 2C-B1 starts only when a human adds:
+
+```text
+ai-fix-apply-sandbox
+```
+
+Adding `ai-fix-validate` must not automatically start patch apply. The
+Stage 2C-B1 validator still requires all four live labels as a gate.
+
 | Label | Starts Collector | Live Gate References | Actor Requirement | Removal | HEAD Change |
 | --- | --- | --- | --- | --- | --- |
-| `ai-fix-proposal` | Stage 2A only | Stage 2A, Stage 2C-A | trusted PR author | no collector work | stale proposal |
-| `ai-fix-approved` | Stage 2B only | Stage 2B, Stage 2C-A | repo `admin` or `maintain` | no collector work | stale approval |
-| `ai-fix-validate` | Stage 2C-A only | Stage 2C-A | repo `admin` or `maintain` | no collector work | stale preflight |
+| `ai-fix-proposal` | Stage 2A only | Stage 2A, Stage 2C-A, Stage 2C-B1 | trusted PR author | no collector work | stale proposal |
+| `ai-fix-approved` | Stage 2B only | Stage 2B, Stage 2C-A, Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale approval |
+| `ai-fix-validate` | Stage 2C-A only | Stage 2C-A, Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale preflight |
+| `ai-fix-apply-sandbox` | Stage 2C-B1 only | Stage 2C-B1 | repo `admin` or `maintain` | no collector work | stale sandbox apply |
 
 The sandbox validator accepts workflow runs only from `Sandbox
 Validation Request Collector`. A manifest `request_stage` of
@@ -257,26 +289,61 @@ is:
 9. Re-read the live pull request HEAD before result generation.
 10. Write a preflight result artifact and sticky comment.
 
-Stage 2C-B should later use this sandbox model:
+Stage 2C-B1 uses this sandbox model:
 
-1. Checkout the current pull request HEAD as detached HEAD.
+1. Verify a matching `PRECHECK_PASSED` preflight result.
+2. Checkout the current pull request HEAD as detached HEAD.
 2. Confirm the sandbox working tree is clean.
 3. Reject submodules, or allow them only through explicit trusted policy.
 4. Inspect symlinks and reject any target escape risk.
 5. Confirm each patch target file blob SHA.
-6. Run patch applicability checks in the sandbox.
-7. Apply the patch in the sandbox.
-8. Re-enumerate changed files.
-9. Confirm changed files exactly match proposal files.
-10. Re-run protected path checks.
-11. Reject unexpected file creation, deletion, rename, or mode change.
-12. Run trusted test command mappings.
-13. Generate the validation result artifact.
-14. Destroy the sandbox.
+6. Materialize the patch under runner temporary storage.
+7. Run fixed `git apply --check` argv in the sandbox.
+8. Apply the patch in the sandbox with fixed argv.
+9. Re-enumerate changed files.
+10. Confirm changed files exactly match proposal files.
+11. Re-run protected path checks.
+12. Reject unexpected file creation, deletion, rename, or mode change.
+13. Verify final diff binding.
+14. Generate the apply result artifact.
+15. Destroy the sandbox.
 
 The sandbox is disposable. Its modified working tree is expected after a
 successful apply, but those modifications must not persist outside the
 job.
+
+Stage 2C-B1 does not execute trusted test command mappings. That belongs
+to Stage 2C-B2.
+
+## Stage 2C-B1 Patch Apply Runtime
+
+The fixed apply commands are:
+
+```text
+git apply --check --verbose --recount --whitespace=error-all <fixed patch path>
+git apply --verbose --recount --whitespace=error-all <fixed patch path>
+```
+
+The proposal cannot add options. `--unsafe-paths`, `--3way`, `--reject`,
+`--index`, `--cached`, path includes/excludes, fuzzy fallback, `patch`,
+`git am`, and manual file rewrite fallbacks are forbidden.
+
+Stage 2C-B1 records:
+
+- apply request actor and repository permission,
+- preflight validation ID and preflight result hash,
+- exact checkout SHA,
+- detached HEAD state,
+- credential persistence check,
+- patch file hash,
+- `git apply --check` result,
+- patch apply result,
+- expected and actual changed files,
+- resulting file hashes,
+- final diff binding,
+- planned test IDs,
+- `tests_executed` as empty,
+- sandbox cleanup and destruction status.
 
 ## Patch Apply Restrictions
 
@@ -331,8 +398,9 @@ Example test IDs:
 - `workflow-checkers`,
 - `compileall`.
 
-Stage 2C-A only validates these IDs. It does not execute any test
-command.
+Stage 2C-A and Stage 2C-B1 only validate or carry these IDs. They do
+not execute any test command. Stage 2C-B2 will be the first stage that
+may execute trusted test IDs.
 
 The future runner should execute commands with shell-free semantics,
 equivalent to `shell=False`.
@@ -439,10 +507,14 @@ The result separates persistent repository state from sandbox state:
 
 - `persistent_repository_modified`: must be `false`,
 - `sandbox_worktree_modified`: may be `true` after patch apply.
-- `sandbox_checkout_performed`: is `false` for Stage 2C-A,
-- `patch_check_performed`: is `false` for Stage 2C-A,
-- `patch_applied`: is `false` for Stage 2C-A,
-- `test_execution_performed`: is `false` for Stage 2C-A.
+- `sandbox_checkout_performed`: is `false` for Stage 2C-A and `true`
+  for Stage 2C-B1,
+- `patch_check_performed`: is `false` for Stage 2C-A and `true` for
+  Stage 2C-B1,
+- `patch_applied`: is `false` for Stage 2C-A and `true` for
+  Stage 2C-B1 success,
+- `test_execution_performed`: is `false` for Stage 2C-A and
+  Stage 2C-B1.
 
 This avoids treating expected sandbox modifications as persistent
 repository writes.
@@ -467,8 +539,11 @@ files; no persistent repository modification; no commit, push, or merge;
 and sandbox destruction to be reported. `PRECHECK_PASSED` requires
 `phase: PREFLIGHT`, skipped patch check, skipped patch apply, no
 executed tests, no sandbox checkout, no persistent write, no commit, no
-push, and no merge. Non-success terminal statuses must carry a matching
-`failure_class`.
+push, and no merge. `APPLY_PASSED` requires `phase: SANDBOX_APPLY`,
+exact checkout, fixed `git apply --check`, fixed `git apply`, final diff
+binding, sandbox cleanup, no test execution, no persistent write, no
+commit, no push, and no merge. Non-success terminal statuses must carry
+a matching `failure_class`.
 
 ## Validation ID
 
@@ -480,21 +555,23 @@ push, and no merge. Non-success terminal statuses must carry a matching
 - approval record hash,
 - head SHA,
 - policy hash,
-- test plan.
+- test plan,
+- for Stage 2C-B1, preflight validation ID and hash, apply request
+  actor, and patch file hash.
 
 `started_at` and `completed_at` must not be part of the validation ID.
-The same proposal, approval record, HEAD, policy, and test plan should
-produce the same ID.
+The same proposal, approval record, HEAD, policy, test plan, preflight
+result, apply request actor, and patch hash should produce the same
+Stage 2C-B1 apply ID.
 
 ## Artifact Design
 
 Stage 2C-A uploads a `sandbox-validation-preflight` artifact. Stage
-2C-B should later upload a full `sandbox-validation-result` artifact.
+2C-B1 uploads a `sandbox-apply-result` artifact.
 
 Allowed artifact contents:
 
 - result JSON,
-- bounded test logs,
 - bounded patch apply logs,
 - changed file manifest,
 - file hashes.
@@ -537,6 +614,18 @@ The comment should display:
 
 This comment is separate from Stage 2A proposal comments and Stage 2B
 approval comments.
+
+Stage 2C-B1 uses a separate sticky comment marker:
+
+```html
+<!-- namma-ai-sandbox-apply -->
+```
+
+The Stage 2C-B1 comment displays apply ID, proposal ID, approval ID,
+preflight validation ID, HEAD SHA, requester, checkout SHA, detached HEAD
+status, patch check, patch apply, changed files, diff binding, planned
+tests, and explicit `No` values for test execution, persistent
+repository modification, commit, push, and merge.
 
 ## Concurrency
 
@@ -591,7 +680,7 @@ isolation model is stronger.
 
 ## Static Checker Plan
 
-The future static checker should verify:
+The Stage 2C static checkers verify:
 
 - no `contents: write`,
 - no commit, push, or merge path,
@@ -609,7 +698,15 @@ The future static checker should verify:
 - current HEAD revalidation,
 - persistent repository writes forbidden,
 - `ai-fix-approved` alone does not start Stage 2C,
-- `ai-fix-validate` is required.
+- `ai-fix-validate` is required for preflight,
+- `ai-fix-apply-sandbox` is required for Stage 2C-B1,
+- exact SHA checkout for Stage 2C-B1,
+- `persist-credentials: false`,
+- fixed `git apply` argv,
+- no recommended test execution in Stage 2C-B1.
+
+`scripts/check_sandbox_validation_workflow.py` validates Stage 2C-A.
+`scripts/check_sandbox_apply_workflow.py` validates Stage 2C-B1.
 
 ## Unit Test Matrix
 
@@ -618,8 +715,8 @@ Runtime implementation should add these tests.
 Normal cases:
 
 - valid proposal, valid approval, valid labels, same HEAD,
-- patch check and apply succeed,
-- allowed tests succeed,
+- patch check and apply succeed for Stage 2C-B1,
+- allowed tests succeed for future Stage 2C-B2,
 - deterministic validation ID,
 - one sticky comment.
 
@@ -653,18 +750,15 @@ Result cases:
 - `FATAL`,
 - `INFRA_ERROR`.
 
-## Non-Goals For PR #25
+## Non-Goals After PR #31
 
-PR #25 does not implement:
+PR #31 still does not implement:
 
-- executable Stage 2C workflow,
-- patch apply runtime,
-- test execution runtime,
+- Stage 2C-B2 test execution runtime,
 - repository write,
 - commit automation,
 - push automation,
 - merge automation,
 - workflow permission changes,
 - secret changes,
-- label E2E,
 - Stage 2C E2E.
