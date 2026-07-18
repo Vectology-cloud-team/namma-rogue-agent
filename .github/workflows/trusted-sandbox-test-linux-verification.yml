@@ -1,0 +1,39 @@
+name: Trusted Sandbox Test Linux Verification
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux_verification:
+    name: Verify trusted sandbox tests on Linux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout verification target
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Run trusted sandbox test Linux verification
+        env:
+          MAIN_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 scripts/linux_sandbox_test_verification.py \
+            --output-dir linux-verification-results
+
+      - name: Upload Linux verification result artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trusted-sandbox-test-linux-verification-${{ github.run_id }}
+          path: linux-verification-results
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: false
