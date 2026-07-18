@@ -44,10 +44,7 @@ VALIDATE_LABEL = "ai-fix-validate"
 MAX_ARTIFACT_BYTES = 100000
 ALLOWED_REPOSITORY_PERMISSIONS = {"admin", "maintain"}
 DEFAULT_SANDBOX_TEST_IDS = (
-    "unit",
-    "stage2c-targeted",
-    "workflow-checkers",
-    "compileall",
+    "stage2c-b1-clamp",
 )
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -186,7 +183,7 @@ def load_sandbox_test_ids(policy_path: Path) -> tuple[str, ...]:
     raw = proposal_design.parse_simple_yaml_mapping(
         policy_path.read_text(encoding="utf-8")
     )
-    raw_ids = raw.get("sandbox_test_ids", list(DEFAULT_SANDBOX_TEST_IDS))
+    raw_ids = raw.get("sandbox_test_ids")
     if not isinstance(raw_ids, list) or not raw_ids:
         raise fatal(
             fix.FailureCode.WORKFLOW_CONFIGURATION_ERROR,
@@ -963,19 +960,17 @@ def normalize_test_ids(
         lowered = test_id.lower()
         is_simple_test_id = re.fullmatch(r"[a-z][a-z0-9_-]*", test_id) is not None
         if any(fragment in lowered for fragment in FORBIDDEN_TEST_FRAGMENTS):
-            if not is_simple_test_id and not any(
-                fragment in lowered
-                for fragment in FORBIDDEN_TEST_FRAGMENTS
-                if fragment != " "
-            ):
-                continue
             raise PreflightStatus(
                 RESULT_STATUS_PATCH_REJECTED,
                 "UNTRUSTED_TEST_COMMAND",
                 "test recommendation contains command syntax",
             )
         if not is_simple_test_id:
-            continue
+            raise PreflightStatus(
+                RESULT_STATUS_PATCH_REJECTED,
+                "INVALID_TEST_PLAN",
+                "test recommendation must be a trusted test ID",
+            )
         if test_id not in allowed:
             raise PreflightStatus(
                 RESULT_STATUS_PATCH_REJECTED,

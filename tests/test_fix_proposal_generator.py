@@ -150,7 +150,10 @@ class FixProposalGeneratorTests(unittest.TestCase):
                     "rationale": "Address the blocking Stage 1 finding.",
                 }
             ],
-            "tests_recommended": ["python -m unittest discover"],
+            "tests_recommended": ["stage2c-b1-clamp"],
+            "tests_rationale": [
+                "Verify values below the minimum, within the range, and above the maximum.",
+            ],
             "risks": ["Low risk documentation change."],
             "human_approval_required": True,
         }

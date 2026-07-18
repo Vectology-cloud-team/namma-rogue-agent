@@ -24,6 +24,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DESIGN_DOC_PATH = REPO_ROOT / "docs" / "stage2-fix-proposal-design.md"
 AI_LOOP_DOC_PATH = REPO_ROOT / "docs" / "ai-development-loop.md"
 FIX_POLICY_PATH = REPO_ROOT / ".github" / "codex" / "fix-policy.yml"
+SANDBOX_TEST_POLICY_PATH = (
+    REPO_ROOT / ".github" / "codex" / "sandbox-test-policy.yml"
+)
 FIX_SCHEMA_PATH = (
     REPO_ROOT / ".github" / "codex" / "schemas" / "fix-proposal.schema.json"
 )
@@ -39,6 +42,7 @@ PROPOSAL_MARKER = "<!-- namma-ai-fix-proposal -->"
 STAGE2_LABEL = "ai-fix-proposal"
 STAGE2_APPROVAL_LABEL = "ai-fix-approved"
 ALLOWED_APPROVERS = {"OWNER", "MEMBER"}
+TEST_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 FORBIDDEN_PATCH_MARKERS = (
     "GIT binary patch",
     "Binary files ",
@@ -85,6 +89,7 @@ PROPOSAL_KEYS = {
     "findings_addressed",
     "changes",
     "tests_recommended",
+    "tests_rationale",
     "risks",
     "human_approval_required",
 }
@@ -103,6 +108,7 @@ class FixPolicy:
     max_patch_bytes: int
     max_file_patch_bytes: int
     allowed_operations: tuple[str, ...]
+    sandbox_test_ids: tuple[str, ...]
     protected_paths: tuple[str, ...]
 
 
@@ -187,6 +193,28 @@ def parse_simple_yaml_mapping(text: str) -> dict[str, Any]:
     return data
 
 
+def parse_simple_mapping_section_keys(text: str, section_name: str) -> set[str]:
+    keys: set[str] = set()
+    in_section = False
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].rstrip()
+        if not line:
+            continue
+        if not raw_line.startswith(" "):
+            key, _, value = line.partition(":")
+            in_section = key.strip() == section_name and not value.strip()
+            continue
+        if not in_section:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            continue
+        key, sep, value = stripped.partition(":")
+        if sep and value.strip():
+            keys.add(key.strip())
+    return keys
+
+
 def parse_int(value: Any, field_name: str) -> int:
     try:
         parsed = int(value)
@@ -208,13 +236,18 @@ def load_fix_policy(path: Path = FIX_POLICY_PATH) -> FixPolicy:
     labels = raw.get("labels")
     limits = raw.get("limits")
     operations = raw.get("allowed_operations")
+    sandbox_test_ids = raw.get("sandbox_test_ids")
     protected = raw.get("protected_paths")
     if not isinstance(labels, dict) or not isinstance(limits, dict):
         raise ProposalValidationError("INVALID_POLICY", "labels and limits are required")
-    if not isinstance(operations, list) or not isinstance(protected, list):
+    if (
+        not isinstance(operations, list)
+        or not isinstance(sandbox_test_ids, list)
+        or not isinstance(protected, list)
+    ):
         raise ProposalValidationError(
             "INVALID_POLICY",
-            "allowed_operations and protected_paths are required",
+            "allowed_operations, sandbox_test_ids, and protected_paths are required",
         )
     policy = FixPolicy(
         schema_version=parse_int(raw.get("schema_version"), "schema_version"),
@@ -233,6 +266,7 @@ def load_fix_policy(path: Path = FIX_POLICY_PATH) -> FixPolicy:
             "limits.max_file_patch_bytes",
         ),
         allowed_operations=tuple(str(item) for item in operations),
+        sandbox_test_ids=tuple(str(item) for item in sandbox_test_ids),
         protected_paths=tuple(str(item) for item in protected),
     )
     validate_fix_policy(policy)
@@ -256,6 +290,17 @@ def validate_fix_policy(policy: FixPolicy) -> None:
             "INVALID_POLICY",
             "Stage 2 initial design only allows modify",
         )
+    if not policy.sandbox_test_ids:
+        raise ProposalValidationError(
+            "INVALID_POLICY",
+            "at least one trusted sandbox test ID is required",
+        )
+    for test_id in policy.sandbox_test_ids:
+        if not TEST_ID_RE.fullmatch(test_id):
+            raise ProposalValidationError(
+                "INVALID_POLICY",
+                "sandbox test IDs must be simple machine-readable command IDs",
+            )
     missing = REQUIRED_PROTECTED_PATHS.difference(policy.protected_paths)
     if missing:
         raise ProposalValidationError(
@@ -519,13 +564,38 @@ def validate_fix_proposal(
             "proposal exceeds max_patch_bytes",
         )
     tests_recommended = proposal.get("tests_recommended")
-    if not isinstance(tests_recommended, list):
+    if not isinstance(tests_recommended, list) or not tests_recommended:
         raise ProposalValidationError(
             "INVALID_PROPOSAL",
-            "tests_recommended must be a list",
+            "tests_recommended must be a non-empty list",
         )
+    seen_tests: set[str] = set()
     for test in tests_recommended:
-        require_string(test, "tests_recommended[]")
+        test_id = require_string(test, "tests_recommended[]")
+        if not TEST_ID_RE.fullmatch(test_id):
+            raise ProposalValidationError(
+                "INVALID_TEST_ID",
+                "tests_recommended must contain trusted test IDs only",
+            )
+        if test_id not in policy.sandbox_test_ids:
+            raise ProposalValidationError(
+                "UNKNOWN_TEST_ID",
+                "tests_recommended contains a test ID not allowed by trusted policy",
+            )
+        if test_id in seen_tests:
+            raise ProposalValidationError(
+                "DUPLICATE_TEST_ID",
+                "tests_recommended must not contain duplicate test IDs",
+            )
+        seen_tests.add(test_id)
+    tests_rationale = proposal.get("tests_rationale")
+    if not isinstance(tests_rationale, list):
+        raise ProposalValidationError(
+            "INVALID_PROPOSAL",
+            "tests_rationale must be a list",
+        )
+    for rationale in tests_rationale:
+        require_string(rationale, "tests_rationale[]")
     risks = proposal.get("risks")
     if not isinstance(risks, list):
         raise ProposalValidationError(
@@ -602,6 +672,7 @@ def validate_schema_file(path: Path = FIX_SCHEMA_PATH) -> dict[str, Any]:
         "findings_addressed",
         "changes",
         "tests_recommended",
+        "tests_rationale",
         "risks",
         "human_approval_required",
     }
@@ -627,6 +698,18 @@ def validate_schema_file(path: Path = FIX_SCHEMA_PATH) -> dict[str, Any]:
         raise ProposalValidationError(
             "INVALID_SCHEMA",
             "schema must limit per-file patch length",
+        )
+    tests_schema = schema.get("properties", {}).get("tests_recommended", {})
+    if tests_schema.get("minItems") != 1 or not tests_schema.get("uniqueItems"):
+        raise ProposalValidationError(
+            "INVALID_SCHEMA",
+            "schema must require unique test IDs",
+        )
+    item_pattern = tests_schema.get("items", {}).get("pattern", "")
+    if item_pattern != TEST_ID_RE.pattern:
+        raise ProposalValidationError(
+            "INVALID_SCHEMA",
+            "schema must restrict tests_recommended to machine-readable test IDs",
         )
     forbidden_patterns = [
         item.get("pattern", "")
@@ -733,6 +816,27 @@ def check_stage2a_runtime_boundary() -> list[CheckResult]:
     return results
 
 
+def check_test_alias_registry(policy: FixPolicy) -> list[CheckResult]:
+    results: list[CheckResult] = [
+        CheckResult("sandbox test policy exists", SANDBOX_TEST_POLICY_PATH.exists())
+    ]
+    if not SANDBOX_TEST_POLICY_PATH.exists():
+        return results
+    command_ids = parse_simple_mapping_section_keys(
+        read_text(SANDBOX_TEST_POLICY_PATH),
+        "commands",
+    )
+    missing = sorted(set(policy.sandbox_test_ids).difference(command_ids))
+    results.append(
+        CheckResult(
+            "Stage 2A test IDs are executable by Stage 2C-B2 policy",
+            not missing,
+            f"missing command IDs: {missing}" if missing else "",
+        )
+    )
+    return results
+
+
 def run_checks() -> list[CheckResult]:
     results = [
         CheckResult("design doc exists", DESIGN_DOC_PATH.exists()),
@@ -752,6 +856,7 @@ def run_checks() -> list[CheckResult]:
         results.append(CheckResult("fix proposal schema validates", False, str(exc)))
     results.extend(check_design_documents(policy))
     results.extend(check_stage2a_runtime_boundary())
+    results.extend(check_test_alias_registry(policy))
     return results
 
 

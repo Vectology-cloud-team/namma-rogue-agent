@@ -26,6 +26,7 @@ sandbox_test_ids:
   - stage2c-targeted
   - workflow-checkers
   - compileall
+  - stage2c-b1-clamp
 
 protected_paths:
   - .git/**

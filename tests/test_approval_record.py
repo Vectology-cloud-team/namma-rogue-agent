@@ -149,7 +149,10 @@ class ApprovalRecordTests(unittest.TestCase):
                 }
             ],
             "tests_recommended": [
-                "python -m unittest tests/test_stage2a_canary.py",
+                "stage2c-b1-clamp",
+            ],
+            "tests_rationale": [
+                "Verify values below the minimum, within the range, and above the maximum.",
             ],
             "risks": [
                 "Low risk canary-only change.",

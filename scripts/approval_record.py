@@ -572,6 +572,7 @@ def proposal_hash_for_approval(
         "findings_addressed": proposal.get("findings_addressed", []),
         "summary": proposal.get("summary", ""),
         "tests_recommended": proposal.get("tests_recommended", []),
+        "tests_rationale": proposal.get("tests_rationale", []),
         "risks": proposal.get("risks", []),
     }
     return sha256_hex_json(hash_source)

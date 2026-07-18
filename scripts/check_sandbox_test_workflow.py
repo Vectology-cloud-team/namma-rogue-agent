@@ -52,6 +52,25 @@ def load_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def sandbox_test_command_modules(policy: str) -> set[str]:
+    modules: set[str] = set()
+    in_commands = False
+    for raw_line in policy.splitlines():
+        line = raw_line.rstrip()
+        if line == "commands:":
+            in_commands = True
+            continue
+        if in_commands and line and not line.startswith(" "):
+            break
+        if not in_commands or not line.strip():
+            continue
+        _, _, value = line.strip().partition(":")
+        argv = [part for part in value.strip().split("|") if part]
+        if len(argv) >= 4 and argv[:3] in (["python3", "-m", "unittest"], ["python", "-m", "unittest"]):
+            modules.add(argv[3])
+    return modules
+
+
 def add(results: list[CheckResult], label: str, passed: bool, detail: str = "") -> None:
     results.append(CheckResult(label, passed, detail))
 
@@ -170,7 +189,7 @@ def check_test_workflow(text: str) -> list[CheckResult]:
     add(results, "script verifies proposal approval preflight apply", all(token in script for token in ("find_latest_proposal_artifact", "find_latest_approval_artifact", "find_latest_preflight_artifact", "find_latest_apply_result_artifact")))
     add(results, "script rejects empty tests", "EMPTY_TEST_PLAN" in script)
     add(results, "script uses proposal tests_recommended source", "proposal.tests_recommended" in script)
-    add(results, "script uses trusted aliases", "test_policy.aliases" in script)
+    add(results, "script uses canonical trusted command IDs", "test_policy.commands" in script and "test_policy.aliases" not in script)
     add(results, "script runs tests from trusted support directory", "trusted-support" in script)
     add(results, "script appends worktree after trusted support path", "python_path.append(str(worktree))" in script)
     add(results, "script uses shell false subprocess", "shell=True" not in script and "subprocess.run(" in script)
@@ -183,7 +202,28 @@ def check_test_workflow(text: str) -> list[CheckResult]:
     add(results, "script cleans up sandbox", "cleanup_paths" in script)
     add(results, "test marker is implemented", "<!-- namma-ai-sandbox-test -->" in script)
     add(results, "policy defines fixed test label", "label: ai-fix-test-sandbox" in policy)
+    add(results, "policy has no natural-language alias section", "\naliases:" not in policy)
+    for command_id in (
+        "unit",
+        "stage2c-targeted",
+        "workflow-checkers",
+        "compileall",
+        "stage2c-b1-clamp",
+    ):
+        add(results, f"policy defines fixed command {command_id}", f"  {command_id}: python3|-m|unittest|" in policy)
     add(results, "policy defines fixed unittest command", "python3|-m|unittest|stage2c_b1_clamp_tests" in policy)
+    for module in sorted(sandbox_test_command_modules(policy)):
+        support_path = f"scripts/sandbox_test_support/{module}.py"
+        add(
+            results,
+            f"workflow downloads trusted support module {module}",
+            support_path in test_job,
+        )
+    add(
+        results,
+        "workflow downloads trusted support helpers",
+        "scripts/sandbox_test_support/support_paths.py" in test_job,
+    )
     add(results, "policy declares network isolation false", "network_isolation_enforced: false" in policy)
     return results
 

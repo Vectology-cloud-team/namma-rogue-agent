@@ -19,6 +19,7 @@
     "findings_addressed",
     "changes",
     "tests_recommended",
+    "tests_rationale",
     "risks",
     "human_approval_required"
   ],
@@ -171,6 +172,16 @@
       }
     },
     "tests_recommended": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[a-z][a-z0-9_-]*$"
+      }
+    },
+    "tests_rationale": {
       "type": "array",
       "items": {
         "type": "string",

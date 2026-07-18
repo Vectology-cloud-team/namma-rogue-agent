@@ -19,8 +19,8 @@ allowed_environment:
   - PYTHONDONTWRITEBYTECODE
 
 commands:
+  unit: python3|-m|unittest|unit_tests
+  stage2c-targeted: python3|-m|unittest|stage2c_targeted_tests
+  workflow-checkers: python3|-m|unittest|workflow_checker_tests
+  compileall: python3|-m|unittest|compileall_checks
   stage2c-b1-clamp: python3|-m|unittest|stage2c_b1_clamp_tests
-
-aliases:
-  Run the targeted clamp checks for clamp(5, 1, 3), clamp(0, 1, 3), and clamp(2, 1, 3).: stage2c-b1-clamp
-  Run the repository's configured stage2c-targeted or unit test target if available.: stage2c-b1-clamp

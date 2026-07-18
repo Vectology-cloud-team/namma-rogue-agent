@@ -76,7 +76,10 @@ class FixProposalDesignTests(unittest.TestCase):
                 }
             ],
             "changes": [self.valid_change()],
-            "tests_recommended": ["python -m unittest discover"],
+            "tests_recommended": ["stage2c-b1-clamp"],
+            "tests_rationale": [
+                "Verify values below the minimum, within the range, and above the maximum.",
+            ],
             "risks": ["behavior change"],
             "human_approval_required": True,
         }
@@ -95,6 +98,16 @@ class FixProposalDesignTests(unittest.TestCase):
         self.assertEqual("ai-fix-approved", self.policy.approval_label)
         self.assertNotEqual(self.policy.proposal_label, self.policy.approval_label)
         self.assertEqual(("modify",), self.policy.allowed_operations)
+        self.assertEqual(
+            (
+                "unit",
+                "stage2c-targeted",
+                "workflow-checkers",
+                "compileall",
+                "stage2c-b1-clamp",
+            ),
+            self.policy.sandbox_test_ids,
+        )
         self.assertIn(".github/workflows/**", self.policy.protected_paths)
         self.assertIn(".github/codex/prompts/**", self.policy.protected_paths)
         self.assertIn(".github/codex/fix-policy.yml", self.policy.protected_paths)
@@ -434,6 +447,8 @@ class FixProposalDesignTests(unittest.TestCase):
             ("summary", 123),
             ("tests_recommended", "python -m unittest"),
             ("tests_recommended", [123]),
+            ("tests_rationale", "human explanation"),
+            ("tests_rationale", [123]),
             ("risks", "risk text"),
             ("risks", [123]),
         ]
@@ -442,6 +457,20 @@ class FixProposalDesignTests(unittest.TestCase):
                 proposal = self.valid_proposal()
                 proposal[field_name] = value
                 self.assert_rejects(proposal, "INVALID_PROPOSAL")
+
+    def test_tests_recommended_accepts_only_trusted_machine_ids(self):
+        cases = [
+            (["python -m unittest discover"], "INVALID_TEST_ID"),
+            (["Run the targeted clamp checks."], "INVALID_TEST_ID"),
+            (["unknown-test-id"], "UNKNOWN_TEST_ID"),
+            (["stage2c-b1-clamp", "stage2c-b1-clamp"], "DUPLICATE_TEST_ID"),
+            ([], "INVALID_PROPOSAL"),
+        ]
+        for tests_recommended, code in cases:
+            with self.subTest(tests_recommended=tests_recommended):
+                proposal = self.valid_proposal()
+                proposal["tests_recommended"] = tests_recommended
+                self.assert_rejects(proposal, code)
 
     def test_python_validator_matches_key_schema_constraints(self):
         cases = [

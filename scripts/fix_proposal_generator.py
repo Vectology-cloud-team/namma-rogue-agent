@@ -563,6 +563,7 @@ def canonicalize_proposal(
         "findings_addressed": canonical.get("findings_addressed", []),
         "summary": canonical.get("summary", ""),
         "tests_recommended": canonical.get("tests_recommended", []),
+        "tests_rationale": canonical.get("tests_rationale", []),
         "risks": canonical.get("risks", []),
     }
     proposal_hash = sha256_hex_json(hash_source)
@@ -939,9 +940,13 @@ def proposal_comment_body(
             "",
             "\n".join(f"- {risk}" for risk in proposal.get("risks", [])) or "- None.",
             "",
-            "### Recommended Tests",
+            "### Recommended Test IDs",
             "",
             "\n".join(f"- {test}" for test in proposal.get("tests_recommended", [])) or "- None.",
+            "",
+            "### Test Rationale",
+            "",
+            "\n".join(f"- {rationale}" for rationale in proposal.get("tests_rationale", [])) or "- None.",
             "",
             patch_note,
         ]
