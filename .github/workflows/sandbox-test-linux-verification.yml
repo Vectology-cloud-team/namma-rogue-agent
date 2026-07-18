@@ -1,4 +1,4 @@
-name: Trusted Sandbox Test Linux Verification
+name: Sandbox Test Linux Verification
 
 on:
   pull_request:
@@ -19,7 +19,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Run trusted sandbox test Linux verification
+      - name: Run sandbox test Linux verification
         env:
           MAIN_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -32,7 +32,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: trusted-sandbox-test-linux-verification-${{ github.run_id }}
+          name: sandbox-test-linux-verification-${{ github.run_id }}
           path: linux-verification-results
           if-no-files-found: error
           retention-days: 7

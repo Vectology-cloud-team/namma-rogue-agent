@@ -220,7 +220,7 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
             REPO_ROOT
             / ".github"
             / "workflows"
-            / "trusted-sandbox-test-linux-verification.yml"
+            / "sandbox-test-linux-verification.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("contents: read", workflow)
         self.assertNotIn(": write", workflow)

@@ -14,7 +14,7 @@ WORKFLOW_PATH = (
     REPO_ROOT
     / ".github"
     / "workflows"
-    / "trusted-sandbox-test-linux-verification.yml"
+    / "sandbox-test-linux-verification.yml"
 )
 SCRIPT_PATH = REPO_ROOT / "scripts" / "linux_sandbox_test_verification.py"
 POLICY_PATH = REPO_ROOT / ".github" / "codex" / "sandbox-test-policy.yml"
@@ -121,7 +121,7 @@ def check_workflow(text: str, script: str, policy: str) -> list[CheckResult]:
     results: list[CheckResult] = []
     job = job_section(text, "linux_verification")
     add(results, "workflow exists", WORKFLOW_PATH.exists())
-    add(results, "workflow name is explicit", "name: Trusted Sandbox Test Linux Verification" in text)
+    add(results, "workflow name is explicit", "name: Sandbox Test Linux Verification" in text)
     add(results, "workflow uses pull_request trigger", "pull_request:" in text)
     add(results, "workflow uses workflow_dispatch trigger", "workflow_dispatch:" in text)
     add(results, "workflow uses ubuntu runner", "runs-on: ubuntu-latest" in job)
@@ -132,7 +132,7 @@ def check_workflow(text: str, script: str, policy: str) -> list[CheckResult]:
     add(results, "workflow records PR and base SHA", "PR_HEAD_SHA" in text and "MAIN_SHA" in text)
     add(results, "workflow runs verification script with python3", "python3 scripts/linux_sandbox_test_verification.py" in text)
     add(results, "workflow uploads artifact", "actions/upload-artifact@" in text and "linux-verification-results" in text)
-    add(results, "artifact name is verification-specific", "trusted-sandbox-test-linux-verification-${{ github.run_id }}" in text)
+    add(results, "artifact name is verification-specific", "sandbox-test-linux-verification-${{ github.run_id }}" in text)
     add(results, "script records uname", "uname -a" in script)
     add(results, "script records python paths", "command -v python3" in script and "python3_path" in script)
     add(results, "script requires python3", "if not env.get(\"python3_path\")" in script)
