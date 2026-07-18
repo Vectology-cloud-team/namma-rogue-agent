@@ -32,13 +32,6 @@ WINDOWS_PYTHON3_SKIP_REASON = "python3 is unavailable locally"
 EXPLAINED_LINUX_SKIP_REASONS = {
     "set ROGUE_BINARY to run the Rogue launch test",
 }
-TARGETED_MODULES = (
-    "tests.test_sandbox_test",
-    "tests.test_fix_proposal_design",
-    "tests.test_fix_proposal_generator",
-    "tests.test_sandbox_validation",
-    "tests.test_sandbox_test_workflow",
-)
 EXPECTED_TEST_IDS = (
     "unit",
     "stage2c-targeted",
@@ -101,9 +94,14 @@ def run_command(argv: list[str], *, output_dir: Path, log_name: str) -> CommandR
     env = os.environ.copy()
     for key in SECRET_ENV_KEYS:
         env.pop(key, None)
+    python_path = [str(SUPPORT_DIR), str(REPO_ROOT)]
+    existing_python_path = env.get("PYTHONPATH")
+    if existing_python_path:
+        python_path.append(existing_python_path)
+    env["PYTHONPATH"] = os.pathsep.join(python_path)
     completed = subprocess.run(
         argv,
-        cwd=REPO_ROOT,
+        cwd=SUPPORT_DIR,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -298,7 +296,7 @@ def support_module_hashes(commands: dict[str, tuple[str, ...]]) -> dict[str, dic
         path = SUPPORT_DIR / f"{module}.py"
         data = path.read_bytes()
         result[module] = {
-            "path": str(path.relative_to(REPO_ROOT)).replace("\\", "/"),
+            "path": str(path.relative_to(CONTROL_ROOT)).replace("\\", "/"),
             "sha256": sha256_bytes(data),
             "bytes": str(len(data)),
             "exists": str(path.is_file()).lower(),
@@ -475,18 +473,16 @@ def run_verification(output_dir: Path) -> int:
         "python3",
         "-m",
         "unittest",
-        "discover",
-        "-s",
-        "tests",
-        "-p",
-        "test_*.py",
+        "unit_tests",
         "-v",
     ]
     targeted_command = [
         "python3",
         "-m",
         "unittest",
-        *TARGETED_MODULES,
+        "stage2c_targeted_tests",
+        "workflow_checker_tests",
+        "compileall_checks",
         "-v",
     ]
     full = parse_unittest_output(

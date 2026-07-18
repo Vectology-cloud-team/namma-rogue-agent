@@ -109,8 +109,11 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
 
     def test_run_command_writes_completed_process_stdout(self) -> None:
         current = linux_verification.subprocess.run
+        captured: dict[str, object] = {}
 
         def fake_run(*args, **kwargs):
+            captured["cwd"] = kwargs["cwd"]
+            captured["env"] = kwargs["env"]
             return subprocess.CompletedProcess(
                 args=args[0],
                 returncode=0,
@@ -130,8 +133,53 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
                     "sample output\n",
                     (Path(tmp) / "command.log").read_text(encoding="utf-8"),
                 )
+                self.assertEqual(linux_verification.SUPPORT_DIR, captured["cwd"])
+                env = captured["env"]
+                self.assertIsInstance(env, dict)
+                python_path = str(env["PYTHONPATH"]).split(linux_verification.os.pathsep)
+                self.assertEqual(str(linux_verification.SUPPORT_DIR), python_path[0])
+                self.assertEqual(str(linux_verification.REPO_ROOT), python_path[1])
         finally:
             linux_verification.subprocess.run = current
+
+    def test_support_module_hashes_use_control_root_with_split_roots(self) -> None:
+        original_target = linux_verification.REPO_ROOT
+        original_control = linux_verification.CONTROL_ROOT
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                target = root / "target"
+                control = root / "control"
+                support = control / "scripts" / "sandbox_test_support"
+                (target / "tests").mkdir(parents=True)
+                support.mkdir(parents=True)
+                (support / "unit_tests.py").write_text("# unit\n", encoding="utf-8")
+                (support / "support_paths.py").write_text(
+                    "# support\n",
+                    encoding="utf-8",
+                )
+
+                linux_verification.configure_roots(
+                    target_root=target,
+                    control_root=control,
+                )
+                hashes = linux_verification.support_module_hashes(
+                    {"unit": ("python3", "-m", "unittest", "unit_tests")}
+                )
+
+                self.assertEqual(
+                    "scripts/sandbox_test_support/unit_tests.py",
+                    hashes["unit_tests"]["path"],
+                )
+                self.assertEqual(
+                    "scripts/sandbox_test_support/support_paths.py",
+                    hashes["support_paths"]["path"],
+                )
+        finally:
+            linux_verification.configure_roots(
+                target_root=original_target,
+                control_root=original_control,
+            )
 
     def test_skip_classification_recovers_python3_skips(self) -> None:
         expected = ["tests.test_sandbox_test.SandboxTestTests.test_shadow"]
@@ -241,6 +289,11 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
             / "sandbox-test-linux-verification.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("workflow_run:", workflow)
+        self.assertIn("github.event.workflow_run.event == 'pull_request'", workflow)
+        self.assertIn(
+            "github.event.workflow_run.head_repository.full_name == github.repository",
+            workflow,
+        )
         self.assertIn("ref: ${{ github.sha }}", workflow)
         self.assertIn("path: verification-control", workflow)
         self.assertIn("path: verification-target", workflow)
@@ -250,6 +303,15 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
         )
         self.assertIn("--control-root verification-control", workflow)
         self.assertIn("--target-root verification-target", workflow)
+
+    def test_script_uses_trusted_support_test_modules(self) -> None:
+        script = SCRIPT_PATH.read_text(encoding="utf-8")
+        self.assertIn('"unit_tests"', script)
+        self.assertIn('"stage2c_targeted_tests"', script)
+        self.assertIn('"workflow_checker_tests"', script)
+        self.assertIn('"compileall_checks"', script)
+        self.assertNotIn('"discover"', script)
+        self.assertNotIn('"test_*.py"', script)
 
     def test_collector_does_not_checkout_or_run_repository_code(self) -> None:
         collector = (
