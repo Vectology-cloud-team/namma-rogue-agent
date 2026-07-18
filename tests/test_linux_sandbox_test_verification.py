@@ -69,6 +69,46 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
                 linux_verification.parse_command_policy_duplicate_ids(policy),
             )
 
+    def test_each_policy_command_argv_drift_rejects_verified_status(self) -> None:
+        original_policy_path = linux_verification.POLICY_PATH
+        source = original_policy_path.read_text(encoding="utf-8")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                policy_path = Path(tmp) / "sandbox-test-policy.yml"
+                for test_id, expected in linux_verification.EXPECTED_POLICY_COMMANDS.items():
+                    expected_line = f"  {test_id}: {'|'.join(expected)}"
+                    drifted_line = f"  {test_id}: python|-m|unittest|{expected[3]}"
+                    policy_path.write_text(
+                        source.replace(expected_line, drifted_line),
+                        encoding="utf-8",
+                    )
+                    linux_verification.POLICY_PATH = policy_path
+                    policy = linux_verification.trusted_policy_summary()
+                    self.assertFalse(policy["policy_command_argv_match"], test_id)
+                    self.assertIn(test_id, policy["command_argv_mismatches"])
+                    status = linux_verification.determine_status(
+                        env={"python3_path": "/usr/bin/python3"},
+                        full={
+                            "returncode": 0,
+                            "successes": [],
+                            "skipped_tests": [],
+                        },
+                        targeted={
+                            "returncode": 0,
+                            "successes": [],
+                            "skipped_tests": [],
+                        },
+                        skip_info={
+                            "windows_python3_skips_identified": [],
+                            "windows_python3_skips_recovered": [],
+                            "unexpected_linux_skips": [],
+                        },
+                        policy=policy,
+                    )
+                    self.assertEqual("POLICY_MISMATCH", status, test_id)
+        finally:
+            linux_verification.POLICY_PATH = original_policy_path
+
     def test_fix_policy_test_ids_match_sandbox_policy(self) -> None:
         fix_ids = linux_verification.parse_fix_policy_ids(
             REPO_ROOT / ".github" / "codex" / "fix-policy.yml"
@@ -296,7 +336,13 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
                 target = root / "target"
                 control = root / "control"
                 target.mkdir()
-                control.mkdir()
+                policy = control / ".github" / "codex" / "sandbox-test-policy.yml"
+                policy.parent.mkdir(parents=True)
+                policy.write_text(
+                    (REPO_ROOT / ".github" / "codex" / "sandbox-test-policy.yml")
+                    .read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
                 linux_verification.configure_roots(
                     target_root=target,
                     control_root=control,
@@ -324,7 +370,13 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
                     "    return max(minimum, min(value, maximum))\n",
                     encoding="utf-8",
                 )
-                control.mkdir()
+                policy = control / ".github" / "codex" / "sandbox-test-policy.yml"
+                policy.parent.mkdir(parents=True)
+                policy.write_text(
+                    (REPO_ROOT / ".github" / "codex" / "sandbox-test-policy.yml")
+                    .read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
                 linux_verification.configure_roots(
                     target_root=target,
                     control_root=control,

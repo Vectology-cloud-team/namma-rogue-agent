@@ -39,6 +39,13 @@ EXPECTED_TEST_IDS = (
     "compileall",
     "stage2c-b1-clamp",
 )
+EXPECTED_POLICY_COMMANDS = {
+    "unit": ("python3", "-m", "unittest", "unit_tests"),
+    "stage2c-targeted": ("python3", "-m", "unittest", "stage2c_targeted_tests"),
+    "workflow-checkers": ("python3", "-m", "unittest", "workflow_checker_tests"),
+    "compileall": ("python3", "-m", "unittest", "compileall_checks"),
+    "stage2c-b1-clamp": ("python3", "-m", "unittest", "stage2c_b1_clamp_tests"),
+}
 SECRET_ENV_KEYS = (
     "GITHUB_TOKEN",
     "OPENAI_API_KEY",
@@ -394,10 +401,10 @@ def support_module_hashes(commands: dict[str, tuple[str, ...]]) -> dict[str, dic
     result: dict[str, dict[str, str]] = {}
     for module in sorted(modules):
         path = SUPPORT_DIR / f"{module}.py"
-        data = path.read_bytes()
+        data = path.read_bytes() if path.is_file() else b""
         result[module] = {
             "path": str(path.relative_to(CONTROL_ROOT)).replace("\\", "/"),
-            "sha256": sha256_bytes(data),
+            "sha256": sha256_bytes(data) if path.is_file() else "",
             "bytes": str(len(data)),
             "exists": str(path.is_file()).lower(),
         }
@@ -473,6 +480,14 @@ def trusted_policy_summary() -> dict[str, Any]:
     expected_downloads = set(command_modules) | {"support_paths"}
     support_hashes = support_module_hashes(commands)
     duplicate_mapping = bool(duplicate_command_ids)
+    command_argv_mismatches = {
+        test_id: {
+            "expected": list(expected),
+            "actual": list(commands.get(test_id, ())),
+        }
+        for test_id, expected in EXPECTED_POLICY_COMMANDS.items()
+        if commands.get(test_id) != expected
+    }
     unknown_policy_ids = sorted(set(fix_policy_ids) - set(commands))
     missing_fix_policy_ids = sorted(set(EXPECTED_TEST_IDS) - set(fix_policy_ids))
     missing_commands = sorted(set(fix_policy_ids) - set(commands))
@@ -499,6 +514,8 @@ def trusted_policy_summary() -> dict[str, Any]:
         "policy_download_list_match": not missing_downloads and not orphan_downloads,
         "duplicate_mapping": duplicate_mapping,
         "duplicate_command_ids": list(duplicate_command_ids),
+        "policy_command_argv_match": not command_argv_mismatches,
+        "command_argv_mismatches": command_argv_mismatches,
         "unknown_policy_ids": unknown_policy_ids,
         "missing_fix_policy_ids": missing_fix_policy_ids,
         "missing_commands": missing_commands,
@@ -534,6 +551,8 @@ def determine_status(
         return "POLICY_MISMATCH"
     if policy["unknown_policy_ids"] or policy["missing_fix_policy_ids"]:
         return "POLICY_MISMATCH"
+    if policy["command_argv_mismatches"]:
+        return "POLICY_MISMATCH"
     if policy["duplicate_mapping"] or policy["orphan_support_modules"]:
         return "POLICY_MISMATCH"
     if policy["stage2c_b1_clamp_argv"] != [
@@ -561,10 +580,15 @@ def determine_status(
 
 
 def policy_execution_plan() -> dict[str, list[str]]:
+    commands = parse_command_policy(POLICY_PATH)
     targeted_modules = [
-        "stage2c_targeted_tests",
-        "workflow_checker_tests",
-        "compileall_checks",
+        commands[test_id][3]
+        for test_id in (
+            "stage2c-targeted",
+            "workflow-checkers",
+            "compileall",
+        )
+        if len(commands.get(test_id, ())) >= 4
     ]
     executed_policy_test_ids = [
         "unit",
@@ -605,18 +629,17 @@ def run_verification(output_dir: Path) -> int:
         write_json(output_dir / "linux-verification-summary.json", summary)
         return 1
 
+    policy_commands = parse_command_policy(POLICY_PATH)
     full_command = [
-        "python3",
-        "-m",
-        "unittest",
-        "unit_tests",
+        *policy_commands.get("unit", EXPECTED_POLICY_COMMANDS["unit"]),
         "-v",
     ]
     execution_plan = policy_execution_plan()
     targeted_command = [
-        "python3",
-        "-m",
-        "unittest",
+        *policy_commands.get(
+            "stage2c-targeted",
+            EXPECTED_POLICY_COMMANDS["stage2c-targeted"],
+        )[:3],
         *execution_plan["targeted_modules"],
         "-v",
     ]
@@ -686,6 +709,8 @@ def run_verification(output_dir: Path) -> int:
             for module, value in policy["support_module_hashes"].items()
         },
         "policy_download_list_match": policy["policy_download_list_match"],
+        "policy_command_argv_match": policy["policy_command_argv_match"],
+        "command_argv_mismatches": policy["command_argv_mismatches"],
         "shadowing_protection_passed": shadowing_passed,
         "secret_environment_keys_present": forbidden_secret_environment_present(),
         "status": status,
