@@ -47,7 +47,14 @@ The proposal must:
   secrets, credentials, keys, tokens, binary files, renames, creates, and
   deletes.
 - Include unified diff patches only as inert proposal data.
-- Include recommended tests as text only; do not run them.
+- Include `tests_recommended` as trusted machine-readable test IDs only,
+  selected from `sandbox_test_ids` in
+  `generator-control/.github/codex/fix-policy.yml`.
+- Do not put natural-language rationale, shell commands, argv fragments,
+  paths, wildcards, discovery commands, package installs, or fallback tests in
+  `tests_recommended`.
+- Put human-facing test explanation in `tests_rationale` only. The runtime
+  must not use `tests_rationale` as execution input.
 - Bind review provenance to `source_review_run_id`,
   `source_review_artifact_id`, `reviewed_at`, and `generator` values from
   trusted workflow inputs. Do not invent provenance.

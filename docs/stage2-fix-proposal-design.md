@@ -255,7 +255,8 @@ Each proposal records:
 - summary,
 - findings addressed,
 - changes,
-- recommended tests,
+- `tests_recommended` machine-readable trusted test IDs,
+- `tests_rationale` human-facing test explanation,
 - risks,
 - `human_approval_required: true`.
 
@@ -396,7 +397,8 @@ The comment should display:
 - target files,
 - patch summary,
 - risks,
-- recommended tests,
+- recommended test IDs,
+- test rationale,
 - proposal status,
 - human approval required,
 - approval binding status,

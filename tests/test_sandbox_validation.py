@@ -142,7 +142,10 @@ class SandboxValidationTests(unittest.TestCase):
                 }
             ],
             "tests_recommended": tests_recommended if tests_recommended is not None else [
-                "unit",
+                "stage2c-b1-clamp",
+            ],
+            "tests_rationale": [
+                "Verify values below the minimum, within the range, and above the maximum.",
             ],
             "risks": [
                 "Canary-only change.",

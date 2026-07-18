@@ -44,10 +44,7 @@ VALIDATE_LABEL = "ai-fix-validate"
 MAX_ARTIFACT_BYTES = 100000
 ALLOWED_REPOSITORY_PERMISSIONS = {"admin", "maintain"}
 DEFAULT_SANDBOX_TEST_IDS = (
-    "unit",
-    "stage2c-targeted",
-    "workflow-checkers",
-    "compileall",
+    "stage2c-b1-clamp",
 )
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -186,7 +183,7 @@ def load_sandbox_test_ids(policy_path: Path) -> tuple[str, ...]:
     raw = proposal_design.parse_simple_yaml_mapping(
         policy_path.read_text(encoding="utf-8")
     )
-    raw_ids = raw.get("sandbox_test_ids", list(DEFAULT_SANDBOX_TEST_IDS))
+    raw_ids = raw.get("sandbox_test_ids")
     if not isinstance(raw_ids, list) or not raw_ids:
         raise fatal(
             fix.FailureCode.WORKFLOW_CONFIGURATION_ERROR,

@@ -430,15 +430,18 @@ workflow and stage-specific request artifact. A manifest
 `request_stage` value is checked as evidence, but it is not trusted by
 itself.
 
-Stage 2C-B2 does not discover tests from the repository or from
-comments. It accepts only `proposal.tests_recommended` entries that
-match trusted sandbox-test policy IDs or exact trusted aliases, maps
-them to fixed `python3 -m unittest` argv arrays, and runs them inside
-the same ephemeral sandbox model as Stage 2C-B1. The sandbox test job
-does not receive OpenAI credentials, PATs, or write permissions, and
-the step that spawns untrusted tests does not receive `GITHUB_TOKEN`.
-Trusted support tests are resolved before the PR worktree, preventing
-same-named PR files from shadowing trusted test modules.
+Stage 2A writes machine-readable test IDs in
+`proposal.tests_recommended` and human-facing explanation in
+`proposal.tests_rationale`. Stage 2C-B2 does not discover tests from
+the repository, PR comments, or rationale text. It accepts only
+`proposal.tests_recommended` IDs that are present in the trusted
+sandbox-test policy, maps them to fixed `python3 -m unittest` argv
+arrays, and runs them inside the same ephemeral sandbox model as Stage
+2C-B1. The sandbox test job does not receive OpenAI credentials, PATs,
+or write permissions, and the step that spawns untrusted tests does not
+receive `GITHUB_TOKEN`. Trusted support tests are resolved before the PR
+worktree, preventing same-named PR files from shadowing trusted test
+modules.
 
 ## Human Decisions
 

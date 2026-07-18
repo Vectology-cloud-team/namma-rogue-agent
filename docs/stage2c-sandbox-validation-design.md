@@ -374,29 +374,24 @@ runtime should forbid both.
 ## Test Execution Model
 
 `tests_recommended` must never be passed directly to a shell. Proposal
-content can request test IDs only. Trusted policy maps those IDs to
-fixed command argv arrays.
+content can request trusted test IDs only. Human-facing explanation
+belongs in `tests_rationale`, which is never used as execution input.
+Trusted default-branch policy maps the IDs to fixed command argv arrays.
 
-Existing Stage 2A proposal artifacts may still contain free-form
-`tests_recommended` strings. Stage 2C must treat those strings as
-display-only evidence until a trusted translator maps them to approved
-test IDs. The translator may only emit IDs present in trusted default-
-branch policy, and it must fail closed if a recommendation is ambiguous,
-contains shell syntax, names an unknown command, asks for network access,
-or cannot be represented by an approved test ID. Stage 2C must create
-`tests_requested` from the trusted ID set, not from raw proposal text.
+Stage 2A proposal artifacts that contain free-form `tests_recommended`
+strings are not executable Stage 2C inputs. Stage 2C must fail closed
+instead of translating natural language, interpreting shell text, or
+falling back to a broader alias allowlist. Stage 2C must create
+`tests_requested` from the trusted ID set, not from rationale text.
 In the validation result schema, each requested test is represented as a
 test evidence record containing the trusted test ID, requested flag,
 executed flag, status, exit code, duration, and bounded log excerpt.
 This prevents a successful validation from relying only on a standalone
 boolean claim that requested tests were executed.
 
-Example test IDs:
+Initial trusted test ID:
 
-- `unit`,
-- `stage2c-targeted`,
-- `workflow-checkers`,
-- `compileall`.
+- `stage2c-b1-clamp`.
 
 Stage 2C-A and Stage 2C-B1 only validate or carry these IDs. They do
 not execute any test command. Stage 2C-B2 is the first stage that may
@@ -803,8 +798,9 @@ Adding `ai-fix-apply-sandbox` still starts only Stage 2C-B1. Stage
 ### Command Model
 
 Stage 2C-B2 never treats `tests_recommended` as shell text. The
-proposal supplies only recommendation strings. The trusted
-`.github/codex/sandbox-test-policy.yml` maps exact trusted aliases or
+proposal supplies only trusted test IDs. Human-facing rationale stays in
+`tests_rationale`, and Stage 2C-B2 ignores that field when building
+commands. The trusted `.github/codex/sandbox-test-policy.yml` maps
 simple trusted IDs to fixed argv arrays.
 
 Initial executable allowance is intentionally narrow:
