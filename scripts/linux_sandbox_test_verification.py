@@ -29,9 +29,20 @@ FIX_POLICY_PATH = REPO_ROOT / ".github" / "codex" / "fix-policy.yml"
 SANDBOX_TEST_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "fix-sandbox-test.yml"
 SUPPORT_DIR = REPO_ROOT / "scripts" / "sandbox_test_support"
 WINDOWS_PYTHON3_SKIP_REASON = "python3 is unavailable locally"
-EXPLAINED_LINUX_SKIP_REASONS = {
-    "set ROGUE_BINARY to run the Rogue launch test",
+TRUSTED_OPTIONAL_TEST_ROOT_PREFIXES = ("tests",)
+APPROVED_ROGUE_LAUNCH_SKIP_REASON = "set ROGUE_BINARY to run the Rogue launch test"
+APPROVED_ENVIRONMENTAL_SKIP_REASONS = {
+    "test_rogue_launch.RogueLaunchTest.test_launch_new_game_and_quit": (
+        APPROVED_ROGUE_LAUNCH_SKIP_REASON
+    ),
+    "test_rogue_launch.RogueLaunchTest.test_suspend_resume_accepts_input_and_quits": (
+        APPROVED_ROGUE_LAUNCH_SKIP_REASON
+    ),
 }
+SHADOWING_PROTECTION_TEST_ID = (
+    "test_sandbox_test.SandboxTestTests."
+    "test_worktree_cannot_shadow_trusted_support_test_module"
+)
 EXPECTED_TEST_IDS = (
     "unit",
     "stage2c-targeted",
@@ -56,6 +67,7 @@ RESULT_LINE_RE = re.compile(
 )
 RUN_COUNT_RE = re.compile(r"Ran (?P<count>\d+) tests?")
 SUMMARY_FIELD_RE = re.compile(r"([A-Za-z ]+)=([0-9]+)")
+TEST_ID_COMPONENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def configure_roots(*, target_root: Path, control_root: Path) -> None:
@@ -84,6 +96,58 @@ class CommandResult:
     log_path: str
     timed_out: bool = False
     output_truncated: bool = False
+
+
+def canonical_unittest_id(raw_id: str) -> str:
+    text = raw_id.strip()
+    if not text:
+        raise ValueError("empty unittest ID")
+    parts = text.split(".")
+    if any(not part or not TEST_ID_COMPONENT_RE.fullmatch(part) for part in parts):
+        raise ValueError(f"malformed unittest ID: {raw_id!r}")
+    if parts[0] in TRUSTED_OPTIONAL_TEST_ROOT_PREFIXES:
+        parts = parts[1:]
+    if len(parts) != 3:
+        raise ValueError(f"unexpected unittest ID shape: {raw_id!r}")
+    module_name, class_name, method_name = parts
+    if not module_name.startswith("test_"):
+        raise ValueError(f"unexpected unittest module: {raw_id!r}")
+    if not method_name.startswith("test_"):
+        raise ValueError(f"unexpected unittest method: {raw_id!r}")
+    return ".".join((module_name, class_name, method_name))
+
+
+def canonical_unittest_id_or_raw(raw_id: str) -> str:
+    try:
+        return canonical_unittest_id(raw_id)
+    except ValueError:
+        return raw_id.strip()
+
+
+def canonical_unittest_ids(raw_ids: list[str]) -> list[str]:
+    return sorted({canonical_unittest_id(test_id) for test_id in raw_ids})
+
+
+def canonical_test_set(result: dict[str, Any], key: str) -> set[str]:
+    return {
+        canonical_unittest_id_or_raw(test_id)
+        for test_id in result.get(key, [])
+    }
+
+
+def canonical_skip_items(result: dict[str, Any]) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for item in result.get("skipped_tests", []):
+        raw_test = item.get("raw_test") or item.get("test", "")
+        canonical_test = canonical_unittest_id_or_raw(item.get("test", raw_test))
+        items.append(
+            {
+                "test": canonical_test,
+                "raw_test": raw_test,
+                "reason": item.get("reason", ""),
+            }
+        )
+    return items
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -217,7 +281,8 @@ def parse_unittest_output(command: CommandResult) -> dict[str, Any]:
         match = RESULT_LINE_RE.match(line)
         if not match:
             continue
-        test_id = match.group("test_id")
+        raw_test_id = match.group("test_id").strip()
+        test_id = canonical_unittest_id_or_raw(raw_test_id)
         status = match.group("status")
         if status == "ok":
             successes.append(test_id)
@@ -229,7 +294,13 @@ def parse_unittest_output(command: CommandResult) -> dict[str, Any]:
             reason = status.removeprefix("skipped ").strip()
             if len(reason) >= 2 and reason[0] == reason[-1] and reason[0] in {"'", '"'}:
                 reason = reason[1:-1]
-            skipped.append({"test": test_id, "reason": reason})
+            skipped.append(
+                {
+                    "test": test_id,
+                    "raw_test": raw_test_id,
+                    "reason": reason,
+                }
+            )
         elif status == "expected failure":
             expected_failures.append(test_id)
         elif status == "unexpected success":
@@ -436,7 +507,11 @@ def source_python3_skip_tests(path: Path) -> list[str]:
                     isinstance(reason, ast.Constant)
                     and reason.value == WINDOWS_PYTHON3_SKIP_REASON
                 ):
-                    found.append(f"{module_name}.{class_node.name}.{node.name}")
+                    found.append(
+                        canonical_unittest_id(
+                            f"{module_name}.{class_node.name}.{node.name}"
+                        )
+                    )
     return sorted(found)
 
 
@@ -444,30 +519,81 @@ def classify_skips(
     full: dict[str, Any],
     targeted: dict[str, Any],
     expected_windows_python3_skips: list[str],
+    *,
+    rogue_binary_present: bool = False,
 ) -> dict[str, Any]:
-    full_skips = {item["test"]: item["reason"] for item in full["skipped_tests"]}
-    targeted_skips = {item["test"]: item["reason"] for item in targeted["skipped_tests"]}
-    success_names = set(full["successes"]) | set(targeted["successes"])
+    expected = canonical_unittest_ids(expected_windows_python3_skips)
+    full_skip_items = canonical_skip_items(full)
+    targeted_skip_items = canonical_skip_items(targeted)
+    skip_items = full_skip_items + targeted_skip_items
+    full_skips = {item["test"]: item["reason"] for item in full_skip_items}
+    targeted_skips = {item["test"]: item["reason"] for item in targeted_skip_items}
+    success_names = canonical_test_set(full, "successes") | canonical_test_set(
+        targeted,
+        "successes",
+    )
+    failure_names = canonical_test_set(full, "failure_tests") | canonical_test_set(
+        targeted,
+        "failure_tests",
+    )
+    error_names = canonical_test_set(full, "error_tests") | canonical_test_set(
+        targeted,
+        "error_tests",
+    )
+    skipped_names = set(full_skips) | set(targeted_skips)
+    has_failures_or_errors = bool(failure_names or error_names)
     recovered = [
         test_id
-        for test_id in expected_windows_python3_skips
+        for test_id in expected
         if test_id in success_names
+    ]
+    observed_on_linux = [
+        test_id
+        for test_id in expected
+        if test_id in success_names
+        or test_id in failure_names
+        or test_id in error_names
+        or test_id in skipped_names
     ]
     still_skipped = [
         {"test": test_id, "reason": full_skips.get(test_id) or targeted_skips.get(test_id, "")}
-        for test_id in expected_windows_python3_skips
+        for test_id in expected
         if test_id in full_skips or test_id in targeted_skips
     ]
-    unexpected = [
-        item
-        for item in full["skipped_tests"] + targeted["skipped_tests"]
-        if item["reason"] not in EXPLAINED_LINUX_SKIP_REASONS
+    failed = [
+        test_id
+        for test_id in expected
+        if test_id in failure_names or test_id in error_names
     ]
+    expected_environmental_skips: list[dict[str, str]] = []
+    unexpected: list[dict[str, str]] = []
+    for item in skip_items:
+        expected_reason = APPROVED_ENVIRONMENTAL_SKIP_REASONS.get(item["test"])
+        if (
+            expected_reason is not None
+            and item["reason"] == expected_reason
+            and not rogue_binary_present
+            and not has_failures_or_errors
+        ):
+            expected_environmental_skips.append(item)
+        else:
+            unexpected.append(item)
+    required_evidence_passed = set(expected).issubset(success_names)
+    shadowing_protection_passed = SHADOWING_PROTECTION_TEST_ID in success_names
     return {
-        "windows_python3_skips_identified": expected_windows_python3_skips,
+        "windows_python3_skips_identified": expected,
+        "windows_python3_skips_observed_on_linux": observed_on_linux,
         "windows_python3_skips_recovered": recovered,
         "windows_python3_skips_still_skipped": still_skipped,
+        "windows_python3_skips_failed": failed,
+        "recovered_windows_python3_tests": recovered,
+        "skipped_tests": skip_items,
+        "expected_environmental_skips": expected_environmental_skips,
         "unexpected_linux_skips": unexpected,
+        "unexpected_skips": unexpected,
+        "required_evidence_tests": expected,
+        "required_evidence_passed": required_evidence_passed,
+        "shadowing_protection_passed": shadowing_protection_passed,
     }
 
 
@@ -545,6 +671,10 @@ def determine_status(
         return "TEST_FAILURE"
     if full.get("output_truncated") or targeted.get("output_truncated"):
         return "TEST_FAILURE"
+    if full.get("failures") or targeted.get("failures"):
+        return "TEST_FAILURE"
+    if full.get("errors") or targeted.get("errors"):
+        return "TEST_FAILURE"
     if full["returncode"] != 0 or targeted["returncode"] != 0:
         return "TEST_FAILURE"
     if policy["missing_commands"] or policy["missing_downloads"] or policy["orphan_downloads"]:
@@ -564,16 +694,12 @@ def determine_status(
         return "POLICY_MISMATCH"
     expected = set(skip_info["windows_python3_skips_identified"])
     recovered = set(skip_info["windows_python3_skips_recovered"])
-    if expected != recovered:
-        return "UNEXPECTED_SKIP"
+    if expected != recovered or not skip_info.get("required_evidence_passed", False):
+        return "MODULE_BINDING_FAILURE"
+    if not skip_info.get("shadowing_protection_passed", False):
+        return "MODULE_BINDING_FAILURE"
     if skip_info["unexpected_linux_skips"]:
         return "UNEXPECTED_SKIP"
-    shadow_test = (
-        "tests.test_sandbox_test.SandboxTestTests."
-        "test_worktree_cannot_shadow_trusted_support_test_module"
-    )
-    if shadow_test not in set(full["successes"]) | set(targeted["successes"]):
-        return "MODULE_BINDING_FAILURE"
     if forbidden_secret_environment_present():
         return "INTERNAL_ERROR"
     return "VERIFIED"
@@ -606,6 +732,31 @@ def policy_execution_plan() -> dict[str, list[str]]:
         "targeted_modules": targeted_modules,
         "executed_policy_test_ids": executed_policy_test_ids,
         "not_applicable_policy_test_ids": not_applicable_policy_test_ids,
+    }
+
+
+def policy_test_execution_status(
+    *,
+    execution_plan: dict[str, list[str]],
+    policy: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    target_available = (REPO_ROOT / "canary" / "stage2c_b1_clamp.py").is_file()
+    command_binding_verified = policy["stage2c_b1_clamp_argv"] == [
+        "python3",
+        "-m",
+        "unittest",
+        "stage2c_b1_clamp_tests",
+    ]
+    return {
+        "stage2c-b1-clamp": {
+            "command_binding_verified": command_binding_verified,
+            "runtime_target_available": target_available,
+            "execution_status": (
+                "EXECUTED"
+                if "stage2c-b1-clamp" in execution_plan["executed_policy_test_ids"]
+                else "NOT_APPLICABLE_DEFAULT_BRANCH"
+            ),
+        }
     }
 
 
@@ -655,11 +806,13 @@ def run_verification(output_dir: Path) -> int:
     )
     policy = trusted_policy_summary()
     skipped_tests = source_python3_skip_tests(REPO_ROOT / "tests" / "test_sandbox_test.py")
-    skip_info = classify_skips(full, targeted, skipped_tests)
-    shadowing_passed = (
-        "tests.test_sandbox_test.SandboxTestTests."
-        "test_worktree_cannot_shadow_trusted_support_test_module"
-    ) in set(full["successes"]) | set(targeted["successes"])
+    skip_info = classify_skips(
+        full,
+        targeted,
+        skipped_tests,
+        rogue_binary_present=bool(os.environ.get("ROGUE_BINARY")),
+    )
+    shadowing_passed = skip_info["shadowing_protection_passed"]
     status = determine_status(
         env=env,
         full=full,
@@ -702,6 +855,10 @@ def run_verification(output_dir: Path) -> int:
         "not_applicable_policy_test_ids": execution_plan[
             "not_applicable_policy_test_ids"
         ],
+        "policy_test_execution_status": policy_test_execution_status(
+            execution_plan=execution_plan,
+            policy=policy,
+        ),
         "canonical_commands": policy["canonical_commands"],
         "support_module_paths": policy["support_module_paths"],
         "support_module_hashes": {
@@ -712,6 +869,7 @@ def run_verification(output_dir: Path) -> int:
         "policy_command_argv_match": policy["policy_command_argv_match"],
         "command_argv_mismatches": policy["command_argv_mismatches"],
         "shadowing_protection_passed": shadowing_passed,
+        "rogue_binary_present": bool(os.environ.get("ROGUE_BINARY")),
         "secret_environment_keys_present": forbidden_secret_environment_present(),
         "status": status,
     }
