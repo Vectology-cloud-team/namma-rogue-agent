@@ -26,6 +26,7 @@ jobs:
         env:
           REQUEST_DIR: ${{ runner.temp }}/sandbox-validation-request
           REQUESTED_AT: ${{ github.event.pull_request.updated_at }}
+          REQUEST_STAGE: SANDBOX_VALIDATION_REQUEST
         run: |
           python3 - <<'PY'
           import json
@@ -38,6 +39,7 @@ jobs:
           labels = sorted(label["name"] for label in pull.get("labels", []))
           manifest = {
               "schema_version": "sandbox-validation-request-v1",
+              "request_stage": os.environ["REQUEST_STAGE"],
               "repository": os.environ["GITHUB_REPOSITORY"],
               "pull_request_number": int(pull["number"]),
               "base_sha": pull["base"]["sha"],

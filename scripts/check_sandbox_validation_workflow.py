@@ -127,6 +127,7 @@ def check_collector(text: str) -> list[CheckResult]:
     add(results, "sandbox collector does not run repository scripts", "scripts/" not in collect_job)
     add(results, "sandbox collector records trusted event actor", '"actor": event["sender"]["login"]' in collect_job)
     add(results, "sandbox collector writes fixed request schema", "sandbox-validation-request-v1" in collect_job)
+    add(results, "sandbox collector writes fixed request stage", "SANDBOX_VALIDATION_REQUEST" in collect_job)
     add(results, "sandbox collector uploads request artifact", "sandbox-validation-request-${{ github.run_id }}" in collect_job)
     return results
 
