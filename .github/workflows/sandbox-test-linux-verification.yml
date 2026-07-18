@@ -31,13 +31,6 @@ jobs:
           path: verification-control
           persist-credentials: false
 
-      - name: Checkout verification target
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          path: verification-target
-          persist-credentials: false
-
       - name: Run sandbox test Linux verification
         env:
           MAIN_SHA: ${{ github.sha }}
@@ -46,7 +39,7 @@ jobs:
         run: |
           python3 verification-control/scripts/linux_sandbox_test_verification.py \
             --control-root verification-control \
-            --target-root verification-target \
+            --target-root verification-control \
             --output-dir linux-verification-results
 
       - name: Upload Linux verification result artifact

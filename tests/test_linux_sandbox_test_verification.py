@@ -433,13 +433,14 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
         )
         self.assertIn("ref: ${{ github.sha }}", workflow)
         self.assertIn("path: verification-control", workflow)
-        self.assertIn("path: verification-target", workflow)
+        self.assertNotIn("path: verification-target", workflow)
+        self.assertNotIn("ref: ${{ github.event.workflow_run.head_sha }}", workflow)
         self.assertIn(
             "python3 verification-control/scripts/linux_sandbox_test_verification.py",
             workflow,
         )
         self.assertIn("--control-root verification-control", workflow)
-        self.assertIn("--target-root verification-target", workflow)
+        self.assertIn("--target-root verification-control", workflow)
 
     def test_script_uses_trusted_support_test_modules(self) -> None:
         script = SCRIPT_PATH.read_text(encoding="utf-8")
