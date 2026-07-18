@@ -162,8 +162,8 @@ class SandboxTestTests(unittest.TestCase):
                     "--- a/canary/example.py\n"
                     "+++ b/canary/example.py\n"
                     "@@ -1 +1 @@\n"
-                    "-return False\n"
-                    "+return True\n",
+                    "-VALUE = False\n"
+                    "+VALUE = True\n",
                 }
             ],
         }
@@ -345,23 +345,52 @@ class SandboxTestTests(unittest.TestCase):
             result.update(overrides)
         return result
 
-    def apply_bundle(self, *, result_overrides=None):
+    def apply_diff_binding(self, *, overrides=None):
+        binding = {
+            "status": "PASS",
+            "expected_paths": ["canary/example.py"],
+            "actual_paths": ["canary/example.py"],
+            "numstat": {
+                "canary/example.py": {
+                    "additions": 1,
+                    "deletions": 1,
+                },
+            },
+            "patch_line_stats": {
+                "canary/example.py": {
+                    "additions": 1,
+                    "deletions": 1,
+                },
+            },
+            "message": "ok",
+        }
+        if overrides:
+            binding.update(overrides)
+        return binding
+
+    def apply_bundle(self, *, result_overrides=None, diff_binding_overrides=None):
+        diff_binding = self.apply_diff_binding(overrides=diff_binding_overrides)
         return sandbox_test.ApplyBundle(
             result=self.apply_result(overrides=result_overrides),
             result_hash=APPLY_HASH,
+            diff_binding=diff_binding,
+            diff_binding_hash=sandbox_test.sha256_hex_json(diff_binding),
             artifact_id=103,
             artifact_name="sandbox-apply-result-test",
             workflow_run_id=203,
             workflow_name=sandbox_test.apply.APPLY_WORKFLOW_NAME,
         )
 
-    def make_test_context(self, *, apply_result_overrides=None):
+    def make_test_context(self, *, apply_result_overrides=None, diff_binding_overrides=None):
         return sandbox_test.build_test_context(
             manifest=self.manifest(),
             proposal_bundle=self.proposal_bundle(),
             approval_bundle=self.approval_bundle(),
             preflight_bundle=self.preflight_bundle(),
-            apply_bundle=self.apply_bundle(result_overrides=apply_result_overrides),
+            apply_bundle=self.apply_bundle(
+                result_overrides=apply_result_overrides,
+                diff_binding_overrides=diff_binding_overrides,
+            ),
             test_policy=self.sandbox_test_policy(),
             test_commands=(
                 self.sandbox_test_policy().commands["unit"],
@@ -557,6 +586,8 @@ class SandboxTestTests(unittest.TestCase):
         result = self.apply_result()
         sandbox_test.validate_apply_result_for_test(
             result=result,
+            diff_binding=self.apply_diff_binding(),
+            resulting_hashes=result["resulting_file_hashes"],
             manifest=self.manifest(),
             proposal_bundle=self.proposal_bundle(),
             approval_bundle=self.approval_bundle(),
@@ -571,6 +602,8 @@ class SandboxTestTests(unittest.TestCase):
         with self.assertRaises(sandbox_test.fix.FixProposalFailure) as caught:
             sandbox_test.validate_apply_result_for_test(
                 result=result,
+                diff_binding=self.apply_diff_binding(),
+                resulting_hashes=result["resulting_file_hashes"],
                 manifest=self.manifest(),
                 proposal_bundle=self.proposal_bundle(),
                 approval_bundle=self.approval_bundle(),
@@ -592,6 +625,8 @@ class SandboxTestTests(unittest.TestCase):
                 with self.assertRaises(sandbox_test.fix.FixProposalFailure):
                     sandbox_test.validate_apply_result_for_test(
                         result=self.apply_result(overrides={"patch_file_hash": value}),
+                        diff_binding=self.apply_diff_binding(),
+                        resulting_hashes=self.apply_result()["resulting_file_hashes"],
                         manifest=self.manifest(),
                         proposal_bundle=self.proposal_bundle(),
                         approval_bundle=self.approval_bundle(),
@@ -606,6 +641,8 @@ class SandboxTestTests(unittest.TestCase):
         with self.assertRaises(sandbox_test.fix.FixProposalFailure):
             sandbox_test.validate_apply_result_for_test(
                 result=result,
+                diff_binding=self.apply_diff_binding(),
+                resulting_hashes=result["resulting_file_hashes"],
                 manifest=self.manifest(),
                 proposal_bundle=self.proposal_bundle(),
                 approval_bundle=self.approval_bundle(),
@@ -625,6 +662,8 @@ class SandboxTestTests(unittest.TestCase):
         with self.assertRaises(sandbox_test.fix.FixProposalFailure):
             sandbox_test.validate_apply_result_for_test(
                 result=result,
+                diff_binding=self.apply_diff_binding(),
+                resulting_hashes=result["resulting_file_hashes"],
                 manifest=self.manifest(),
                 proposal_bundle=self.proposal_bundle(),
                 approval_bundle=self.approval_bundle(),
@@ -640,7 +679,7 @@ class SandboxTestTests(unittest.TestCase):
             context["patch_file_hash"],
         )
         self.assertEqual(
-            sandbox_test.sha256_hex_json(context["sandbox_apply_result"]["diff_binding"]),
+            sandbox_test.sha256_hex_json(self.apply_diff_binding()),
             context["resulting_diff_hash"],
         )
         sandbox_test.validate_test_context_contract(context)
@@ -681,6 +720,18 @@ class SandboxTestTests(unittest.TestCase):
         with self.assertRaises(sandbox_test.SandboxTestStatus) as caught:
             sandbox_test.validate_test_context_contract(context)
         self.assertEqual("RESULTING_DIFF_HASH_MISMATCH", caught.exception.code)
+
+    def test_test_context_rejects_command_argv_tampering(self):
+        context = self.make_test_context()
+        context["test_commands"][0]["argv"] = [
+            "python3",
+            "-m",
+            "unittest",
+            "stage2c_targeted_tests",
+        ]
+        with self.assertRaises(sandbox_test.SandboxTestStatus) as caught:
+            sandbox_test.validate_test_context_contract(context)
+        self.assertEqual("COMMAND_BINDING_MISMATCH", caught.exception.code)
 
     def test_test_context_rejects_trusted_support_as_cwd_before_execution(self):
         context = self.make_test_context()
@@ -866,6 +917,135 @@ class SandboxTestTests(unittest.TestCase):
                 os.environ.clear()
                 os.environ.update(old_env)
         self.assertFalse(called)
+
+    @unittest.skipUnless(python3_works(), "python3 is unavailable locally")
+    def test_command_run_tests_success_uses_full_apply_diff_binding(self):
+        diff_message = "applied diff paths and line counts match proposal patch"
+        patched_source = "VALUE = True\n"
+        resulting_blob_sha = subprocess.run(
+            ["git", "hash-object", "--stdin"],
+            input=patched_source.encode("utf-8"),
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.decode("utf-8").strip()
+        result_overrides = {
+            "diff_binding": sandbox_test.check_result("PASS", diff_message),
+            "resulting_file_hashes": [
+                {
+                    "path": "canary/example.py",
+                    "resulting_blob_sha": resulting_blob_sha,
+                }
+            ],
+        }
+        diff_binding_overrides = {"message": diff_message}
+        context = self.make_test_context(
+            apply_result_overrides=result_overrides,
+            diff_binding_overrides=diff_binding_overrides,
+        )
+        old_env = os.environ.copy()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            worktree = root / "worktree"
+            worktree.mkdir()
+            (worktree / "canary").mkdir()
+            (worktree / "canary" / "__init__.py").write_text("", encoding="utf-8")
+            (worktree / "canary" / "example.py").write_text(
+                "VALUE = False\n",
+                encoding="utf-8",
+            )
+            (worktree / "tests").mkdir()
+            (worktree / "tests" / "test_example.py").write_text(
+                "\n".join(
+                    [
+                        "import unittest",
+                        "",
+                        "from canary.example import VALUE",
+                        "",
+                        "",
+                        "class ExampleTest(unittest.TestCase):",
+                        "    def test_value_is_true(self):",
+                        "        self.assertIs(VALUE, True)",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            for command in (
+                ["git", "init"],
+                ["git", "config", "user.email", "sandbox-test@example.invalid"],
+                ["git", "config", "user.name", "Sandbox Test"],
+                ["git", "config", "core.autocrlf", "false"],
+                ["git", "add", "."],
+                ["git", "commit", "-m", "base"],
+            ):
+                subprocess.run(
+                    command,
+                    cwd=worktree,
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            head_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=worktree,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ).stdout.decode("utf-8").strip()
+            for key in (
+                "manifest",
+                "proposal",
+                "proposal_metadata",
+                "approval_record",
+                "preflight_result",
+                "sandbox_apply_result",
+                "proposal_artifact",
+                "approval_artifact",
+                "preflight_artifact",
+                "sandbox_apply_artifact",
+            ):
+                if "head_sha" in context[key]:
+                    context[key]["head_sha"] = head_sha
+
+            context_dir = root / "context"
+            context_dir.mkdir()
+            sandbox_test.write_json_file(
+                context_dir / sandbox_test.TEST_CONTEXT_FILE,
+                context,
+            )
+            os.environ.update(
+                {
+                    "TEST_CONTEXT_DIR": str(context_dir),
+                    "TEST_RESULT_DIR": str(root / "result"),
+                    "SANDBOX_WORKTREE": str(worktree),
+                    "PATCH_FILE": str(root / "patch.diff"),
+                    "SANDBOX_TEST_RESULT_SCHEMA": str(self.sandbox_test_schema_path()),
+                    "TEST_SUPPORT_DIR": str(REPO_ROOT / "scripts" / "sandbox_test_support"),
+                }
+            )
+            try:
+                self.assertEqual(0, sandbox_test.command_run_tests(None))
+                result = sandbox_test.read_json_file(
+                    root / "result" / "sandbox-test-result.json"
+                )
+                sandbox_test.validate_test_result_against_schema(
+                    result,
+                    self.sandbox_test_schema_path(),
+                )
+                self.assertEqual("TESTS_PASSED", result["status"])
+                self.assertEqual(2, len(result["tests_executed"]))
+                self.assertEqual([], result["tracked_changes_after_tests"])
+                self.assertEqual([], result["untracked_files_after_tests"])
+                self.assertEqual(
+                    sandbox_test.sha256_hex_json(
+                        self.apply_diff_binding(overrides=diff_binding_overrides)
+                    ),
+                    result["resulting_diff_hash"],
+                )
+            finally:
+                os.environ.clear()
+                os.environ.update(old_env)
 
     def test_secret_environment_is_not_propagated(self):
         old = os.environ.get("GITHUB_TOKEN")

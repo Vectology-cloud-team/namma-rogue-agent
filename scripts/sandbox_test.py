@@ -155,6 +155,8 @@ class SandboxTestPolicy:
 class ApplyBundle:
     result: dict[str, Any]
     result_hash: str
+    diff_binding: dict[str, Any]
+    diff_binding_hash: str
     artifact_id: int
     artifact_name: str
     workflow_run_id: int
@@ -699,6 +701,8 @@ def apply_result_targets_test_request(
 def validate_apply_result_for_test(
     *,
     result: dict[str, Any],
+    diff_binding: dict[str, Any],
+    resulting_hashes: Any,
     manifest: dict[str, Any],
     proposal_bundle: preflight.ArtifactBundle,
     approval_bundle: preflight.ApprovalBundle,
@@ -756,6 +760,24 @@ def validate_apply_result_for_test(
             "sandbox apply result did not pass diff binding",
             "sandbox_apply_result_lookup",
         )
+    if not isinstance(diff_binding, dict):
+        raise fatal(
+            fix.FailureCode.INVALID_PROPOSAL,
+            "APPLY_CONTRACT_INVALID: diff-binding sidecar must be a JSON object",
+            "sandbox_apply_result_lookup",
+        )
+    if diff_binding.get("status") != "PASS":
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "sandbox apply diff-binding sidecar did not pass",
+            "sandbox_apply_result_lookup",
+        )
+    if result.get("diff_binding", {}).get("message") != diff_binding.get("message"):
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "BINDING_MISMATCH: sandbox apply diff-binding sidecar message mismatch",
+            "sandbox_apply_result_lookup",
+        )
     expected_patch_hash = apply.sha256_hex_bytes(
         apply.combined_patch_text(proposal_bundle.data).encode("utf-8")
     )
@@ -770,11 +792,30 @@ def validate_apply_result_for_test(
             "sandbox apply patch hash does not match proposal patch bytes",
             "sandbox_apply_result_lookup",
         )
-    require_resulting_file_hashes(
+    canonical_resulting_hashes = require_resulting_file_hashes(
         result,
         expected_paths=apply.expected_change_paths(proposal_bundle.data),
         operation="sandbox_apply_result_lookup",
     )
+    if resulting_hashes != canonical_resulting_hashes:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "BINDING_MISMATCH: resulting-file-hashes sidecar does not match apply result",
+            "sandbox_apply_result_lookup",
+        )
+    expected_paths = sorted(apply.expected_change_paths(proposal_bundle.data))
+    if sorted(str(path) for path in diff_binding.get("expected_paths", [])) != expected_paths:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "BINDING_MISMATCH: diff-binding expected paths do not match proposal",
+            "sandbox_apply_result_lookup",
+        )
+    if sorted(str(path) for path in diff_binding.get("actual_paths", [])) != expected_paths:
+        raise fatal(
+            fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
+            "BINDING_MISMATCH: diff-binding actual paths do not match proposal",
+            "sandbox_apply_result_lookup",
+        )
 
 
 def require_sha256_field(
@@ -947,8 +988,12 @@ def find_latest_apply_result_artifact(
                     "sandbox apply result artifact must contain a JSON object",
                     "sandbox_apply_result_lookup",
                 )
+            diff_binding = read_json_file(output_dir / "diff-binding.json")
+            resulting_hashes = read_json_file(output_dir / "resulting-file-hashes.json")
             validate_apply_result_for_test(
                 result=result,
+                diff_binding=diff_binding,
+                resulting_hashes=resulting_hashes,
                 manifest=manifest,
                 proposal_bundle=proposal_bundle,
                 approval_bundle=approval_bundle,
@@ -959,6 +1004,8 @@ def find_latest_apply_result_artifact(
             return ApplyBundle(
                 result=result,
                 result_hash=sha256_hex_json(result),
+                diff_binding=diff_binding,
+                diff_binding_hash=sha256_hex_json(diff_binding),
                 artifact_id=artifact_id,
                 artifact_name=name,
                 workflow_run_id=run_id,
@@ -1119,6 +1166,7 @@ def build_test_context(
         "preflight_result_hash": preflight_bundle.result_hash,
         "sandbox_apply_result": apply_result,
         "sandbox_apply_result_hash": apply_bundle.result_hash,
+        "sandbox_apply_diff_binding": apply_bundle.diff_binding,
         "test_request_actor": test_actor,
         "test_request_actor_repository_permission": test_actor_permission,
         "test_request_actor_repository_role": test_actor_role,
@@ -1178,7 +1226,7 @@ def build_test_context(
         "expected_files": apply.expected_change_paths(proposal),
         "patch_text": patch_text,
         "patch_file_hash": patch_file_hash,
-        "resulting_diff_hash": sha256_hex_json(apply_result["diff_binding"]),
+        "resulting_diff_hash": apply_bundle.diff_binding_hash,
         "test_commands": test_plan,
         "test_plan_hash": test_plan_hash,
         "started_at": now_utc(),
@@ -1484,11 +1532,13 @@ def validate_test_context_contract(context: dict[str, Any]) -> None:
         "sandbox_apply_result",
         "preflight_result_hash",
         "sandbox_apply_result_hash",
+        "sandbox_apply_diff_binding",
         "patch_text",
         "patch_file_hash",
         "resulting_diff_hash",
         "expected_files",
         "test_commands",
+        "test_plan_hash",
         "sandbox_test_policy",
     ):
         if field_name not in context:
@@ -1573,7 +1623,31 @@ def validate_test_context_contract(context: dict[str, Any]) -> None:
             "sandbox apply result in context is missing diff_binding",
             "sandbox_test_context_validation",
         )
-    expected_diff_hash = sha256_hex_json(context["sandbox_apply_result"]["diff_binding"])
+    if not isinstance(context["sandbox_apply_diff_binding"], dict):
+        raise SandboxTestStatus(
+            RESULT_STATUS_ARTIFACT_INVALID,
+            "APPLY_CONTRACT_INVALID",
+            "sandbox apply diff-binding sidecar in context must be a JSON object",
+            "sandbox_test_context_validation",
+        )
+    if context["sandbox_apply_diff_binding"].get("status") != "PASS":
+        raise SandboxTestStatus(
+            RESULT_STATUS_BINDING_MISMATCH,
+            "RESULTING_DIFF_HASH_MISMATCH",
+            "sandbox apply diff-binding sidecar in context did not pass",
+            "sandbox_test_context_validation",
+        )
+    if (
+        context["sandbox_apply_result"].get("diff_binding", {}).get("message")
+        != context["sandbox_apply_diff_binding"].get("message")
+    ):
+        raise SandboxTestStatus(
+            RESULT_STATUS_BINDING_MISMATCH,
+            "RESULTING_DIFF_HASH_MISMATCH",
+            "sandbox apply diff-binding sidecar does not match apply result summary",
+            "sandbox_test_context_validation",
+        )
+    expected_diff_hash = sha256_hex_json(context["sandbox_apply_diff_binding"])
     if context["resulting_diff_hash"] != expected_diff_hash:
         raise SandboxTestStatus(
             RESULT_STATUS_BINDING_MISMATCH,
@@ -1586,6 +1660,16 @@ def validate_test_context_contract(context: dict[str, Any]) -> None:
             RESULT_STATUS_TEST_COMMAND_REJECTED,
             "EMPTY_TEST_PLAN",
             "sandbox test context does not contain approved test commands",
+            "sandbox_test_context_validation",
+        )
+    if (
+        not isinstance(context["test_plan_hash"], str)
+        or SHA256_RE.fullmatch(context["test_plan_hash"]) is None
+    ):
+        raise SandboxTestStatus(
+            RESULT_STATUS_ARTIFACT_INVALID,
+            "APPLY_CONTRACT_INVALID",
+            "sandbox test context test_plan_hash must be a SHA-256 hex digest",
             "sandbox_test_context_validation",
         )
     for command in context["test_commands"]:
@@ -1603,6 +1687,28 @@ def validate_test_context_contract(context: dict[str, Any]) -> None:
                 "sandbox test commands must use the logical sandbox worktree cwd",
                 "sandbox_test_context_validation",
             )
+        argv = command.get("argv")
+        if not isinstance(argv, list) or not all(isinstance(arg, str) for arg in argv):
+            raise SandboxTestStatus(
+                RESULT_STATUS_TEST_COMMAND_REJECTED,
+                "UNAPPROVED_TEST_COMMAND",
+                "sandbox test command argv must be a string array",
+                "sandbox_test_context_validation",
+            )
+        validate_argv(str(command.get("test_id", "")), tuple(argv))
+    expected_test_plan_hash = sha256_hex_json(
+        {
+            "phase": RESULT_PHASE_SANDBOX_TEST,
+            "commands": context["test_commands"],
+        }
+    )
+    if context["test_plan_hash"] != expected_test_plan_hash:
+        raise SandboxTestStatus(
+            RESULT_STATUS_TEST_COMMAND_REJECTED,
+            "COMMAND_BINDING_MISMATCH",
+            "sandbox test command records do not match trusted prepare bindings",
+            "sandbox_test_context_validation",
+        )
 
 
 def write_test_artifact(
