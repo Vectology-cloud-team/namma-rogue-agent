@@ -435,7 +435,8 @@ comments. It accepts only `proposal.tests_recommended` entries that
 match trusted sandbox-test policy IDs or exact trusted aliases, maps
 them to fixed `python3 -m unittest` argv arrays, and runs them inside
 the same ephemeral sandbox model as Stage 2C-B1. The sandbox test job
-does not receive OpenAI credentials, PATs, or write permissions.
+does not receive OpenAI credentials, PATs, or write permissions, and
+the step that spawns untrusted tests does not receive `GITHUB_TOKEN`.
 
 ## Human Decisions
 

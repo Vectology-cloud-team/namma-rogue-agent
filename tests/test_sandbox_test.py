@@ -288,6 +288,42 @@ class SandboxTestTests(unittest.TestCase):
         self.assertNotIn("GITHUB_TOKEN", env)
         self.assertIn("PYTHONPATH", env)
 
+    def test_test_runner_step_does_not_export_github_token(self):
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "fix-sandbox-test.yml"
+        ).read_text(encoding="utf-8")
+        marker = "      - name: Run approved tests in ephemeral sandbox"
+        start = workflow.index(marker)
+        end = workflow.find("\n      - name:", start + len(marker))
+        step = workflow[start:] if end == -1 else workflow[start:end]
+        self.assertNotIn("GITHUB_TOKEN", step)
+
+    def test_total_timeout_limits_effective_command_timeout(self):
+        current = sandbox_test.time.monotonic
+        try:
+            sandbox_test.time.monotonic = lambda: 105.0
+            timeout = sandbox_test.effective_command_timeout(
+                start_time=100.0,
+                total_timeout_seconds=30,
+                command_timeout_seconds=120,
+            )
+            self.assertEqual(25, timeout)
+        finally:
+            sandbox_test.time.monotonic = current
+
+    def test_total_timeout_expiry_is_rejected(self):
+        current = sandbox_test.time.monotonic
+        try:
+            sandbox_test.time.monotonic = lambda: 131.0
+            with self.assertRaises(sandbox_test.SandboxTestStatus):
+                sandbox_test.effective_command_timeout(
+                    start_time=100.0,
+                    total_timeout_seconds=30,
+                    command_timeout_seconds=120,
+                )
+        finally:
+            sandbox_test.time.monotonic = current
+
     def test_output_truncation_records_flag(self):
         truncated, flag = sandbox_test.redacted_output(b"abcdef", 3)
         self.assertEqual(b"abc", truncated)

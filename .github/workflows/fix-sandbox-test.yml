@@ -149,7 +149,6 @@ jobs:
         if: steps.prepare.outputs.test_ready == 'true'
         env:
           PYTHONPATH: ${{ github.workspace }}/sandbox-test-control/scripts
-          GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TEST_CONTEXT_DIR: ${{ runner.temp }}/sandbox-test-context
           TEST_RESULT_DIR: ${{ runner.temp }}/sandbox-test-result

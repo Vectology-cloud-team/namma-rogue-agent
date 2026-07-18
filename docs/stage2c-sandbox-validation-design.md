@@ -818,6 +818,10 @@ path traversal, absolute paths, wildcards, command separators, package
 installers, Git commands, network download tools, and unknown runners.
 The test process receives only allowlisted environment variables and a
 trusted fixed `PYTHONPATH` when a trusted support module is required.
+The process that spawns untrusted sandbox tests must not receive
+`GITHUB_TOKEN` or other repository credentials. Live HEAD checks are
+performed before sandbox checkout and again before sticky comment
+publication by trusted workflow steps that do not execute PR code.
 
 ### Runtime Limits
 

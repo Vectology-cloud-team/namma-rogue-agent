@@ -71,6 +71,17 @@ def job_section(text: str, job_name: str) -> str:
     return text[start : start + len(marker) + match.start()]
 
 
+def step_section(text: str, step_name: str) -> str:
+    marker = f"      - name: {step_name}"
+    start = text.find(marker)
+    if start == -1:
+        return ""
+    next_step = text.find("\n      - name:", start + len(marker))
+    if next_step == -1:
+        return text[start:]
+    return text[start:next_step]
+
+
 def action_uses(text: str) -> list[tuple[str, str, str | None]]:
     return [
         (match.group(1), match.group(2), match.group(3))
@@ -129,6 +140,7 @@ def check_test_workflow(text: str) -> list[CheckResult]:
     results: list[CheckResult] = []
     test_job = job_section(text, "sandbox_test")
     post_job = job_section(text, "post_sandbox_test")
+    run_tests_step = step_section(text, "Run approved tests in ephemeral sandbox")
     script = load_text(SCRIPT_PATH)
     policy = load_text(POLICY_PATH)
     add(results, "test workflow exists", f"name: {TEST_WORKFLOW_NAME}" in text)
@@ -148,6 +160,7 @@ def check_test_workflow(text: str) -> list[CheckResult]:
     add(results, "test job downloads trusted files by API", "/contents/" in test_job and "trusted sandbox test control plane" in test_job)
     add(results, "test job selects artifacts before checkout", test_job.find("prepare") < test_job.find("actions/checkout@"))
     add(results, "test job runs sandbox test script", "sandbox_test.py run-tests" in test_job)
+    add(results, "test runner step has no GITHUB_TOKEN", "GITHUB_TOKEN" not in run_tests_step)
     add(results, "test job writes patch only to runner temp", "PATCH_FILE: ${{ runner.temp }}/namma-fix.patch" in test_job)
     add(results, "post job can write issue comments", "issues: write" in post_job)
     add(results, "post job can write pull request sticky comments", "pull-requests: write" in post_job)

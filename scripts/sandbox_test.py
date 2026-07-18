@@ -1144,6 +1144,23 @@ def run_one_test(
     return record, stdout_truncated, stderr_truncated
 
 
+def effective_command_timeout(
+    *,
+    start_time: float,
+    total_timeout_seconds: int,
+    command_timeout_seconds: int,
+) -> int:
+    remaining = total_timeout_seconds - (time.monotonic() - start_time)
+    if remaining <= 0:
+        raise SandboxTestStatus(
+            RESULT_STATUS_TESTS_TIMEOUT,
+            "TOTAL_TEST_TIMEOUT",
+            "approved sandbox test plan exceeded the total timeout",
+            "sandbox_test_execution",
+        )
+    return max(1, min(command_timeout_seconds, int(remaining)))
+
+
 def post_test_changes(
     *,
     worktree: Path,
@@ -1673,8 +1690,6 @@ def command_run_tests(_: argparse.Namespace) -> int:
     patch_path = Path(required_env("PATCH_FILE"))
     schema_path = Path(required_env("SANDBOX_TEST_RESULT_SCHEMA"))
     support_dir = Path(required_env("TEST_SUPPORT_DIR"))
-    repo = required_env("GITHUB_REPOSITORY")
-    token = required_env("GITHUB_TOKEN")
     context = read_json_file(context_path)
     if not isinstance(context, dict):
         raise SystemExit(1)
@@ -1690,13 +1705,6 @@ def command_run_tests(_: argparse.Namespace) -> int:
     cleanup = check_result("SKIPPED", "cleanup not started")
     start = time.monotonic()
     try:
-        apply.validate_final_head(
-            repo=repo,
-            pr_number=int(context["manifest"]["pull_request_number"]),
-            expected_head_sha=str(context["manifest"]["head_sha"]),
-            token=token,
-            code="PRE_TEST_HEAD_STALE",
-        )
         checkout_verification = apply.verify_checkout(
             worktree,
             str(context["manifest"]["head_sha"]),
@@ -1709,13 +1717,6 @@ def command_run_tests(_: argparse.Namespace) -> int:
                 "materialized patch hash does not match trusted context",
                 "sandbox_test_patch_materialization",
             )
-        apply.validate_final_head(
-            repo=repo,
-            pr_number=int(context["manifest"]["pull_request_number"]),
-            expected_head_sha=str(context["manifest"]["head_sha"]),
-            token=token,
-            code="PRE_TEST_APPLY_HEAD_STALE",
-        )
         apply.run_git(worktree, (*apply.GIT_APPLY_CHECK_ARGV, str(patch_path)))
         apply.run_git(worktree, (*apply.GIT_APPLY_ARGV, str(patch_path)))
         changed_files, diff_binding, resulting_hashes = apply.verify_changed_files(
@@ -1755,6 +1756,16 @@ def command_run_tests(_: argparse.Namespace) -> int:
                 argv=tuple(str(arg) for arg in item["argv"]),
                 working_directory=str(item["working_directory"]),
                 timeout_seconds=int(item["timeout_seconds"]),
+            )
+            command = TestCommandSpec(
+                test_id=command.test_id,
+                argv=command.argv,
+                working_directory=command.working_directory,
+                timeout_seconds=effective_command_timeout(
+                    start_time=start,
+                    total_timeout_seconds=int(test_policy_data["total_timeout_seconds"]),
+                    command_timeout_seconds=command.timeout_seconds,
+                ),
             )
             record, stdout, stderr = run_one_test(
                 command=command,
@@ -1799,13 +1810,6 @@ def command_run_tests(_: argparse.Namespace) -> int:
                 "approved tests changed files outside the approved patch state",
                 "sandbox_test_post_status",
             )
-        apply.validate_final_head(
-            repo=repo,
-            pr_number=int(context["manifest"]["pull_request_number"]),
-            expected_head_sha=str(context["manifest"]["head_sha"]),
-            token=token,
-            code="POST_TEST_HEAD_STALE",
-        )
         result = base_test_result(
             context=context,
             status=RESULT_STATUS_TESTS_PASSED,
