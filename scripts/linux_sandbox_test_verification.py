@@ -92,11 +92,11 @@ def run_command(argv: list[str], *, output_dir: Path, log_name: str) -> CommandR
         check=False,
     )
     log_path = output_dir / log_name
-    write_text(log_path, completed.output)
+    write_text(log_path, completed.stdout)
     return CommandResult(
         argv=tuple(argv),
         returncode=completed.returncode,
-        output=completed.output,
+        output=completed.stdout,
         log_path=str(log_path.relative_to(output_dir)),
     )
 

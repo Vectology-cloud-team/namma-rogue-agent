@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -105,6 +106,32 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
             ],
             parsed["skipped_tests"],
         )
+
+    def test_run_command_writes_completed_process_stdout(self) -> None:
+        current = linux_verification.subprocess.run
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=args[0],
+                returncode=0,
+                stdout="sample output\n",
+            )
+
+        try:
+            linux_verification.subprocess.run = fake_run
+            with tempfile.TemporaryDirectory() as tmp:
+                result = linux_verification.run_command(
+                    ["python3", "--version"],
+                    output_dir=Path(tmp),
+                    log_name="command.log",
+                )
+                self.assertEqual("sample output\n", result.output)
+                self.assertEqual(
+                    "sample output\n",
+                    (Path(tmp) / "command.log").read_text(encoding="utf-8"),
+                )
+        finally:
+            linux_verification.subprocess.run = current
 
     def test_skip_classification_recovers_python3_skips(self) -> None:
         expected = ["tests.test_sandbox_test.SandboxTestTests.test_shadow"]
