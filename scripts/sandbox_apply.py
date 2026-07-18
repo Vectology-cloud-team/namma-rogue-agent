@@ -15,7 +15,9 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,6 +115,139 @@ def read_json_file(path: Path) -> Any:
 
 def write_json_file(path: Path, value: Any) -> None:
     preflight.write_json_file(path, value)
+
+
+class SchemaValidationError(ValueError):
+    """Raised when a result does not match the trusted JSON Schema subset."""
+
+
+def _resolve_schema_ref(root: dict[str, Any], ref: str) -> dict[str, Any]:
+    if not ref.startswith("#/"):
+        raise SchemaValidationError(f"unsupported schema ref {ref}")
+    node: Any = root
+    for raw_part in ref[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(node, dict) or part not in node:
+            raise SchemaValidationError(f"unresolved schema ref {ref}")
+        node = node[part]
+    if not isinstance(node, dict):
+        raise SchemaValidationError(f"schema ref {ref} does not resolve to an object")
+    return node
+
+
+def _value_matches_type(value: Any, type_name: str) -> bool:
+    if type_name == "object":
+        return isinstance(value, dict)
+    if type_name == "array":
+        return isinstance(value, list)
+    if type_name == "string":
+        return isinstance(value, str)
+    if type_name == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if type_name == "boolean":
+        return isinstance(value, bool)
+    if type_name == "null":
+        return value is None
+    return False
+
+
+def _validate_json_schema_node(
+    value: Any,
+    schema_node: dict[str, Any],
+    root: dict[str, Any],
+    path: str,
+) -> None:
+    if "$ref" in schema_node:
+        schema_node = _resolve_schema_ref(root, str(schema_node["$ref"]))
+    if "allOf" in schema_node:
+        all_of = schema_node["allOf"]
+        if not isinstance(all_of, list):
+            raise SchemaValidationError(f"{path}: allOf must be an array")
+        for index, entry in enumerate(all_of):
+            if not isinstance(entry, dict):
+                raise SchemaValidationError(f"{path}: allOf[{index}] must be an object")
+            if "if" in entry and "then" in entry:
+                if _json_schema_condition_matches(value, entry["if"], root, path):
+                    then_schema = entry["then"]
+                    if not isinstance(then_schema, dict):
+                        raise SchemaValidationError(f"{path}: then must be an object")
+                    _validate_json_schema_node(value, then_schema, root, path)
+            else:
+                _validate_json_schema_node(value, entry, root, path)
+    if "const" in schema_node and value != schema_node["const"]:
+        raise SchemaValidationError(
+            f"{path}: expected const {schema_node['const']!r}, got {value!r}"
+        )
+    if "enum" in schema_node and value not in schema_node["enum"]:
+        raise SchemaValidationError(f"{path}: {value!r} is not in enum")
+    if "type" in schema_node:
+        expected_type = schema_node["type"]
+        expected_types = expected_type if isinstance(expected_type, list) else [expected_type]
+        if not any(_value_matches_type(value, str(type_name)) for type_name in expected_types):
+            raise SchemaValidationError(f"{path}: value has unexpected type")
+    if "pattern" in schema_node and isinstance(value, str):
+        if re.fullmatch(str(schema_node["pattern"]), value) is None:
+            raise SchemaValidationError(f"{path}: value does not match pattern")
+    if "minLength" in schema_node and isinstance(value, str):
+        if len(value) < int(schema_node["minLength"]):
+            raise SchemaValidationError(f"{path}: value is shorter than minLength")
+    if "maxLength" in schema_node and isinstance(value, str):
+        if len(value) > int(schema_node["maxLength"]):
+            raise SchemaValidationError(f"{path}: value exceeds maxLength")
+    if "minimum" in schema_node and isinstance(value, int) and not isinstance(value, bool):
+        if value < int(schema_node["minimum"]):
+            raise SchemaValidationError(f"{path}: value is below minimum")
+    if isinstance(value, dict):
+        properties = schema_node.get("properties", {})
+        if properties is not None and not isinstance(properties, dict):
+            raise SchemaValidationError(f"{path}: properties must be an object")
+        required = schema_node.get("required", [])
+        if not isinstance(required, list):
+            raise SchemaValidationError(f"{path}: required must be an array")
+        missing = [field for field in required if field not in value]
+        if missing:
+            raise SchemaValidationError(f"{path}: missing required fields {missing}")
+        if schema_node.get("additionalProperties") is False:
+            extra = sorted(set(value).difference(properties))
+            if extra:
+                raise SchemaValidationError(f"{path}: unexpected fields {extra}")
+        for key, child_schema in properties.items():
+            if key in value:
+                if not isinstance(child_schema, dict):
+                    raise SchemaValidationError(f"{path}.{key}: schema must be an object")
+                _validate_json_schema_node(value[key], child_schema, root, f"{path}.{key}")
+    if isinstance(value, list):
+        if "maxItems" in schema_node and len(value) > int(schema_node["maxItems"]):
+            raise SchemaValidationError(f"{path}: array exceeds maxItems")
+        if schema_node.get("uniqueItems") is True:
+            canonical_items = [json.dumps(item, sort_keys=True) for item in value]
+            if len(set(canonical_items)) != len(canonical_items):
+                raise SchemaValidationError(f"{path}: array items are not unique")
+        item_schema = schema_node.get("items")
+        if item_schema is not None:
+            if not isinstance(item_schema, dict):
+                raise SchemaValidationError(f"{path}: items must be an object")
+            for index, item in enumerate(value):
+                _validate_json_schema_node(item, item_schema, root, f"{path}[{index}]")
+
+
+def _json_schema_condition_matches(
+    value: Any,
+    schema_node: Any,
+    root: dict[str, Any],
+    path: str,
+) -> bool:
+    if not isinstance(schema_node, dict):
+        raise SchemaValidationError(f"{path}: if schema must be an object")
+    try:
+        _validate_json_schema_node(value, schema_node, root, path)
+    except SchemaValidationError:
+        return False
+    return True
+
+
+def validate_json_schema_subset(value: Any, schema: dict[str, Any]) -> None:
+    _validate_json_schema_node(value, schema, schema, "$")
 
 
 def fatal(code: fix.FailureCode, message: str, operation: str) -> fix.FixProposalFailure:
@@ -872,18 +1007,36 @@ def cleanup_paths(paths: Iterable[Path]) -> dict[str, Any]:
     for path in paths:
         try:
             if path.is_dir():
-                shutil.rmtree(path)
+                def retry_remove(func: Any, failing_path: str, _: Any) -> None:
+                    try:
+                        os.chmod(failing_path, stat.S_IWRITE)
+                        func(failing_path)
+                    except OSError as exc:
+                        errors.append(f"{failing_path}: {exc}")
+
+                shutil.rmtree(path, onerror=retry_remove)
                 removed.append(str(path))
             elif path.exists():
                 path.unlink()
                 removed.append(str(path))
         except OSError as exc:
             errors.append(f"{path}: {exc}")
-    return {
-        "status": "PASS" if not errors else "FAIL",
-        "removed": removed,
-        "errors": errors,
-    }
+    if errors:
+        return check_result(
+            "FAIL",
+            f"cleanup failed for {len(errors)} path(s): {'; '.join(errors)[:1500]}",
+        )
+    return check_result("PASS", f"removed {len(removed)} temporary path(s)")
+
+
+def changed_paths_best_effort(worktree: Path) -> list[str]:
+    try:
+        status_entries = parse_status_z(
+            run_git(worktree, ("git", "status", "--porcelain=v1", "-z")).stdout
+        )
+    except ApplyStatus:
+        return []
+    return sorted(entry["path"] for entry in status_entries)
 
 
 def base_apply_result(
@@ -1003,6 +1156,14 @@ def validate_apply_result_against_schema(result: dict[str, Any], schema_path: Pa
             "sandbox result schema must declare properties",
             "sandbox_apply_result_schema",
         )
+    try:
+        validate_json_schema_subset(result, schema)
+    except SchemaValidationError as exc:
+        raise fatal(
+            fix.FailureCode.INVALID_PROPOSAL,
+            f"sandbox apply result does not match schema: {exc}",
+            "sandbox_apply_result_schema",
+        ) from exc
     extra = sorted(set(result).difference(properties))
     if extra:
         raise fatal(
@@ -1421,13 +1582,30 @@ def command_apply(_: argparse.Namespace) -> int:
     resulting_hashes: list[dict[str, str]] = []
     diff_binding: dict[str, Any] = check_result("SKIPPED", "diff binding not evaluated")
     git_apply_log = ""
+    step_state: dict[str, Any] = {
+        "patch_check": check_result("SKIPPED", "git apply --check has not run yet."),
+        "patch_apply": check_result("SKIPPED", "patch apply has not run yet."),
+        "sandbox_worktree_modified": False,
+        "sandbox_checkout_performed": False,
+        "patch_check_performed": False,
+        "patch_applied": False,
+        "checkout_performed": False,
+        "checkout_sha": None,
+        "detached_head": False,
+        "credentials_persisted": False,
+        "git_apply_check": check_result("SKIPPED", "git apply --check not run."),
+        "git_apply": check_result("SKIPPED", "git apply not run."),
+        "diff_binding": check_result("SKIPPED", "diff binding not evaluated."),
+    }
+    patch_check_started = False
+    patch_apply_started = False
     result = base_apply_result(
         context=context,
         status=RESULT_STATUS_FATAL,
         failure_class=RESULT_STATUS_FATAL,
         failure_code="INCOMPLETE",
     )
-    cleanup = {"status": "SKIPPED", "removed": [], "errors": []}
+    cleanup = check_result("SKIPPED", "cleanup not started")
     try:
         validate_final_head(
             repo=repo,
@@ -1437,6 +1615,15 @@ def command_apply(_: argparse.Namespace) -> int:
             code="POST_CHECKOUT_HEAD_STALE",
         )
         checkout_verification = verify_checkout(worktree, str(context["manifest"]["head_sha"]))
+        step_state.update(
+            {
+                "sandbox_checkout_performed": True,
+                "checkout_performed": True,
+                "checkout_sha": checkout_verification["head_sha"],
+                "detached_head": True,
+                "credentials_persisted": False,
+            }
+        )
         patch_hash = materialize_patch(context, patch_path)
         if patch_hash != context["patch_file_hash"]:
             raise ApplyStatus(
@@ -1455,6 +1642,7 @@ def command_apply(_: argparse.Namespace) -> int:
             worktree,
             ("git", "status", "--porcelain=v1", "-z"),
         ).stdout
+        patch_check_started = True
         check = run_git(worktree, (*GIT_APPLY_CHECK_ARGV, str(patch_path)))
         git_apply_log += check.stdout + check.stderr
         after_check_status = run_git(
@@ -1467,11 +1655,31 @@ def command_apply(_: argparse.Namespace) -> int:
                 "APPLY_CHECK_MUTATED_TREE",
                 "git apply --check changed the sandbox worktree",
             )
+        step_state.update(
+            {
+                "patch_check": check_result("PASS", "git apply --check succeeded."),
+                "patch_check_performed": True,
+                "git_apply_check": check_result("PASS", "git apply --check succeeded."),
+            }
+        )
+        patch_apply_started = True
         apply = run_git(worktree, (*GIT_APPLY_ARGV, str(patch_path)))
         git_apply_log += apply.stdout + apply.stderr
+        step_state.update(
+            {
+                "patch_apply": check_result("PASS", "git apply succeeded."),
+                "sandbox_worktree_modified": True,
+                "patch_applied": True,
+                "git_apply": check_result("PASS", "git apply succeeded."),
+            }
+        )
         changed_files, diff_binding, resulting_hashes = verify_changed_files(
             worktree=worktree,
             context=context,
+        )
+        step_state["diff_binding"] = check_result(
+            str(diff_binding["status"]),
+            str(diff_binding["message"]),
         )
         validate_final_head(
             repo=repo,
@@ -1494,41 +1702,41 @@ def command_apply(_: argparse.Namespace) -> int:
         )
         result.update(
             {
-                "patch_check": check_result("PASS", "git apply --check succeeded."),
-                "patch_apply": check_result("PASS", "git apply succeeded."),
                 "actual_changed_files": changed_files,
                 "changed_files_match_expected": True,
-                "sandbox_worktree_modified": True,
-                "sandbox_checkout_performed": True,
-                "patch_check_performed": True,
-                "patch_applied": True,
-                "checkout_performed": True,
-                "checkout_sha": checkout_verification["head_sha"],
-                "detached_head": True,
-                "credentials_persisted": False,
-                "git_apply_check": check_result("PASS", "git apply --check succeeded."),
-                "git_apply": check_result("PASS", "git apply succeeded."),
                 "resulting_file_hashes": resulting_hashes,
-                "diff_binding": diff_binding,
+                **step_state,
             }
         )
     except ApplyStatus as status_error:
+        if status_error.status == RESULT_STATUS_PATCH_REJECTED:
+            failed_check = check_result("FAIL", status_error.message)
+            if patch_check_started and not step_state["patch_check_performed"]:
+                step_state["patch_check"] = failed_check
+                step_state["git_apply_check"] = failed_check
+            elif patch_apply_started and not step_state["patch_applied"]:
+                step_state["patch_apply"] = failed_check
+                step_state["git_apply"] = failed_check
+            elif step_state["patch_applied"]:
+                changed_files = changed_paths_best_effort(worktree)
+                step_state["diff_binding"] = failed_check
+                diff_binding = failed_check
         result = base_apply_result(
             context=context,
             status=status_error.status,
             failure_class=status_error.status,
             failure_code=status_error.code,
         )
+        patch_apply_check = {
+            "status": "FAIL" if status_error.status == RESULT_STATUS_PATCH_REJECTED else "SKIPPED",
+            "git_apply_check": str(step_state["git_apply_check"]["status"]),
+            "git_apply": str(step_state["git_apply"]["status"]),
+            "message": status_error.message,
+        }
         result.update(
             {
-                "patch_check": check_result(
-                    "FAIL" if status_error.status == RESULT_STATUS_PATCH_REJECTED else "SKIPPED",
-                    status_error.message,
-                ),
-                "git_apply_check": check_result(
-                    "FAIL" if status_error.status == RESULT_STATUS_PATCH_REJECTED else "SKIPPED",
-                    status_error.message,
-                ),
+                "actual_changed_files": changed_files,
+                **step_state,
             }
         )
     finally:

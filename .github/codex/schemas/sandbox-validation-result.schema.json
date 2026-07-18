@@ -383,7 +383,7 @@
         ],
         "properties": {
           "path": {
-            "$ref": "#/$defs/repository_path"
+            "$ref": "#/$defs/repo_path"
           },
           "resulting_blob_sha": {
             "$ref": "#/$defs/full_sha"

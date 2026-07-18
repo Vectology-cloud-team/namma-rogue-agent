@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -193,6 +194,91 @@ class SandboxApplyTests(unittest.TestCase):
             workflow_name=sandbox_apply.approval.RECORDER_WORKFLOW_NAME,
         )
 
+    def schema_path(self) -> Path:
+        return REPO_ROOT / ".github" / "codex" / "schemas" / "sandbox-validation-result.schema.json"
+
+    def apply_context(
+        self,
+        *,
+        head_sha=HEAD_SHA,
+        expected_files=None,
+        patch_text=None,
+    ):
+        proposal_bundle = self.proposal_bundle()
+        approval_bundle = self.approval_bundle()
+        if patch_text is None:
+            patch_text = str(proposal_bundle.data["changes"][0]["patch"])
+        proposal_bundle.data["head_sha"] = head_sha
+        proposal_bundle.data["changes"][0]["patch"] = patch_text
+        proposal_bundle.metadata["head_sha"] = head_sha
+        approval_bundle.record["head_sha"] = head_sha
+        return {
+            "manifest": self.manifest(head_sha=head_sha),
+            "proposal": proposal_bundle.data,
+            "proposal_metadata": proposal_bundle.metadata,
+            "approval_record": approval_bundle.record,
+            "preflight_result": {
+                **self.preflight_result(head_sha=head_sha),
+                "protected_path_check": {"status": "PASS", "message": "ok"},
+                "blob_sha_check": {"status": "PASS", "message": "ok"},
+                "target_blob_checks": [],
+                "patch_metadata_check": {
+                    "status": "PASS",
+                    "message": "ok",
+                    "patch_bytes": len(patch_text.encode("utf-8")),
+                },
+            },
+            "preflight_result_hash": PREFLIGHT_HASH,
+            "proposal_artifact": {
+                "artifact_id": proposal_bundle.artifact_id,
+                "artifact_name": proposal_bundle.artifact_name,
+                "workflow_run_id": proposal_bundle.workflow_run_id,
+                "workflow_name": proposal_bundle.workflow_name,
+                "repository": sandbox_apply.EXPECTED_REPOSITORY,
+                "pull_request_number": 31,
+                "head_sha": head_sha,
+            },
+            "approval_artifact": {
+                "artifact_id": approval_bundle.artifact_id,
+                "artifact_name": approval_bundle.artifact_name,
+                "workflow_run_id": approval_bundle.workflow_run_id,
+                "workflow_name": approval_bundle.workflow_name,
+                "repository": sandbox_apply.EXPECTED_REPOSITORY,
+                "pull_request_number": 31,
+                "head_sha": head_sha,
+            },
+            "preflight_artifact": {
+                "artifact_id": 102,
+                "artifact_name": "sandbox-validation-preflight-test",
+                "workflow_run_id": 202,
+                "workflow_name": sandbox_apply.preflight.VALIDATOR_WORKFLOW_NAME,
+                "repository": sandbox_apply.EXPECTED_REPOSITORY,
+                "pull_request_number": 31,
+                "head_sha": head_sha,
+            },
+            "apply_id": "5" * 32,
+            "apply_request_actor": "applier",
+            "apply_request_actor_repository_permission": "maintain",
+            "apply_request_actor_repository_role": "maintain",
+            "validation_request_actor": "validator",
+            "validation_request_actor_repository_permission": "admin",
+            "validation_request_actor_repository_role": "admin",
+            "approved_by_repository_permission": "admin",
+            "approved_by_repository_role": "admin",
+            "live_labels": [
+                "ai-fix-proposal",
+                "ai-fix-approved",
+                "ai-fix-validate",
+                "ai-fix-apply-sandbox",
+            ],
+            "expected_files": expected_files or ["canary/example.py"],
+            "patch_text": patch_text,
+            "patch_file_hash": sandbox_apply.sha256_hex_bytes(patch_text.encode("utf-8")),
+            "planned_test_ids": ["unit"],
+            "test_plan_hash": "8" * 64,
+            "started_at": "2026-07-18T00:00:00Z",
+        }
+
     def assert_apply_status(self, status, code, func, *args, **kwargs):
         with self.assertRaises(sandbox_apply.ApplyStatus) as caught:
             func(*args, **kwargs)
@@ -339,38 +425,7 @@ class SandboxApplyTests(unittest.TestCase):
         self.assertNotIn("--unsafe-paths", sandbox_apply.GIT_APPLY_CHECK_ARGV)
 
     def test_no_tests_are_marked_executed_in_base_result(self):
-        context = {
-            "manifest": self.manifest(),
-            "proposal": self.proposal_bundle().data,
-            "proposal_metadata": self.proposal_bundle().metadata,
-            "approval_record": self.approval_bundle().record,
-            "preflight_result": {
-                **self.preflight_result(),
-                "protected_path_check": {"status": "PASS", "message": "ok"},
-                "blob_sha_check": {"status": "PASS", "message": "ok"},
-                "target_blob_checks": [],
-                "patch_metadata_check": {"status": "PASS", "message": "ok"},
-            },
-            "preflight_result_hash": PREFLIGHT_HASH,
-            "proposal_artifact": {},
-            "approval_artifact": {},
-            "preflight_artifact": {},
-            "apply_id": "5" * 32,
-            "apply_request_actor": "applier",
-            "apply_request_actor_repository_permission": "maintain",
-            "apply_request_actor_repository_role": "maintain",
-            "validation_request_actor": "validator",
-            "validation_request_actor_repository_permission": "admin",
-            "validation_request_actor_repository_role": "admin",
-            "approved_by_repository_permission": "admin",
-            "approved_by_repository_role": "admin",
-            "live_labels": [],
-            "expected_files": ["canary/example.py"],
-            "patch_file_hash": PATCH_HASH,
-            "planned_test_ids": ["unit"],
-            "test_plan_hash": "8" * 64,
-            "started_at": "2026-07-18T00:00:00Z",
-        }
+        context = self.apply_context()
         result = sandbox_apply.base_apply_result(
             context=context,
             status="PATCH_REJECTED",
@@ -380,6 +435,79 @@ class SandboxApplyTests(unittest.TestCase):
         self.assertFalse(result["test_execution_performed"])
         self.assertEqual([], result["tests_executed"])
         self.assertEqual("SKIPPED", result["tests_requested"][0]["status"])
+
+    def test_apply_passed_result_shape_validates_actual_json_schema(self):
+        context = self.apply_context()
+        result = sandbox_apply.base_apply_result(
+            context=context,
+            status=sandbox_apply.RESULT_STATUS_APPLY_PASSED,
+            failure_class=None,
+            failure_code=None,
+        )
+        result.update(
+            {
+                "patch_check": sandbox_apply.check_result("PASS", "check ok"),
+                "patch_apply": sandbox_apply.check_result("PASS", "apply ok"),
+                "actual_changed_files": ["canary/example.py"],
+                "changed_files_match_expected": True,
+                "sandbox_worktree_modified": True,
+                "sandbox_checkout_performed": True,
+                "patch_check_performed": True,
+                "patch_applied": True,
+                "sandbox_destroyed": True,
+                "checkout_performed": True,
+                "checkout_sha": HEAD_SHA,
+                "detached_head": True,
+                "credentials_persisted": False,
+                "git_apply_check": sandbox_apply.check_result("PASS", "check ok"),
+                "git_apply": sandbox_apply.check_result("PASS", "apply ok"),
+                "resulting_file_hashes": [
+                    {"path": "canary/example.py", "resulting_blob_sha": "6" * 40},
+                ],
+                "diff_binding": sandbox_apply.check_result("PASS", "diff ok"),
+                "sandbox_cleanup": sandbox_apply.check_result("PASS", "cleanup ok"),
+            }
+        )
+        sandbox_apply.validate_apply_result_against_schema(result, self.schema_path())
+
+    def test_schema_validation_rejects_nested_diff_binding_extra_fields(self):
+        context = self.apply_context()
+        result = sandbox_apply.base_apply_result(
+            context=context,
+            status=sandbox_apply.RESULT_STATUS_APPLY_PASSED,
+            failure_class=None,
+            failure_code=None,
+        )
+        result.update(
+            {
+                "patch_check": sandbox_apply.check_result("PASS", "check ok"),
+                "patch_apply": sandbox_apply.check_result("PASS", "apply ok"),
+                "actual_changed_files": ["canary/example.py"],
+                "changed_files_match_expected": True,
+                "sandbox_worktree_modified": True,
+                "sandbox_checkout_performed": True,
+                "patch_check_performed": True,
+                "patch_applied": True,
+                "sandbox_destroyed": True,
+                "checkout_performed": True,
+                "checkout_sha": HEAD_SHA,
+                "detached_head": True,
+                "credentials_persisted": False,
+                "git_apply_check": sandbox_apply.check_result("PASS", "check ok"),
+                "git_apply": sandbox_apply.check_result("PASS", "apply ok"),
+                "resulting_file_hashes": [
+                    {"path": "canary/example.py", "resulting_blob_sha": "6" * 40},
+                ],
+                "diff_binding": {
+                    "status": "PASS",
+                    "message": "old detailed shape",
+                    "expected_paths": ["canary/example.py"],
+                },
+                "sandbox_cleanup": sandbox_apply.check_result("PASS", "cleanup ok"),
+            }
+        )
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            sandbox_apply.validate_apply_result_against_schema(result, self.schema_path())
 
     def test_fixed_git_apply_changes_expected_file_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -423,6 +551,84 @@ class SandboxApplyTests(unittest.TestCase):
             self.assertEqual(["canary/example.py"], changed)
             self.assertEqual("PASS", binding["status"])
             self.assertEqual(1, len(hashes))
+
+    def test_post_apply_rejection_preserves_executed_step_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            target = repo / "canary" / "example.py"
+            target.parent.mkdir()
+            target.write_text("return False\n", encoding="utf-8")
+            subprocess.run(["git", "add", "canary/example.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True, stdout=subprocess.PIPE)
+            subprocess.run(["git", "checkout", "--detach", "HEAD"], cwd=repo, check=True, stdout=subprocess.PIPE)
+            head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+            patch_text = "diff --git a/canary/example.py b/canary/example.py\n"
+            patch_text += "--- a/canary/example.py\n"
+            patch_text += "+++ b/canary/example.py\n"
+            patch_text += "@@ -1 +1 @@\n"
+            patch_text += "-return False\n"
+            patch_text += "+return True\n"
+            context = self.apply_context(head_sha=head, patch_text=patch_text)
+            context_dir = root / "context"
+            output_dir = root / "out"
+            context_dir.mkdir()
+            sandbox_apply.write_json_file(
+                context_dir / sandbox_apply.APPLY_CONTEXT_FILE,
+                context,
+            )
+            old_env = os.environ.copy()
+            old_validate_final_head = sandbox_apply.validate_final_head
+            old_verify_changed_files = sandbox_apply.verify_changed_files
+            old_github_output = sandbox_apply.github_output
+            old_write_job_summary = sandbox_apply.write_job_summary
+            try:
+                os.environ.update(
+                    {
+                        "APPLY_CONTEXT_DIR": str(context_dir),
+                        "APPLY_RESULT_DIR": str(output_dir),
+                        "SANDBOX_WORKTREE": str(repo),
+                        "PATCH_FILE": str(root / "namma-fix.patch"),
+                        "SANDBOX_RESULT_SCHEMA": str(self.schema_path()),
+                        "GITHUB_REPOSITORY": sandbox_apply.EXPECTED_REPOSITORY,
+                        "GITHUB_TOKEN": "dummy-token",
+                    }
+                )
+
+                def fail_after_apply(*, worktree, context):
+                    raise sandbox_apply.ApplyStatus(
+                        sandbox_apply.RESULT_STATUS_PATCH_REJECTED,
+                        "DIFF_BINDING_MISMATCH",
+                        "forced diff binding failure",
+                    )
+
+                sandbox_apply.validate_final_head = lambda **_: None
+                sandbox_apply.verify_changed_files = fail_after_apply
+                sandbox_apply.github_output = lambda values: None
+                sandbox_apply.write_job_summary = lambda text: None
+                self.assertEqual(0, sandbox_apply.command_apply(None))
+            finally:
+                sandbox_apply.validate_final_head = old_validate_final_head
+                sandbox_apply.verify_changed_files = old_verify_changed_files
+                sandbox_apply.github_output = old_github_output
+                sandbox_apply.write_job_summary = old_write_job_summary
+                os.environ.clear()
+                os.environ.update(old_env)
+            result = sandbox_apply.read_json_file(output_dir / "sandbox-validation-result.json")
+            self.assertEqual(sandbox_apply.RESULT_STATUS_PATCH_REJECTED, result["status"])
+            self.assertEqual("DIFF_BINDING_MISMATCH", result["failure_code"])
+            self.assertTrue(result["patch_check_performed"])
+            self.assertTrue(result["patch_applied"])
+            self.assertTrue(result["sandbox_worktree_modified"])
+            self.assertEqual("PASS", result["git_apply_check"]["status"])
+            self.assertEqual("PASS", result["git_apply"]["status"])
+            self.assertEqual("FAIL", result["diff_binding"]["status"])
+            self.assertFalse(result["test_execution_performed"])
+            self.assertTrue(result["sandbox_destroyed"])
 
     def test_unexpected_changed_file_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
