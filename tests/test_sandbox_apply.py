@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import io
 import importlib.util
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import stat
+import warnings
+import zipfile
 from pathlib import Path
 
 
@@ -197,6 +201,131 @@ class SandboxApplyTests(unittest.TestCase):
     def schema_path(self) -> Path:
         return REPO_ROOT / ".github" / "codex" / "schemas" / "sandbox-validation-result.schema.json"
 
+    def canonical_preflight_sidecars(
+        self,
+        *,
+        result_overrides=None,
+        proposal_manifest_overrides=None,
+        approval_manifest_overrides=None,
+        target_blob_checks=None,
+        patch_metadata_overrides=None,
+    ):
+        proposal_bundle = self.proposal_bundle()
+        approval_bundle = self.approval_bundle()
+        patch_bytes = sandbox_apply.proposal_raw_patch_bytes(proposal_bundle.data)
+        blob_checks = target_blob_checks
+        if blob_checks is None:
+            blob_checks = [
+                {
+                    "actual_blob_sha": "9" * 40,
+                    "expected_blob_sha": "9" * 40,
+                    "file_type": "blob",
+                    "mode": "100644",
+                    "path": "canary/example.py",
+                    "size": 13,
+                    "status": "PASS",
+                }
+            ]
+        patch_metadata = {
+            "expected_files": ["canary/example.py"],
+            "message": "validated metadata for 1 file(s)",
+            "patch_bytes": patch_bytes,
+            "status": "PASS",
+        }
+        if patch_metadata_overrides:
+            patch_metadata.update(patch_metadata_overrides)
+        result = {
+            **self.preflight_result(),
+            "expected_files": ["canary/example.py"],
+            "proposal_artifact": {
+                "artifact_id": proposal_bundle.artifact_id,
+                "artifact_name": proposal_bundle.artifact_name,
+                "workflow_run_id": proposal_bundle.workflow_run_id,
+                "workflow_name": proposal_bundle.workflow_name,
+                "repository": sandbox_apply.EXPECTED_REPOSITORY,
+                "pull_request_number": 31,
+                "head_sha": HEAD_SHA,
+            },
+            "approval_artifact": {
+                "artifact_id": approval_bundle.artifact_id,
+                "artifact_name": approval_bundle.artifact_name,
+                "workflow_run_id": approval_bundle.workflow_run_id,
+                "workflow_name": approval_bundle.workflow_name,
+                "repository": sandbox_apply.EXPECTED_REPOSITORY,
+                "pull_request_number": 31,
+                "head_sha": HEAD_SHA,
+            },
+            "protected_path_check": {"status": "PASS", "message": "ok"},
+            "blob_sha_check": {"status": "PASS", "message": "ok"},
+            "target_blob_checks": blob_checks,
+            "patch_metadata_check": {
+                "status": patch_metadata["status"],
+                "message": patch_metadata["message"],
+                "patch_bytes": patch_metadata["patch_bytes"],
+            },
+        }
+        if result_overrides:
+            result.update(result_overrides)
+        proposal_manifest = {
+            "artifact_id": proposal_bundle.artifact_id,
+            "artifact_name": proposal_bundle.artifact_name,
+            "workflow_run_id": proposal_bundle.workflow_run_id,
+            "proposal_id": proposal_bundle.metadata["proposal_id"],
+            "proposal_hash": proposal_bundle.metadata["proposal_hash"],
+            "head_sha": proposal_bundle.metadata["head_sha"],
+        }
+        if proposal_manifest_overrides:
+            proposal_manifest.update(proposal_manifest_overrides)
+        approval_manifest = {
+            "artifact_id": approval_bundle.artifact_id,
+            "artifact_name": approval_bundle.artifact_name,
+            "workflow_run_id": approval_bundle.workflow_run_id,
+            "approval_id": approval_bundle.record["approval_id"],
+            "approval_record_hash": approval_bundle.record["approval_record_hash"],
+            "head_sha": approval_bundle.record["head_sha"],
+        }
+        if approval_manifest_overrides:
+            approval_manifest.update(approval_manifest_overrides)
+        return (
+            {
+                "sandbox-validation-result.json": result,
+                "selected-proposal-manifest.json": proposal_manifest,
+                "selected-approval-manifest.json": approval_manifest,
+                "target-blob-checks.json": blob_checks,
+                "patch-metadata-check.json": patch_metadata,
+            },
+            proposal_bundle,
+            approval_bundle,
+        )
+
+    def preflight_zip_bytes(self, sidecars, *, duplicate_name=None, symlink_name=None):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name, value in sidecars.items():
+                archive.writestr(name, sandbox_apply.canonical_json_bytes(value))
+            if duplicate_name is not None:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    archive.writestr(duplicate_name, b"{}")
+            if symlink_name is not None:
+                info = zipfile.ZipInfo(symlink_name)
+                info.external_attr = (stat.S_IFLNK | 0o777) << 16
+                archive.writestr(info, b"target")
+        return buffer.getvalue()
+
+    def validate_sidecars(self, sidecars, proposal_bundle, approval_bundle):
+        sandbox_apply.validate_preflight_sidecars(
+            result=sidecars["sandbox-validation-result.json"],
+            proposal_manifest=sidecars["selected-proposal-manifest.json"],
+            approval_manifest=sidecars["selected-approval-manifest.json"],
+            target_blob_checks=sidecars["target-blob-checks.json"],
+            patch_metadata_check=sidecars["patch-metadata-check.json"],
+            manifest=self.manifest(),
+            proposal_bundle=proposal_bundle,
+            approval_bundle=approval_bundle,
+            policy_hash=self.policy().policy_hash,
+        )
+
     def apply_context(
         self,
         *,
@@ -387,6 +516,382 @@ class SandboxApplyTests(unittest.TestCase):
                 approval_bundle=self.approval_bundle(),
                 policy_hash=self.policy().policy_hash,
             )
+
+    def test_canonical_five_member_preflight_artifact_is_accepted(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            sandbox_apply.safe_extract_canonical_preflight_zip(
+                self.preflight_zip_bytes(sidecars),
+                target,
+                max_bytes=100000,
+            )
+            self.assertEqual(
+                sandbox_apply.PREFLIGHT_ARTIFACT_MEMBERS,
+                {path.name for path in target.iterdir()},
+            )
+            loaded = {
+                name: sandbox_apply.read_json_file(target / name)
+                for name in sandbox_apply.PREFLIGHT_ARTIFACT_MEMBERS
+            }
+        self.validate_sidecars(loaded, proposal_bundle, approval_bundle)
+
+    def test_preflight_artifact_rejects_missing_selected_proposal(self):
+        sidecars, _, _ = self.canonical_preflight_sidecars()
+        del sidecars["selected-proposal-manifest.json"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                sandbox_apply.safe_extract_canonical_preflight_zip(
+                    self.preflight_zip_bytes(sidecars),
+                    Path(tmp),
+                    max_bytes=100000,
+                )
+
+    def test_preflight_artifact_rejects_missing_selected_approval(self):
+        sidecars, _, _ = self.canonical_preflight_sidecars()
+        del sidecars["selected-approval-manifest.json"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                sandbox_apply.safe_extract_canonical_preflight_zip(
+                    self.preflight_zip_bytes(sidecars),
+                    Path(tmp),
+                    max_bytes=100000,
+                )
+
+    def test_preflight_artifact_rejects_missing_target_blob_checks(self):
+        sidecars, _, _ = self.canonical_preflight_sidecars()
+        del sidecars["target-blob-checks.json"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                sandbox_apply.safe_extract_canonical_preflight_zip(
+                    self.preflight_zip_bytes(sidecars),
+                    Path(tmp),
+                    max_bytes=100000,
+                )
+
+    def test_preflight_artifact_rejects_missing_patch_metadata(self):
+        sidecars, _, _ = self.canonical_preflight_sidecars()
+        del sidecars["patch-metadata-check.json"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                sandbox_apply.safe_extract_canonical_preflight_zip(
+                    self.preflight_zip_bytes(sidecars),
+                    Path(tmp),
+                    max_bytes=100000,
+                )
+
+    def test_preflight_artifact_rejects_unknown_extra_member(self):
+        sidecars, _, _ = self.canonical_preflight_sidecars()
+        sidecars["unknown-extra.json"] = {"status": "PASS"}
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                sandbox_apply.safe_extract_canonical_preflight_zip(
+                    self.preflight_zip_bytes(sidecars),
+                    Path(tmp),
+                    max_bytes=100000,
+                )
+
+    def test_preflight_artifact_rejects_duplicate_member(self):
+        sidecars, _, _ = self.canonical_preflight_sidecars()
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                sandbox_apply.safe_extract_canonical_preflight_zip(
+                    self.preflight_zip_bytes(
+                        sidecars,
+                        duplicate_name="sandbox-validation-result.json",
+                    ),
+                    Path(tmp),
+                    max_bytes=100000,
+                )
+
+    def test_preflight_artifact_rejects_path_prefixed_expected_member(self):
+        sidecars, _, _ = self.canonical_preflight_sidecars()
+        sidecars["nested/sandbox-validation-result.json"] = sidecars.pop(
+            "sandbox-validation-result.json"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                sandbox_apply.safe_extract_canonical_preflight_zip(
+                    self.preflight_zip_bytes(sidecars),
+                    Path(tmp),
+                    max_bytes=100000,
+                )
+
+    def test_preflight_artifact_rejects_path_traversal_member(self):
+        sidecars, _, _ = self.canonical_preflight_sidecars()
+        sidecars["../sandbox-validation-result.json"] = sidecars.pop(
+            "sandbox-validation-result.json"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                sandbox_apply.safe_extract_canonical_preflight_zip(
+                    self.preflight_zip_bytes(sidecars),
+                    Path(tmp),
+                    max_bytes=100000,
+                )
+
+    def test_preflight_artifact_rejects_symlink_member(self):
+        sidecars, _, _ = self.canonical_preflight_sidecars()
+        del sidecars["patch-metadata-check.json"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                sandbox_apply.safe_extract_canonical_preflight_zip(
+                    self.preflight_zip_bytes(
+                        sidecars,
+                        symlink_name="patch-metadata-check.json",
+                    ),
+                    Path(tmp),
+                    max_bytes=100000,
+                )
+
+    def test_preflight_artifact_rejects_unicode_case_collision(self):
+        sidecars, _, _ = self.canonical_preflight_sidecars()
+        sidecars["Sandbox-Validation-Result.json"] = {"status": "PASS"}
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                sandbox_apply.safe_extract_canonical_preflight_zip(
+                    self.preflight_zip_bytes(sidecars),
+                    Path(tmp),
+                    max_bytes=100000,
+                )
+
+    def test_preflight_sidecar_rejects_patch_metadata_failure(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars(
+            patch_metadata_overrides={"status": "FAIL"}
+        )
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
+
+    def test_preflight_sidecar_uses_raw_patch_bytes_without_trailing_newline(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars()
+        proposal_bundle.data["changes"][0]["patch"] = str(
+            proposal_bundle.data["changes"][0]["patch"]
+        ).rstrip("\n")
+        raw_bytes = sandbox_apply.proposal_raw_patch_bytes(proposal_bundle.data)
+        sidecars["patch-metadata-check.json"]["patch_bytes"] = raw_bytes
+        sidecars["sandbox-validation-result.json"]["patch_metadata_check"][
+            "patch_bytes"
+        ] = raw_bytes
+        self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
+
+    def test_preflight_sidecar_rejects_changed_files_mismatch(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars(
+            patch_metadata_overrides={"expected_files": ["canary/other.py"]}
+        )
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
+
+    def test_preflight_sidecar_rejects_proposal_id_mismatch(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars(
+            proposal_manifest_overrides={"proposal_id": "x" * 32}
+        )
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
+
+    def test_preflight_sidecar_rejects_proposal_hash_mismatch(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars(
+            proposal_manifest_overrides={"proposal_hash": "x" * 64}
+        )
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
+
+    def test_preflight_sidecar_rejects_approval_id_mismatch(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars(
+            approval_manifest_overrides={"approval_id": "x" * 32}
+        )
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
+
+    def test_preflight_sidecar_rejects_head_mismatch(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars(
+            result_overrides={"head_sha": "4" * 40}
+        )
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
+
+    def test_preflight_sidecar_rejects_blob_sha_mismatch(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars(
+            target_blob_checks=[
+                {
+                    "actual_blob_sha": "8" * 40,
+                    "expected_blob_sha": "8" * 40,
+                    "file_type": "blob",
+                    "mode": "100644",
+                    "path": "canary/example.py",
+                    "size": 13,
+                    "status": "PASS",
+                }
+            ]
+        )
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
+
+    def test_preflight_sidecar_rejects_provenance_mismatch(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars(
+            result_overrides={
+                "proposal_artifact": {
+                    "artifact_id": 999,
+                    "artifact_name": "fix-proposal-test",
+                    "workflow_run_id": 200,
+                    "workflow_name": sandbox_apply.fix.GENERATOR_WORKFLOW_NAME,
+                    "repository": sandbox_apply.EXPECTED_REPOSITORY,
+                    "pull_request_number": 31,
+                    "head_sha": HEAD_SHA,
+                }
+            }
+        )
+        with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+            self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
+
+    def test_find_latest_preflight_accepts_pr32_regression_shape(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars()
+        old_github_json = sandbox_apply.stage1.github_json
+        old_github_api_request = sandbox_apply.stage1.github_api_request
+        try:
+            def fake_github_json(method, path, *, token):
+                if path.endswith("/actions/workflows/fix-sandbox.yml/runs?status=completed&per_page=50"):
+                    return {"workflow_runs": [{"id": 202, "conclusion": "success"}]}, {}
+                if path.endswith("/actions/runs/202/artifacts?per_page=100"):
+                    return {
+                        "artifacts": [
+                            {
+                                "id": 102,
+                                "name": "sandbox-validation-preflight-test",
+                            }
+                        ]
+                    }, {}
+                raise AssertionError(path)
+
+            def fake_github_api_request(method, path, *, token, max_response_bytes):
+                self.assertEqual("/repos/test/actions/artifacts/102/zip", path)
+                return self.preflight_zip_bytes(sidecars), {}
+
+            sandbox_apply.stage1.github_json = fake_github_json
+            sandbox_apply.stage1.github_api_request = fake_github_api_request
+            with tempfile.TemporaryDirectory() as tmp:
+                bundle = sandbox_apply.find_latest_preflight_artifact(
+                    repo="test",
+                    token="token",
+                    manifest=self.manifest(),
+                    proposal_bundle=proposal_bundle,
+                    approval_bundle=approval_bundle,
+                    policy_hash=self.policy().policy_hash,
+                    output_dir=Path(tmp),
+                    max_bytes=100000,
+                )
+            self.assertEqual(102, bundle.artifact_id)
+            self.assertEqual("1" * 32, bundle.result["validation_id"])
+        finally:
+            sandbox_apply.stage1.github_json = old_github_json
+            sandbox_apply.stage1.github_api_request = old_github_api_request
+
+    def test_find_latest_preflight_skips_missing_candidate(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars()
+        old_github_json = sandbox_apply.stage1.github_json
+        old_github_api_request = sandbox_apply.stage1.github_api_request
+        try:
+            def fake_github_json(method, path, *, token):
+                if path.endswith("/actions/workflows/fix-sandbox.yml/runs?status=completed&per_page=50"):
+                    return {
+                        "workflow_runs": [
+                            {"id": 203, "conclusion": "success"},
+                            {"id": 202, "conclusion": "success"},
+                        ]
+                    }, {}
+                if path.endswith("/actions/runs/203/artifacts?per_page=100"):
+                    return {"artifacts": []}, {}
+                if path.endswith("/actions/runs/202/artifacts?per_page=100"):
+                    return {
+                        "artifacts": [
+                            {
+                                "id": 102,
+                                "name": "sandbox-validation-preflight-test",
+                            }
+                        ]
+                    }, {}
+                raise AssertionError(path)
+
+            def fake_github_api_request(method, path, *, token, max_response_bytes):
+                return self.preflight_zip_bytes(sidecars), {}
+
+            sandbox_apply.stage1.github_json = fake_github_json
+            sandbox_apply.stage1.github_api_request = fake_github_api_request
+            with tempfile.TemporaryDirectory() as tmp:
+                bundle = sandbox_apply.find_latest_preflight_artifact(
+                    repo="test",
+                    token="token",
+                    manifest=self.manifest(),
+                    proposal_bundle=proposal_bundle,
+                    approval_bundle=approval_bundle,
+                    policy_hash=self.policy().policy_hash,
+                    output_dir=Path(tmp),
+                    max_bytes=100000,
+                )
+            self.assertEqual(202, bundle.workflow_run_id)
+        finally:
+            sandbox_apply.stage1.github_json = old_github_json
+            sandbox_apply.stage1.github_api_request = old_github_api_request
+
+    def test_find_latest_preflight_does_not_fallback_after_downloaded_extra_member(self):
+        valid_sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars()
+        invalid_sidecars = dict(valid_sidecars)
+        invalid_sidecars["unknown-extra.json"] = {"status": "PASS"}
+        old_github_json = sandbox_apply.stage1.github_json
+        old_github_api_request = sandbox_apply.stage1.github_api_request
+        downloaded: list[str] = []
+        try:
+            def fake_github_json(method, path, *, token):
+                if path.endswith("/actions/workflows/fix-sandbox.yml/runs?status=completed&per_page=50"):
+                    return {
+                        "workflow_runs": [
+                            {"id": 203, "conclusion": "success"},
+                            {"id": 202, "conclusion": "success"},
+                        ]
+                    }, {}
+                if path.endswith("/actions/runs/203/artifacts?per_page=100"):
+                    return {
+                        "artifacts": [
+                            {
+                                "id": 103,
+                                "name": "sandbox-validation-preflight-new",
+                            }
+                        ]
+                    }, {}
+                if path.endswith("/actions/runs/202/artifacts?per_page=100"):
+                    return {
+                        "artifacts": [
+                            {
+                                "id": 102,
+                                "name": "sandbox-validation-preflight-old",
+                            }
+                        ]
+                    }, {}
+                raise AssertionError(path)
+
+            def fake_github_api_request(method, path, *, token, max_response_bytes):
+                downloaded.append(path)
+                if path.endswith("/103/zip"):
+                    return self.preflight_zip_bytes(invalid_sidecars), {}
+                return self.preflight_zip_bytes(valid_sidecars), {}
+
+            sandbox_apply.stage1.github_json = fake_github_json
+            sandbox_apply.stage1.github_api_request = fake_github_api_request
+            with tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
+                    sandbox_apply.find_latest_preflight_artifact(
+                        repo="test",
+                        token="token",
+                        manifest=self.manifest(),
+                        proposal_bundle=proposal_bundle,
+                        approval_bundle=approval_bundle,
+                        policy_hash=self.policy().policy_hash,
+                        output_dir=Path(tmp),
+                        max_bytes=100000,
+                    )
+            self.assertEqual(["/repos/test/actions/artifacts/103/zip"], downloaded)
+        finally:
+            sandbox_apply.stage1.github_json = old_github_json
+            sandbox_apply.stage1.github_api_request = old_github_api_request
 
     def test_apply_id_is_deterministic(self):
         kwargs = {
