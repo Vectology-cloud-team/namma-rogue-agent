@@ -1486,6 +1486,7 @@ def validate_test_context_contract(context: dict[str, Any]) -> None:
         "patch_text",
         "patch_file_hash",
         "resulting_diff_hash",
+        "expected_files",
         "test_commands",
         "sandbox_test_policy",
     ):
@@ -1531,6 +1532,15 @@ def validate_test_context_contract(context: dict[str, Any]) -> None:
             RESULT_STATUS_ARTIFACT_INVALID,
             "APPLY_CONTRACT_INVALID",
             "sandbox apply result in context is missing resulting_file_hashes",
+            "sandbox_test_context_validation",
+        )
+    if not isinstance(context["expected_files"], list) or not all(
+        isinstance(path, str) and path for path in context["expected_files"]
+    ):
+        raise SandboxTestStatus(
+            RESULT_STATUS_ARTIFACT_INVALID,
+            "APPLY_CONTRACT_INVALID",
+            "sandbox test context expected_files must be a non-empty string array",
             "sandbox_test_context_validation",
         )
     try:

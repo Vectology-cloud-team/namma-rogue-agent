@@ -659,6 +659,13 @@ class SandboxTestTests(unittest.TestCase):
             sandbox_test.validate_test_context_contract(context)
         self.assertEqual("APPLY_CONTRACT_INVALID", caught.exception.code)
 
+    def test_test_context_rejects_missing_expected_files_cleanly(self):
+        context = self.make_test_context()
+        context.pop("expected_files")
+        with self.assertRaises(sandbox_test.SandboxTestStatus) as caught:
+            sandbox_test.validate_test_context_contract(context)
+        self.assertEqual("APPLY_CONTRACT_INVALID", caught.exception.code)
+
     def test_test_context_rejects_resulting_file_hash_mismatch(self):
         context = self.make_test_context()
         context["sandbox_apply_result"]["resulting_file_hashes"] = [
@@ -804,6 +811,55 @@ class SandboxTestTests(unittest.TestCase):
                 )
                 self.assertEqual("TEST_COMMAND_REJECTED", result["status"])
                 self.assertEqual("UNAPPROVED_WORKING_DIRECTORY", result["failure_code"])
+                self.assertEqual(0, len(result["tests_executed"]))
+            finally:
+                sandbox_test.run_one_test = old_run_one_test
+                os.environ.clear()
+                os.environ.update(old_env)
+        self.assertFalse(called)
+
+    def test_command_run_tests_rejects_missing_expected_files_before_execution(self):
+        context = self.make_test_context()
+        context.pop("expected_files")
+        called = False
+        old_run_one_test = sandbox_test.run_one_test
+        old_env = os.environ.copy()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context_dir = root / "context"
+            context_dir.mkdir()
+            sandbox_test.write_json_file(
+                context_dir / sandbox_test.TEST_CONTEXT_FILE,
+                context,
+            )
+            os.environ.update(
+                {
+                    "TEST_CONTEXT_DIR": str(context_dir),
+                    "TEST_RESULT_DIR": str(root / "result"),
+                    "SANDBOX_WORKTREE": str(root / "worktree"),
+                    "PATCH_FILE": str(root / "patch.diff"),
+                    "SANDBOX_TEST_RESULT_SCHEMA": str(self.sandbox_test_schema_path()),
+                    "TEST_SUPPORT_DIR": str(REPO_ROOT / "scripts" / "sandbox_test_support"),
+                }
+            )
+
+            def forbidden_run_one_test(**_kwargs):
+                nonlocal called
+                called = True
+                raise AssertionError("test command should not execute")
+
+            sandbox_test.run_one_test = forbidden_run_one_test
+            try:
+                self.assertEqual(0, sandbox_test.command_run_tests(None))
+                result = sandbox_test.read_json_file(
+                    root / "result" / "sandbox-test-result.json"
+                )
+                sandbox_test.validate_test_result_against_schema(
+                    result,
+                    self.sandbox_test_schema_path(),
+                )
+                self.assertEqual("ARTIFACT_INVALID", result["status"])
+                self.assertEqual("APPLY_CONTRACT_INVALID", result["failure_code"])
                 self.assertEqual(0, len(result["tests_executed"]))
             finally:
                 sandbox_test.run_one_test = old_run_one_test
