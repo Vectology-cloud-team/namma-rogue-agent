@@ -826,10 +826,14 @@ The process that spawns untrusted sandbox tests must not receive
 `GITHUB_TOKEN` or other repository credentials. Live HEAD checks are
 performed before sandbox checkout and again before sticky comment
 publication by trusted workflow steps that do not execute PR code.
-Trusted support tests execute with the trusted support directory as the
-process working directory and the sandbox worktree appended after that
-directory in `PYTHONPATH`, so a PR cannot shadow a trusted support test
-module by adding a same-named file at repository root.
+Approved commands execute with logical working directory `.` inside the
+sandbox worktree. Trusted support modules are loaded from the trusted
+control-plane directory through `PYTHONPATH`, with the sandbox worktree
+appended after that trusted directory, so a PR cannot shadow a trusted
+support test module by adding a same-named file at repository root.
+The runtime also forces `PYTHONSAFEPATH=1` for Python test processes so
+the process working directory is not prepended ahead of the trusted
+support path.
 
 ### Runtime Limits
 
@@ -861,11 +865,14 @@ phase `SANDBOX_TEST`. Status values include:
 - `PATCH_APPLY_FAILED`,
 - `INTERNAL_ERROR`.
 
-The result records proposal, approval, preflight, and apply bindings,
-test commands, exit codes, durations, stdout and stderr hashes,
-truncation flags, generated-file checks, cleanup state, and explicit
-`false` values for persistent repository modification, commit, push,
-and merge.
+The runtime validates proposal, approval, preflight, and apply bindings,
+including the Stage 2C-B1 canonical `patch_file_hash` and
+`resulting_file_hashes`. The result records those binding outcomes,
+including `patch_file_hash` and a `resulting_diff_hash` derived from the
+canonical B1 `diff_binding` JSON. It also records test commands, exit
+codes, durations, stdout and stderr hashes, truncation flags,
+generated-file checks, cleanup state, and explicit `false` values for
+persistent repository modification, commit, push, and merge.
 
 The sticky comment marker is:
 

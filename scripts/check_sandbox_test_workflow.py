@@ -190,8 +190,22 @@ def check_test_workflow(text: str) -> list[CheckResult]:
     add(results, "script rejects empty tests", "EMPTY_TEST_PLAN" in script)
     add(results, "script uses proposal tests_recommended source", "proposal.tests_recommended" in script)
     add(results, "script uses canonical trusted command IDs", "test_policy.commands" in script and "test_policy.aliases" not in script)
-    add(results, "script runs tests from trusted support directory", "trusted-support" in script)
+    add(results, "script keeps command cwd logical", 'LOGICAL_WORKING_DIRECTORY = "."' in script)
+    add(
+        results,
+        "script keeps trusted support on PYTHONPATH",
+        "python_path = [str(support_dir)]" in script,
+    )
     add(results, "script appends worktree after trusted support path", "python_path.append(str(worktree))" in script)
+    add(results, "script prevents Python cwd module shadowing", 'env["PYTHONSAFEPATH"] = "1"' in script)
+    add(results, "script reads canonical apply patch_file_hash", '"patch_file_hash"' in script)
+    add(results, "script reads canonical apply diff-binding sidecar", '"diff-binding.json"' in script)
+    add(results, "script stores apply sidecar diff binding in context", "sandbox_apply_diff_binding" in script)
+    add(results, "script uses apply sidecar diff hash", "apply_bundle.diff_binding_hash" in script)
+    add(results, "script does not hash lossy apply result diff binding", 'sha256_hex_json(apply_result["diff_binding"])' not in script)
+    add(results, "script rejects invalid test context before execution", "validate_test_context_contract" in script)
+    add(results, "script validates serialized test command bindings", "COMMAND_BINDING_MISMATCH" in script and "test_plan_hash" in script)
+    add(results, "script has no legacy patch_hash context lookup", 'context["patch_hash"]' not in script)
     add(results, "script uses shell false subprocess", "shell=True" not in script and "subprocess.run(" in script)
     add(results, "script forbids inline python command", "INLINE_CODE_REJECTED" in script)
     add(results, "script forbids shell runners", "FORBIDDEN_COMMAND_WORDS" in script and "bash" in script)
@@ -275,6 +289,10 @@ def check_schema() -> list[CheckResult]:
     add(results, "test result schema has TESTS_PASSED", '"TESTS_PASSED"' in schema)
     add(results, "test result schema has TEST_COMMAND_REJECTED", '"TEST_COMMAND_REJECTED"' in schema)
     add(results, "test result schema records sandbox apply hash", "sandbox_apply_result_hash" in schema)
+    add(results, "test result schema records canonical patch_file_hash", '"patch_file_hash"' in schema)
+    add(results, "test result schema does not accept patch_hash alias", '"patch_hash"' not in schema)
+    add(results, "test result schema keeps working_directory logical", '"working_directory": {\n          "const": "."' in schema)
+    add(results, "test result schema rejects trusted support cwd", "trusted-support" not in schema)
     add(results, "test result schema records stdout and stderr hashes", "stdout_hashes" in schema and "stderr_hashes" in schema)
     add(results, "test result schema records no persistent writes", "persistent_repository_modified" in schema and "commit_performed" in schema)
     return results

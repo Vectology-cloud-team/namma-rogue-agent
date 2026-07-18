@@ -25,7 +25,7 @@
     "sandbox_apply_result_hash",
     "policy_hash",
     "sandbox_test_policy_hash",
-    "patch_hash",
+    "patch_file_hash",
     "resulting_diff_hash",
     "test_request_actor",
     "test_request_actor_repository_permission",
@@ -149,7 +149,7 @@
     "sandbox_test_policy_hash": {
       "$ref": "#/$defs/sha256"
     },
-    "patch_hash": {
+    "patch_file_hash": {
       "$ref": "#/$defs/sha256"
     },
     "resulting_diff_hash": {
