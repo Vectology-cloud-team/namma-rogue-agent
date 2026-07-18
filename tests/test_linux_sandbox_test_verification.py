@@ -431,6 +431,9 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
             "github.event.workflow_run.head_repository.full_name == github.repository",
             workflow,
         )
+        self.assertIn("TRIGGER_HEAD_SHA", workflow)
+        self.assertNotIn("PR_HEAD_SHA", workflow)
+        self.assertIn("VERIFICATION_SCOPE: default-branch-control-plane", workflow)
         self.assertIn("ref: ${{ github.sha }}", workflow)
         self.assertIn("path: verification-control", workflow)
         self.assertNotIn("path: verification-target", workflow)

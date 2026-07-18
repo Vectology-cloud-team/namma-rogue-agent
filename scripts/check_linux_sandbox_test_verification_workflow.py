@@ -156,7 +156,8 @@ def check_workflow(text: str, script: str, policy: str) -> list[CheckResult]:
     add(results, "workflow does not checkout PR target code", "path: verification-target" not in text)
     add(results, "workflow does not checkout workflow_run head", "ref: ${{ github.event.workflow_run.head_sha }}" not in text)
     add(results, "checkout persists no credentials", text.count("persist-credentials: false") >= 1)
-    add(results, "workflow records PR and base SHA", "PR_HEAD_SHA" in text and "MAIN_SHA" in text)
+    add(results, "workflow records trigger and base SHA", "TRIGGER_HEAD_SHA" in text and "MAIN_SHA" in text)
+    add(results, "workflow records default-branch verification scope", "VERIFICATION_SCOPE: default-branch-control-plane" in text)
     add(results, "workflow runs trusted control script with python3", "python3 verification-control/scripts/linux_sandbox_test_verification.py" in text)
     add(results, "workflow uses trusted control as verification target", "--control-root verification-control" in text and "--target-root verification-control" in text)
     add(results, "workflow uploads artifact", "actions/upload-artifact@" in text and "linux-verification-results" in text)
@@ -178,6 +179,7 @@ def check_workflow(text: str, script: str, policy: str) -> list[CheckResult]:
     add(results, "script checks policy download list match", "policy_download_list_match" in script)
     add(results, "script checks shadowing protection", "test_worktree_cannot_shadow_trusted_support_test_module" in script)
     add(results, "script records final status", '"VERIFIED"' in script and '"UNEXPECTED_SKIP"' in script)
+    add(results, "script records verification scope", "verification_scope" in script and "trigger_head_sha" in script)
     for module in sorted(sandbox_test_command_modules(policy)):
         add(
             results,

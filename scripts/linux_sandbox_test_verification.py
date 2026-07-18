@@ -570,7 +570,11 @@ def run_verification(output_dir: Path) -> int:
             "schema_version": "trusted-sandbox-test-linux-verification-v1",
             **env,
             "main_sha": os.environ.get("MAIN_SHA", ""),
-            "pr_head_sha": os.environ.get("PR_HEAD_SHA", ""),
+            "trigger_head_sha": os.environ.get("TRIGGER_HEAD_SHA", ""),
+            "verification_scope": os.environ.get(
+                "VERIFICATION_SCOPE",
+                "default-branch-control-plane",
+            ),
             "status": "INTERNAL_ERROR",
             "failure_reason": "python3 is unavailable",
         }
@@ -620,7 +624,11 @@ def run_verification(output_dir: Path) -> int:
         "schema_version": "trusted-sandbox-test-linux-verification-v1",
         **env,
         "main_sha": os.environ.get("MAIN_SHA", ""),
-        "pr_head_sha": os.environ.get("PR_HEAD_SHA", ""),
+        "trigger_head_sha": os.environ.get("TRIGGER_HEAD_SHA", ""),
+        "verification_scope": os.environ.get(
+            "VERIFICATION_SCOPE",
+            "default-branch-control-plane",
+        ),
         "full_tests_run": full["run"],
         "full_passed": full["passed"],
         "full_failures": full["failures"],
