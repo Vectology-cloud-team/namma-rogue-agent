@@ -437,6 +437,8 @@ them to fixed `python3 -m unittest` argv arrays, and runs them inside
 the same ephemeral sandbox model as Stage 2C-B1. The sandbox test job
 does not receive OpenAI credentials, PATs, or write permissions, and
 the step that spawns untrusted tests does not receive `GITHUB_TOKEN`.
+Trusted support tests are resolved before the PR worktree, preventing
+same-named PR files from shadowing trusted test modules.
 
 ## Human Decisions
 

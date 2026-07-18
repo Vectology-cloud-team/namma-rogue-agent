@@ -822,6 +822,10 @@ The process that spawns untrusted sandbox tests must not receive
 `GITHUB_TOKEN` or other repository credentials. Live HEAD checks are
 performed before sandbox checkout and again before sticky comment
 publication by trusted workflow steps that do not execute PR code.
+Trusted support tests execute with the trusted support directory as the
+process working directory and the sandbox worktree appended after that
+directory in `PYTHONPATH`, so a PR cannot shadow a trusted support test
+module by adding a same-named file at repository root.
 
 ### Runtime Limits
 

@@ -348,11 +348,13 @@ class SandboxTestTests(unittest.TestCase):
             env = sandbox_test.test_environment(
                 allowed_environment=("PATH", "PYTHONPATH"),
                 support_dir=REPO_ROOT / "scripts" / "sandbox_test_support",
+                worktree=root,
             )
             command = self.sandbox_test_policy().commands["stage2c-b1-clamp"]
             record, _, _ = sandbox_test.run_one_test(
                 command=command,
                 worktree=root,
+                support_dir=REPO_ROOT / "scripts" / "sandbox_test_support",
                 env=env,
                 stdout_limit=100000,
                 stderr_limit=100000,
@@ -379,11 +381,59 @@ class SandboxTestTests(unittest.TestCase):
             env = sandbox_test.test_environment(
                 allowed_environment=("PATH", "PYTHONPATH"),
                 support_dir=REPO_ROOT / "scripts" / "sandbox_test_support",
+                worktree=root,
             )
             command = self.sandbox_test_policy().commands["stage2c-b1-clamp"]
             record, _, _ = sandbox_test.run_one_test(
                 command=command,
                 worktree=root,
+                support_dir=REPO_ROOT / "scripts" / "sandbox_test_support",
+                env=env,
+                stdout_limit=100000,
+                stderr_limit=100000,
+            )
+            self.assertEqual("FAIL", record["status"])
+
+    @unittest.skipUnless(python3_works(), "python3 is unavailable locally")
+    def test_worktree_cannot_shadow_trusted_support_test_module(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "canary").mkdir()
+            (root / "canary" / "__init__.py").write_text("", encoding="utf-8")
+            (root / "canary" / "stage2c_b1_clamp.py").write_text(
+                "\n".join(
+                    [
+                        "def clamp(value: int, minimum: int, maximum: int) -> int:",
+                        "    return value",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (root / "stage2c_b1_clamp_tests.py").write_text(
+                "\n".join(
+                    [
+                        "import unittest",
+                        "",
+                        "class ShadowedTests(unittest.TestCase):",
+                        "    def test_shadow_would_pass(self):",
+                        "        self.assertTrue(True)",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            support_dir = REPO_ROOT / "scripts" / "sandbox_test_support"
+            env = sandbox_test.test_environment(
+                allowed_environment=("PATH", "PYTHONPATH"),
+                support_dir=support_dir,
+                worktree=root,
+            )
+            command = self.sandbox_test_policy().commands["stage2c-b1-clamp"]
+            record, _, _ = sandbox_test.run_one_test(
+                command=command,
+                worktree=root,
+                support_dir=support_dir,
                 env=env,
                 stdout_limit=100000,
                 stderr_limit=100000,

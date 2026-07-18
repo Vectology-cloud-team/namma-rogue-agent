@@ -16,6 +16,7 @@ allowed_environment:
   - LANG
   - LC_ALL
   - PYTHONPATH
+  - PYTHONDONTWRITEBYTECODE
 
 commands:
   stage2c-b1-clamp: python3|-m|unittest|stage2c_b1_clamp_tests

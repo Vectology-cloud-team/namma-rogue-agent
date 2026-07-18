@@ -410,7 +410,7 @@ def load_sandbox_test_policy(path: Path) -> SandboxTestPolicy:
         commands[str(test_id)] = TestCommandSpec(
             test_id=str(test_id),
             argv=argv,
-            working_directory=".",
+            working_directory="trusted-support",
             timeout_seconds=timeout,
         )
     aliases_raw = raw.get("aliases", {})
@@ -1064,6 +1064,7 @@ def test_environment(
     *,
     allowed_environment: Iterable[str],
     support_dir: Path,
+    worktree: Path | None = None,
 ) -> dict[str, str]:
     env: dict[str, str] = {}
     allowed = set(allowed_environment)
@@ -1071,7 +1072,12 @@ def test_environment(
         if key in allowed and key in os.environ:
             env[key] = os.environ[key]
     if "PYTHONPATH" in allowed:
-        env["PYTHONPATH"] = str(support_dir)
+        python_path = [str(support_dir)]
+        if worktree is not None:
+            python_path.append(str(worktree))
+        env["PYTHONPATH"] = os.pathsep.join(python_path)
+    if "PYTHONDONTWRITEBYTECODE" in allowed:
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
     for forbidden in FORBIDDEN_ENV_KEYS:
         env.pop(forbidden, None)
     return env
@@ -1091,15 +1097,27 @@ def run_one_test(
     *,
     command: TestCommandSpec,
     worktree: Path,
+    support_dir: Path,
     env: dict[str, str],
     stdout_limit: int,
     stderr_limit: int,
 ) -> tuple[dict[str, Any], bytes, bytes]:
+    if command.working_directory == ".":
+        cwd = worktree
+    elif command.working_directory == "trusted-support":
+        cwd = support_dir
+    else:
+        raise SandboxTestStatus(
+            RESULT_STATUS_TEST_COMMAND_REJECTED,
+            "UNAPPROVED_WORKING_DIRECTORY",
+            "approved test command uses an unapproved working directory",
+            "sandbox_test_policy",
+        )
     start = time.monotonic()
     try:
         completed = subprocess.run(
             list(command.argv),
-            cwd=worktree,
+            cwd=cwd,
             env=env,
             check=False,
             stdout=subprocess.PIPE,
@@ -1742,6 +1760,7 @@ def command_run_tests(_: argparse.Namespace) -> int:
         test_env = test_environment(
             allowed_environment=test_policy_data["allowed_environment"],
             support_dir=support_dir,
+            worktree=worktree,
         )
         if credentials_available(test_env):
             raise SandboxTestStatus(
@@ -1770,6 +1789,7 @@ def command_run_tests(_: argparse.Namespace) -> int:
             record, stdout, stderr = run_one_test(
                 command=command,
                 worktree=worktree,
+                support_dir=support_dir,
                 env=test_env,
                 stdout_limit=int(test_policy_data["stdout_max_bytes"]),
                 stderr_limit=int(test_policy_data["stderr_max_bytes"]),
