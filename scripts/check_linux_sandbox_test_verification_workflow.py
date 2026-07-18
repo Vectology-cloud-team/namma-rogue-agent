@@ -126,6 +126,12 @@ def check_workflow(text: str, script: str, policy: str) -> list[CheckResult]:
     add(results, "workflow has no workflow_run trigger", "workflow_run:" not in text)
     add(results, "workflow has no pull_request trigger", "pull_request:" not in text)
     add(results, "workflow checks repository identity", "github.repository == 'Vectology-cloud-team/namma-rogue-agent'" in text)
+    add(
+        results,
+        "workflow runs on default branch ref only",
+        "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"
+        in text,
+    )
     add(results, "workflow uses ubuntu runner", "runs-on: ubuntu-latest" in job)
     add(results, "workflow has top-level contents read", re.search(r"(?m)^permissions:\n\s+contents: read$", text) is not None)
     add(results, "job has contents read", re.search(r"(?m)^\s+permissions:\n\s+contents: read$", job) is not None)

@@ -440,6 +440,10 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertNotIn("workflow_run:", workflow)
         self.assertNotIn("pull_request:", workflow)
+        self.assertIn(
+            "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+            workflow,
+        )
         self.assertIn("TRIGGER_HEAD_SHA", workflow)
         self.assertNotIn("PR_HEAD_SHA", workflow)
         self.assertIn("VERIFICATION_SCOPE: default-branch-control-plane", workflow)
