@@ -212,9 +212,7 @@ class SandboxApplyTests(unittest.TestCase):
     ):
         proposal_bundle = self.proposal_bundle()
         approval_bundle = self.approval_bundle()
-        patch_bytes = len(
-            sandbox_apply.combined_patch_text(proposal_bundle.data).encode("utf-8")
-        )
+        patch_bytes = sandbox_apply.proposal_raw_patch_bytes(proposal_bundle.data)
         blob_checks = target_blob_checks
         if blob_checks is None:
             blob_checks = [
@@ -663,6 +661,18 @@ class SandboxApplyTests(unittest.TestCase):
         )
         with self.assertRaises(sandbox_apply.fix.FixProposalFailure):
             self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
+
+    def test_preflight_sidecar_uses_raw_patch_bytes_without_trailing_newline(self):
+        sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars()
+        proposal_bundle.data["changes"][0]["patch"] = str(
+            proposal_bundle.data["changes"][0]["patch"]
+        ).rstrip("\n")
+        raw_bytes = sandbox_apply.proposal_raw_patch_bytes(proposal_bundle.data)
+        sidecars["patch-metadata-check.json"]["patch_bytes"] = raw_bytes
+        sidecars["sandbox-validation-result.json"]["patch_metadata_check"][
+            "patch_bytes"
+        ] = raw_bytes
+        self.validate_sidecars(sidecars, proposal_bundle, approval_bundle)
 
     def test_preflight_sidecar_rejects_changed_files_mismatch(self):
         sidecars, proposal_bundle, approval_bundle = self.canonical_preflight_sidecars(

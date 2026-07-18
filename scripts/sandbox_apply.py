@@ -810,7 +810,7 @@ def validate_preflight_sidecars(
             "patch metadata sidecar files do not match expected files",
             "sandbox_preflight_lookup",
         )
-    patch_bytes = len(combined_patch_text(proposal_bundle.data).encode("utf-8"))
+    patch_bytes = proposal_raw_patch_bytes(proposal_bundle.data)
     if patch_metadata_check.get("patch_bytes") != patch_bytes:
         raise fatal(
             fix.FailureCode.TRUST_BOUNDARY_VIOLATION,
@@ -989,6 +989,14 @@ def combined_patch_text(proposal: dict[str, Any]) -> str:
         patch = str(change.get("patch", ""))
         patches.append(patch.rstrip("\n"))
     return "\n".join(patches) + "\n"
+
+
+def proposal_raw_patch_bytes(proposal: dict[str, Any]) -> int:
+    total = 0
+    for change in proposal.get("changes", []):
+        if isinstance(change, dict):
+            total += len(str(change.get("patch", "")).encode("utf-8"))
+    return total
 
 
 def expected_change_paths(proposal: dict[str, Any]) -> list[str]:
