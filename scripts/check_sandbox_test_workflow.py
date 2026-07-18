@@ -197,6 +197,7 @@ def check_test_workflow(text: str) -> list[CheckResult]:
         "python_path = [str(support_dir)]" in script,
     )
     add(results, "script appends worktree after trusted support path", "python_path.append(str(worktree))" in script)
+    add(results, "script prevents Python cwd module shadowing", 'env["PYTHONSAFEPATH"] = "1"' in script)
     add(results, "script reads canonical apply patch_file_hash", '"patch_file_hash"' in script)
     add(results, "script rejects invalid test context before execution", "validate_test_context_contract" in script)
     add(results, "script has no legacy patch_hash context lookup", 'context["patch_hash"]' not in script)

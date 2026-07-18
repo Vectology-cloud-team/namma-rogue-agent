@@ -882,6 +882,7 @@ class SandboxTestTests(unittest.TestCase):
                 os.environ["GITHUB_TOKEN"] = old
         self.assertNotIn("GITHUB_TOKEN", env)
         self.assertIn("PYTHONPATH", env)
+        self.assertEqual("1", env["PYTHONSAFEPATH"])
 
     def test_test_runner_step_does_not_export_github_token(self):
         workflow = (

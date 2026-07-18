@@ -1201,6 +1201,7 @@ def test_environment(
         if worktree is not None:
             python_path.append(str(worktree))
         env["PYTHONPATH"] = os.pathsep.join(python_path)
+    env["PYTHONSAFEPATH"] = "1"
     if "PYTHONDONTWRITEBYTECODE" in allowed:
         env["PYTHONDONTWRITEBYTECODE"] = "1"
     for forbidden in FORBIDDEN_ENV_KEYS:

@@ -831,6 +831,9 @@ sandbox worktree. Trusted support modules are loaded from the trusted
 control-plane directory through `PYTHONPATH`, with the sandbox worktree
 appended after that trusted directory, so a PR cannot shadow a trusted
 support test module by adding a same-named file at repository root.
+The runtime also forces `PYTHONSAFEPATH=1` for Python test processes so
+the process working directory is not prepended ahead of the trusted
+support path.
 
 ### Runtime Limits
 
