@@ -222,8 +222,46 @@ class LinuxSandboxTestVerificationTests(unittest.TestCase):
             / "workflows"
             / "sandbox-test-linux-verification.yml"
         ).read_text(encoding="utf-8")
+        collector = (
+            REPO_ROOT
+            / ".github"
+            / "workflows"
+            / "sandbox-test-linux-verification-collect.yml"
+        ).read_text(encoding="utf-8")
         self.assertIn("contents: read", workflow)
         self.assertNotIn(": write", workflow)
+        self.assertIn("contents: read", collector)
+        self.assertNotIn(": write", collector)
+
+    def test_workflow_uses_default_branch_control_plane(self) -> None:
+        workflow = (
+            REPO_ROOT
+            / ".github"
+            / "workflows"
+            / "sandbox-test-linux-verification.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("workflow_run:", workflow)
+        self.assertIn("ref: ${{ github.sha }}", workflow)
+        self.assertIn("path: verification-control", workflow)
+        self.assertIn("path: verification-target", workflow)
+        self.assertIn(
+            "python3 verification-control/scripts/linux_sandbox_test_verification.py",
+            workflow,
+        )
+        self.assertIn("--control-root verification-control", workflow)
+        self.assertIn("--target-root verification-target", workflow)
+
+    def test_collector_does_not_checkout_or_run_repository_code(self) -> None:
+        collector = (
+            REPO_ROOT
+            / ".github"
+            / "workflows"
+            / "sandbox-test-linux-verification-collect.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("pull_request:", collector)
+        self.assertNotIn("actions/checkout", collector)
+        self.assertNotIn("scripts/", collector)
+        self.assertIn("sandbox-test-linux-verification-request", collector)
 
     def test_script_writes_required_artifact_files_when_python3_missing(self) -> None:
         current = linux_verification.shutil.which

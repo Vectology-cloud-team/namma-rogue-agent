@@ -1,0 +1,53 @@
+name: Sandbox Test Linux Verification Collect
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    name: Collect Linux verification trigger
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Record trigger context
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event_path = Path(os.environ["GITHUB_EVENT_PATH"])
+          event = json.loads(event_path.read_text(encoding="utf-8"))
+          pull = event.get("pull_request") or {}
+          manifest = {
+              "schema_version": "sandbox-test-linux-verification-request-v1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "event_name": os.environ["GITHUB_EVENT_NAME"],
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+              "pull_request_number": pull.get("number"),
+              "base_sha": (pull.get("base") or {}).get("sha"),
+              "head_sha": (pull.get("head") or {}).get("sha")
+              or os.environ["GITHUB_SHA"],
+              "actor": os.environ["GITHUB_ACTOR"],
+          }
+          output = Path("linux-verification-request")
+          output.mkdir(parents=True, exist_ok=True)
+          (output / "manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload Linux verification request artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sandbox-test-linux-verification-request-${{ github.run_id }}
+          path: linux-verification-request
+          if-no-files-found: error
+          retention-days: 3
+          include-hidden-files: false

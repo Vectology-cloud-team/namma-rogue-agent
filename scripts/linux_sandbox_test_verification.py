@@ -23,6 +23,7 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+CONTROL_ROOT = REPO_ROOT
 POLICY_PATH = REPO_ROOT / ".github" / "codex" / "sandbox-test-policy.yml"
 FIX_POLICY_PATH = REPO_ROOT / ".github" / "codex" / "fix-policy.yml"
 SANDBOX_TEST_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "fix-sandbox-test.yml"
@@ -55,6 +56,24 @@ RESULT_LINE_RE = re.compile(
 )
 RUN_COUNT_RE = re.compile(r"Ran (?P<count>\d+) tests?")
 SUMMARY_FIELD_RE = re.compile(r"([A-Za-z ]+)=([0-9]+)")
+
+
+def configure_roots(*, target_root: Path, control_root: Path) -> None:
+    global REPO_ROOT
+    global CONTROL_ROOT
+    global POLICY_PATH
+    global FIX_POLICY_PATH
+    global SANDBOX_TEST_WORKFLOW
+    global SUPPORT_DIR
+
+    REPO_ROOT = target_root.resolve()
+    CONTROL_ROOT = control_root.resolve()
+    POLICY_PATH = CONTROL_ROOT / ".github" / "codex" / "sandbox-test-policy.yml"
+    FIX_POLICY_PATH = CONTROL_ROOT / ".github" / "codex" / "fix-policy.yml"
+    SANDBOX_TEST_WORKFLOW = (
+        CONTROL_ROOT / ".github" / "workflows" / "fix-sandbox-test.yml"
+    )
+    SUPPORT_DIR = CONTROL_ROOT / "scripts" / "sandbox_test_support"
 
 
 @dataclass(frozen=True)
@@ -220,6 +239,8 @@ def environment_summary() -> tuple[dict[str, Any], str]:
         "sys_executable": sys.executable,
         "platform": platform.platform(),
         "cwd": str(Path.cwd()),
+        "target_root": str(REPO_ROOT),
+        "control_root": str(CONTROL_ROOT),
     }
     return summary, "\n".join(lines) + "\n"
 
@@ -543,7 +564,20 @@ def main() -> int:
         type=Path,
         default=Path("linux-verification-results"),
     )
+    parser.add_argument(
+        "--target-root",
+        type=Path,
+        default=REPO_ROOT,
+        help="Repository worktree whose tests are verified.",
+    )
+    parser.add_argument(
+        "--control-root",
+        type=Path,
+        default=CONTROL_ROOT,
+        help="Trusted control-plane checkout containing policies and support modules.",
+    )
     args = parser.parse_args()
+    configure_roots(target_root=args.target_root, control_root=args.control_root)
     return run_verification(args.output_dir)
 
 
